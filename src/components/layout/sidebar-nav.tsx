@@ -14,7 +14,10 @@ export const NAV_LABEL_CLASS = "text-[10.5px] font-semibold tracking-[0.2em] tex
 export function SidebarNav({ viewer }: { viewer: { permissions: string[]; roleKey: string } }) {
   const pathname = usePathname();
   const sections = visibleNav(STAFF_NAV, viewer);
-  const isActive = (href: string) => (href === "/app" ? pathname === "/app" : pathname === href || pathname.startsWith(`${href}/`));
+  const matches = (href: string) => (href === "/app" ? pathname === "/app" : pathname === href || pathname.startsWith(`${href}/`));
+  // The most specific item wins, so /app/team/performance lights Performance, not Team as well.
+  const current = sections.flatMap((s) => s.items.map((i) => i.href)).filter(matches).sort((a, b) => b.length - a.length)[0];
+  const isActive = (href: string) => href === current;
 
   return (
     <>

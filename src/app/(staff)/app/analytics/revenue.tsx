@@ -8,6 +8,9 @@ import { AGING_LABELS, compactNumber, monthLabel } from "@/domain/analytics/shap
 import { num, type AgingBucket } from "@/domain/analytics/types";
 import { GRID_2, Panel, PanelEmpty, PanelSkeleton, type AnalyticsScope } from "./section";
 
+/** Headline figures in whole rupees, so they fit their tile. */
+const whole = (n: Parameters<typeof num>[0], currency: string) => formatMoney(Math.round(num(n)), currency).replace(/\.00$/, "");
+
 /** Revenue: invoiced and collected, receivables and how old they are, who owes what. */
 export function RevenueTab({ scope }: { scope: AnalyticsScope }) {
   return (
@@ -51,11 +54,11 @@ async function Kpis({ scope }: { scope: AnalyticsScope }) {
   return (
     <div className="space-y-2">
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <KpiTile label="Invoiced" value={formatMoney(s.invoiced, c)} sub={`${num(s.invoice_count)} invoice${num(s.invoice_count) === 1 ? "" : "s"} issued`} icon={ReceiptText} />
-        <KpiTile label="Collected" value={formatMoney(s.collected, c)} sub={`${num(s.payment_count)} payment${num(s.payment_count) === 1 ? "" : "s"}`} icon={HandCoins} tone="good" href="/app/payments" />
-        <KpiTile label="Outstanding now" value={formatMoney(s.outstanding, c)} sub={`${num(s.open_invoices)} open invoice${num(s.open_invoices) === 1 ? "" : "s"}`} icon={BadgeDollarSign} href="/app/invoices?status=open" />
-        <KpiTile label="Overdue now" value={formatMoney(s.overdue, c)} sub="Past the due date" icon={AlertTriangle} tone={num(s.overdue) ? "bad" : "default"} href="/app/invoices?status=overdue" />
-        <KpiTile label="Credited" value={formatMoney(s.credited, c)} sub="Credit notes issued" icon={Undo2} />
+        <KpiTile label="Invoiced" value={whole(s.invoiced, c)} sub={`${num(s.invoice_count)} invoice${num(s.invoice_count) === 1 ? "" : "s"} issued`} icon={ReceiptText} />
+        <KpiTile label="Collected" value={whole(s.collected, c)} sub={`${num(s.payment_count)} payment${num(s.payment_count) === 1 ? "" : "s"}`} icon={HandCoins} tone="good" href="/app/payments" />
+        <KpiTile label="Outstanding now" value={whole(s.outstanding, c)} sub={`${num(s.open_invoices)} open invoice${num(s.open_invoices) === 1 ? "" : "s"}`} icon={BadgeDollarSign} href="/app/invoices?status=open" />
+        <KpiTile label="Overdue now" value={whole(s.overdue, c)} sub="Past the due date" icon={AlertTriangle} tone={num(s.overdue) ? "bad" : "default"} href="/app/invoices?status=overdue" />
+        <KpiTile label="Credited" value={whole(s.credited, c)} sub="Credit notes issued" icon={Undo2} />
       </div>
       {num(d.other_currency_invoices) ? (
         <p className="text-xs text-muted-foreground">

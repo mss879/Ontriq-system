@@ -34,7 +34,7 @@ export function KpiTile({
       </span>
       <div className="min-w-0">
         <p className="text-xs text-muted-foreground">{label}</p>
-        <p className="truncate font-display text-xl font-semibold tabular-nums">{value}</p>
+        <p className="font-display text-lg font-semibold tabular-nums">{value}</p>
         {sub ? <p className="text-xs text-muted-foreground">{sub}</p> : null}
       </div>
     </div>

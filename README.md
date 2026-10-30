@@ -38,6 +38,7 @@ Open the printed link, set a password and enrol an authenticator app. See `docs/
 | `npm run dev` / `build` / `start` | Next.js |
 | `npm run typecheck` | Generates route types, then `tsc` |
 | `npm test` | Unit tests (Vitest) |
+| `npx tsx scripts/seed-demo.ts --env .env.hosted` | Demo data and sign-ins for showing the system; `--clean` removes all of it |
 | `npm run db:verify` | Applies every migration to a throwaway Postgres with a Supabase shim, then runs the SQL access-control tests |
 | `npm run db:types:local` | Regenerates `src/lib/supabase/database.types.ts` from the migrations |
 | `npm run db:types` | Regenerates types from the linked Supabase project |

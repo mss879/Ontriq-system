@@ -72,7 +72,6 @@ export default function DashboardPage({ searchParams }: PageProps<"/app">) {
           <Suspense fallback={<SectionSkeleton rows={6} />}>
             <SetupChecklist />
           </Suspense>
-          <Roadmap />
         </div>
         <div className="space-y-6">
           <Suspense fallback={<SectionSkeleton rows={4} />}>
@@ -357,56 +356,6 @@ async function TeamSnapshot() {
         <Link href="/app/team" className="group inline-flex items-center gap-1 pt-1 text-sm font-medium text-primary">
           Manage team <ArrowUpRight className="size-3.5 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
         </Link>
-      </CardContent>
-    </Card>
-  );
-}
-
-const PHASES: { name: string; detail: string; status: "live" | "next" | "planned" }[] = [
-  { name: "Foundation", detail: "Secure sign-in with two-step verification, roles, team invitations, audit trail, background jobs.", status: "live" },
-  { name: "Case engine", detail: "Packages, request templates, cases and checks, documents, Pre-QC and Post-QC, auto-assignment, global search.", status: "live" },
-  { name: "Client portal and candidate link", detail: "Client logins, live progress, custom packages, and the guided candidate upload page with consent.", status: "live" },
-  { name: "Reports, quotations and invoicing", detail: "Final reports with annexures, AI-drafted quotations, three document designs, invoices and payments.", status: "live" },
-  { name: "AI layer and command assistant", detail: "Document reading, extraction, QC copilots, report drafting, performance tracking and the voice assistant.", status: "next" },
-];
-
-function Roadmap() {
-  return (
-    <Card>
-      <CardHeader>
-        <Eyebrow>Roadmap</Eyebrow>
-        <CardTitle className="pt-1 text-lg">What’s being built</CardTitle>
-        <CardDescription>Ontriq goes live in phases. Each one arrives here as it ships.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <ol className="relative space-y-1">
-          {PHASES.map((phase, i) => (
-            <li key={phase.name} className="relative flex gap-4 pb-5 last:pb-0">
-              {i < PHASES.length - 1 ? <span aria-hidden className="absolute top-8 bottom-0 left-[15px] w-px bg-border" /> : null}
-              <span
-                className={cn(
-                  "relative z-10 flex size-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold",
-                  phase.status === "live" && "bg-success text-success-foreground",
-                  phase.status === "next" && "bg-brand-orange text-white ring-4 ring-brand-orange/15",
-                  phase.status === "planned" && "bg-muted text-muted-foreground ring-1 ring-border",
-                )}
-              >
-                {phase.status === "live" ? <Check className="size-4" strokeWidth={2.5} /> : i + 1}
-              </span>
-              <div className="pt-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-sm font-semibold">{phase.name}</p>
-                  {phase.status === "live" ? (
-                    <Badge className="bg-success/12 text-success">Live</Badge>
-                  ) : phase.status === "next" ? (
-                    <Badge className="bg-brand-orange/12 text-brand-orange-ink">Up next</Badge>
-                  ) : null}
-                </div>
-                <p className="mt-1 text-[13px] leading-relaxed text-muted-foreground">{phase.detail}</p>
-              </div>
-            </li>
-          ))}
-        </ol>
       </CardContent>
     </Card>
   );
