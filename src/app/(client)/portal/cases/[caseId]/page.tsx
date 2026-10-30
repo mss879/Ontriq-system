@@ -40,8 +40,14 @@ export default function PortalCasePage({ params }: PageProps<"/portal/cases/[cas
       <Suspense fallback={<HeaderSkeleton />}>
         <Header params={params} />
       </Suspense>
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
-        <div className="min-w-0 space-y-6">
+      {/* On a phone the report comes first: it is what a client opens this page for. */}
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_20rem] lg:grid-rows-[auto_1fr]">
+        <div className="min-w-0 lg:col-start-2 lg:row-start-1">
+          <Suspense fallback={<SectionSkeleton rows={3} />}>
+            <ReportCard params={params} />
+          </Suspense>
+        </div>
+        <div className="min-w-0 space-y-5 lg:col-start-1 lg:row-span-2 lg:row-start-1">
           <Suspense fallback={null}>
             <Needed params={params} />
           </Suspense>
@@ -55,10 +61,7 @@ export default function PortalCasePage({ params }: PageProps<"/portal/cases/[cas
             <Timeline params={params} />
           </Suspense>
         </div>
-        <aside className="min-w-0 space-y-6">
-          <Suspense fallback={<SectionSkeleton rows={3} />}>
-            <ReportCard params={params} />
-          </Suspense>
+        <aside className="min-w-0 space-y-5 lg:col-start-2 lg:row-start-2">
           <Suspense fallback={<SectionSkeleton rows={6} />}>
             <Summary params={params} />
           </Suspense>
@@ -97,14 +100,14 @@ function Section({ title, description, children, className, id }: { title: strin
 async function Header({ params }: Params) {
   const { case: c } = await load(params);
   return (
-    <div className="space-y-5">
+    <div className="space-y-3">
       <Link href="/portal/cases" className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground">
         <ChevronLeft className="size-4" /> Cases
       </Link>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="min-w-0 space-y-2">
           <p className="font-mono text-xs tracking-wide text-muted-foreground">{c.reference}</p>
-          <h1 className="font-display text-[1.75rem] leading-tight font-semibold tracking-tight text-balance md:text-[2rem]">{c.candidate_name}</h1>
+          <h1 className="font-display text-2xl leading-tight font-semibold tracking-tight text-balance md:text-[1.75rem]">{c.candidate_name}</h1>
           <p className="text-sm text-muted-foreground">
             {[c.position_title, c.department, c.package_name].filter(Boolean).join(" · ") || "Background verification"}
           </p>
@@ -340,12 +343,16 @@ async function ReportCard({ params }: Params) {
 }
 
 async function Summary({ params }: Params) {
-  const { case: c } = await load(params);
+  const { case: c, visibility } = await load(params);
   const rows: [string, React.ReactNode][] = [
     ["Candidate", c.candidate.full_name],
-    ["NIC", c.candidate.nic ? <span className="font-mono">{c.candidate.nic}</span> : "—"],
-    ["Email", c.candidate.email ?? "—"],
-    ["Phone", c.candidate.phone ?? "—"],
+    ...(visibility.show_candidate_details
+      ? ([
+          ["NIC", c.candidate.nic ? <span className="font-mono">{c.candidate.nic}</span> : "—"],
+          ["Email", c.candidate.email ?? "—"],
+          ["Phone", c.candidate.phone ?? "—"],
+        ] as [string, React.ReactNode][])
+      : []),
     ["Package", c.package.name ?? "—"],
     ["Documents", c.process_type === "client_supplied" ? "Sent by you" : "Collected by Ontriq"],
     ["Your reference", c.client_reference ?? "—"],

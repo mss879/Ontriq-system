@@ -7,6 +7,8 @@ import { Page, PageHeader, SectionSkeleton } from "@/components/layout/page";
 import { ListFilters } from "@/components/admin/list-filters";
 import { Pagination, one } from "@/components/admin/pagination";
 import { Surface, TH } from "@/components/admin/surface";
+import { KpiTile } from "@/components/charts/kpi";
+import { DataTable, HEAD_ROW, ListCard, ROW, ROW_LINK } from "@/components/layout/data-table";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -93,31 +95,15 @@ async function Filters() {
   );
 }
 
-function Tile({ label, value, sub, tone, icon: Icon, href }: { label: string; value: string; sub?: string; tone?: "danger" | "default"; icon: typeof Receipt; href?: string }) {
-  const body = (
-    <div className="flex items-start gap-3 rounded-2xl bg-card p-4 shadow-soft ring-1 ring-foreground/[0.07] transition-colors hover:bg-muted/30">
-      <span className={tone === "danger" ? "flex size-9 items-center justify-center rounded-xl bg-destructive/10 text-destructive" : "flex size-9 items-center justify-center rounded-xl bg-primary/8 text-primary"}>
-        <Icon className="size-4" />
-      </span>
-      <div className="min-w-0">
-        <p className="text-xs text-muted-foreground">{label}</p>
-        <p className="truncate text-lg font-semibold tabular-nums">{value}</p>
-        {sub ? <p className="text-xs text-muted-foreground">{sub}</p> : null}
-      </div>
-    </div>
-  );
-  return href ? <Link href={href}>{body}</Link> : body;
-}
-
 async function Totals() {
   const viewer = await getStaffViewer();
   if (!canAny(viewer, READ)) return null;
   const r = await invoiceHeadline();
   return (
     <div className="grid gap-3 sm:grid-cols-3">
-      <Tile label="Outstanding" value={formatMoney(r.outstanding)} sub="Confirmed and not yet paid" icon={Wallet} href="/app/invoices?status=open" />
-      <Tile label="Overdue" value={formatMoney(r.overdue)} sub="Past their due date" icon={AlertTriangle} tone={r.overdue > 0 ? "danger" : "default"} href="/app/invoices?status=overdue" />
-      <Tile label="Drafts to check" value={String(r.drafts)} sub={r.drafts === 1 ? "invoice waiting to be confirmed" : "invoices waiting to be confirmed"} icon={FileClock} href="/app/invoices?status=draft" />
+      <KpiTile label="Outstanding" value={formatMoney(r.outstanding)} sub="Confirmed and not yet paid" icon={Wallet} href="/app/invoices?status=open" />
+      <KpiTile label="Overdue" value={formatMoney(r.overdue)} sub="Past their due date" icon={AlertTriangle} tone={r.overdue > 0 ? "bad" : "default"} alert={r.overdue > 0} href="/app/invoices?status=overdue" />
+      <KpiTile label="Drafts to check" value={String(r.drafts)} sub={r.drafts === 1 ? "invoice waiting to be confirmed" : "invoices waiting to be confirmed"} icon={FileClock} href="/app/invoices?status=draft" />
     </div>
   );
 }
@@ -146,10 +132,32 @@ async function InvoiceList({ searchParams }: Pick<PageProps<"/app/invoices">, "s
   }
 
   return (
-    <Surface>
+    <DataTable
+      footer={
+        <Pagination
+          page={filters.page}
+          pageSize={INVOICE_PAGE_SIZE}
+          total={total}
+          basePath="/app/invoices"
+          params={{ q: filters.q, status: filters.status, client: filters.client, from: filters.from, to: filters.to }}
+        />
+      }
+      cards={rows.map((r) => (
+        <ListCard
+          key={r.id}
+          href={`/app/invoices/${r.id}`}
+          title={r.number ?? "Draft"}
+          subtitle={r.client_name}
+          aside={<span className="font-medium tabular-nums">{r.status === "void" || r.status === "draft" ? formatAmount(r.total) : formatAmount(r.balance)}</span>}
+        >
+          <InvoiceStatusChip status={r.status} />
+          {r.due_date ? <span className="text-xs text-muted-foreground">Due {formatPlainDate(r.due_date)}</span> : null}
+        </ListCard>
+      ))}
+    >
       <Table>
         <TableHeader>
-          <TableRow className="bg-muted/40 hover:bg-muted/40">
+          <TableRow className={HEAD_ROW}>
             <TableHead className={`${TH} pl-5`}>Invoice</TableHead>
             <TableHead className={TH}>Client</TableHead>
             <TableHead className={`${TH} hidden md:table-cell`}>Issued</TableHead>
@@ -161,9 +169,9 @@ async function InvoiceList({ searchParams }: Pick<PageProps<"/app/invoices">, "s
         </TableHeader>
         <TableBody>
           {rows.map((r) => (
-            <TableRow key={r.id} className="group">
+            <TableRow key={r.id} className={`group ${ROW}`}>
               <TableCell className="pl-5">
-                <Link href={`/app/invoices/${r.id}`} className="block outline-none">
+                <Link href={`/app/invoices/${r.id}`} className={`block ${ROW_LINK}`}>
                   <span className="block font-medium group-hover:underline">{r.number ?? "Draft"}</span>
                   <span className="block text-xs text-muted-foreground">
                     {r.kind === "monthly" && r.period_from ? `Month of ${formatPlainDate(r.period_from).replace(/^\d+ /, "")}` : r.kind === "manual" ? "Manual" : "Per case"}
@@ -185,13 +193,6 @@ async function InvoiceList({ searchParams }: Pick<PageProps<"/app/invoices">, "s
           ))}
         </TableBody>
       </Table>
-      <Pagination
-        page={filters.page}
-        pageSize={INVOICE_PAGE_SIZE}
-        total={total}
-        basePath="/app/invoices"
-        params={{ q: filters.q, status: filters.status, client: filters.client, from: filters.from, to: filters.to }}
-      />
-    </Surface>
+    </DataTable>
   );
 }

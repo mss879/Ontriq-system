@@ -5,11 +5,10 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Check, ChevronDown, MessageSquarePlus, Sparkles, SquareTerminal, X } from "lucide-react";
 import type { ThreadSummary } from "@/lib/ai/assistant/types";
+import { ASSISTANT_OPEN_EVENT } from "./assistant-trigger";
 import { Button } from "@/components/ui/button";
-import { Kbd } from "@/components/ui/kbd";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { cn } from "@/lib/utils";
 import { useChat } from "./use-chat";
 import { ChatView, STAFF_SUGGESTIONS } from "./chat-view";
 import { ThreadMenu } from "./thread-menu";
@@ -33,9 +32,9 @@ function remember(id: string | null) {
 }
 
 /**
- * Ask Ontriq, on every staff screen (plan §8 capability 9): a button at the
- * bottom right and ⌘J open a side sheet with the conversation. Hidden on the
- * Command page, which is the same assistant at full size for the Super Admin.
+ * Ask Ontriq, on every staff screen (plan §8 capability 9): the top-bar button
+ * and ⌘J open a side sheet with the conversation. Hidden on the Command page,
+ * which is the same assistant at full size for the Super Admin.
  */
 export function AssistantPanel({ isSuperAdmin, canRecord }: { isSuperAdmin: boolean; canRecord: boolean }) {
   const pathname = usePathname();
@@ -89,22 +88,17 @@ export function AssistantPanel({ isSuperAdmin, canRecord }: { isSuperAdmin: bool
     return () => window.removeEventListener("keydown", onKey);
   }, [show]);
 
+  useEffect(() => {
+    const onOpen = () => show(true);
+    window.addEventListener(ASSISTANT_OPEN_EVENT, onOpen);
+    return () => window.removeEventListener(ASSISTANT_OPEN_EVENT, onOpen);
+  }, [show]);
+
   if (pathname?.startsWith("/app/command")) return null;
   const current = threads.find((t) => t.id === chat.threadId);
 
   return (
     <>
-      <Button
-        type="button"
-        variant="brand"
-        onClick={() => show(true)}
-        aria-label="Ask Ontriq (Command J)"
-        className={cn("fixed right-4 bottom-4 z-40 h-11 rounded-full px-4 shadow-lg md:right-6 md:bottom-6", open && "pointer-events-none opacity-0")}
-      >
-        <Sparkles />
-        <span className="hidden sm:inline">Ask Ontriq</span>
-        <Kbd className="hidden bg-white/15 text-white md:inline-flex">⌘J</Kbd>
-      </Button>
       <Sheet open={open} onOpenChange={show}>
         <SheetContent side="right" showCloseButton={false} className="flex w-full flex-col gap-0 p-0 sm:max-w-md">
           <header className="flex items-center gap-1 border-b px-3 py-2">

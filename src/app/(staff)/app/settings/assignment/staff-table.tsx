@@ -20,6 +20,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { DISTRICTS, type District } from "@/domain/districts";
 import { formatPlainDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { DateField } from "@/components/forms/date-field";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 type CheckOption = { id: string; name: string; locationBound: boolean };
 
@@ -195,6 +197,7 @@ function LeaveEditor({ userId, leave }: { userId: string; leave: LeaveRow[] }) {
   const [kind, setKind] = useState<"leave" | "training" | "other">("leave");
   const [note, setNote] = useState("");
   const [pending, start] = useTransition();
+  const [removing, setRemoving] = useState<string | null>(null);
 
   return (
     <fieldset className="space-y-2">
@@ -215,12 +218,7 @@ function LeaveEditor({ userId, leave }: { userId: string; leave: LeaveRow[] }) {
                 size="icon-xs"
                 aria-label="Remove"
                 disabled={pending}
-                onClick={() =>
-                  start(async () => {
-                    const r = await removeLeave(l.id);
-                    if (!r.ok) toast.error(r.error);
-                  })
-                }
+                onClick={() => setRemoving(l.id)}
               >
                 <Trash2 />
               </Button>
@@ -230,9 +228,22 @@ function LeaveEditor({ userId, leave }: { userId: string; leave: LeaveRow[] }) {
       ) : (
         <p className="text-sm text-muted-foreground">No leave booked.</p>
       )}
+      <ConfirmDialog
+        open={Boolean(removing)}
+        onOpenChange={(open) => !open && setRemoving(null)}
+        title="Remove this leave?"
+        description="They can be assigned work on these dates again."
+        onConfirm={() =>
+          removing &&
+          start(async () => {
+            const r = await removeLeave(removing);
+            if (!r.ok) toast.error(r.error);
+          })
+        }
+      />
       <div className="grid gap-2 sm:grid-cols-[1fr_1fr_8rem_auto]">
-        <Input type="date" aria-label="From" value={startsOn} onChange={(e) => setStartsOn(e.target.value)} />
-        <Input type="date" aria-label="To" value={endsOn} onChange={(e) => setEndsOn(e.target.value)} />
+        <DateField aria-label="From" value={startsOn} onChange={(e) => setStartsOn(e.target.value)} />
+        <DateField aria-label="To" value={endsOn} onChange={(e) => setEndsOn(e.target.value)} />
         <Select value={kind} onValueChange={(v) => setKind(v as typeof kind)}>
           <SelectTrigger className="w-full" aria-label="Kind">
             <SelectValue />

@@ -3,6 +3,7 @@ import type { ServiceClient } from "../admin-client";
 import { isAiConfigured, runStructured, type AiContext } from "../../lib/ai/claude";
 import * as P from "../../lib/ai/prompts";
 import { caseSummary, documentBlock, loadAiCase, suggest } from "../ai/context";
+import { checksToFill, docsForCheck, extractionFields, groupRows, missingDetails } from "../../domain/ai/extraction";
 import { currentSnapshot } from "../report/load";
 import { removeObjects } from "../storage";
 import type Anthropic from "@anthropic-ai/sdk";
@@ -40,18 +41,29 @@ export const aiClassify: JobHandler = async (job, { admin }) => {
   if (!d || !["uploaded", "accepted"].includes(d.status)) return { skipped: "document not available" };
   if (d.category === "consent_form" && d.mime === "image/png" && d.filename === "signature.png") return { skipped: "drawn signature" };
   const block = await documentBlock(admin, d);
-  if (!block) return { skipped: "file type or size not readable" };
+  if (!block) {
+    // Say so on the file, so nobody waits for details that won't arrive.
+    await admin.from("document_ai").upsert({ document_id: d.id, org_id: d.org_id, classification: { not_read: d.mime === "image/heic" ? "It's an iPhone HEIC photo. Upload a JPEG or PDF instead." : "The file is too large. Upload a smaller copy." }, quality: {} });
+    return { skipped: "file type or size not readable" };
+  }
   const { data: cats } = await admin.from("document_categories").select("key, name").eq("org_id", d.org_id).eq("is_active", true);
   const prompt = P.classifyPrompt({ expectedCategory: d.category, expectedLabel: d.label ?? d.category, categories: cats ?? [] });
   const r = await runStructured(admin, "document.classify", ctx(job, { org_id: d.org_id, client_id: d.client_id ?? undefined, id: d.case_id }, P.CLASSIFY_VERSION, "jobs/ai-classify", { documentId: d.id }), {
     system: prompt.system,
     content: [block, P.text(prompt.text)],
     schema: P.ClassifySchema,
+    minTokens: P.CLASSIFY_MIN_TOKENS,
   });
-  if (!r.ok) return { skipped: r.reason };
+  if (!r.ok) {
+    // The first look failed, but the file can still fill its check: extraction reads the file itself.
+    const queued = await queueExtraction(admin, d, null);
+    return { skipped: r.reason, extract: queued };
+  }
   const out = r.data;
   await admin.from("document_ai").upsert({ document_id: d.id, org_id: d.org_id, classification: { ...out, text: undefined, model: r.model }, quality: { readable: out.readable, issues: out.quality_issues } });
-  if (out.text) await admin.from("document_texts").upsert({ document_id: d.id, org_id: d.org_id, text: out.text.slice(0, 20000), language: out.language });
+  // Later steps compare documents by this text, so they get the English alongside the original.
+  const stored = out.translation_en ? `${out.text}\n\n[English translation]\n${out.translation_en}` : out.text;
+  if (stored) await admin.from("document_texts").upsert({ document_id: d.id, org_id: d.org_id, text: stored.slice(0, 20000), language: out.language });
 
   const problem = !out.readable || !out.matches_expected || out.quality_issues.length > 0;
   if (problem) {
@@ -77,17 +89,22 @@ export const aiClassify: JobHandler = async (job, { admin }) => {
       value: { notes: out.tampering_notes }, confidence: 0.5, rationale: out.tampering_notes ?? "Possible signs of editing",
     });
   }
-  // Pre-fill the check this document belongs to (or every check that asks for this category).
-  const checks = d.case_check_id
-    ? [d.case_check_id]
-    : ((await admin.from("case_check_requirements").select("case_check_id").eq("case_id", d.case_id).eq("category", d.category)).data ?? [])
-        .map((x) => x.case_check_id)
-        .filter(Boolean) as string[];
-  for (const check of [...new Set(checks)]) {
+  const queued = await queueExtraction(admin, d, out.document_type);
+  return { type: out.document_type, readable: out.readable, extract: queued };
+};
+
+/** Pre-fill every check this document can help with. */
+async function queueExtraction(admin: ServiceClient, d: { id: string; org_id: string; case_id: string; case_check_id: string | null; category: string }, detected: string | null): Promise<number> {
+  const [{ data: requirements }, { data: all }] = await Promise.all([
+    admin.from("case_check_requirements").select("case_check_id, category").eq("case_id", d.case_id),
+    admin.from("case_checks").select("id").eq("case_id", d.case_id),
+  ]);
+  const checks = checksToFill(d, detected, requirements ?? [], (all ?? []).map((k) => k.id));
+  for (const check of checks) {
     await admin.rpc("enqueue_job", { p_kind: "ai.extract_fields", p_payload: { check_id: check }, p_idempotency_key: `ai.extract_fields:${check}:${d.id}`, p_entity_type: "case_check", p_entity_id: check, p_org: d.org_id });
   }
-  return { type: out.document_type, readable: out.readable, extract: checks.length };
-};
+  return checks.length;
+}
 
 /** ai.extract_fields: pre-fill one check's fields from its documents, for side-by-side confirmation. */
 export const aiExtract: JobHandler = async (job, { admin }) => {
@@ -100,10 +117,9 @@ export const aiExtract: JobHandler = async (job, { admin }) => {
   const c = await loadAiCase(admin, k.case_id);
   const check = c.checks.find((x) => x.id === check_id);
   if (!check || ["completed", "discrepancy", "unable_to_verify", "waived"].includes(check.state)) return { skipped: "check closed" };
-  const fields = check.fields.filter((f) => f.type !== "repeatable_group" && (f.ai?.extract || f.fill_by?.includes("candidate")));
-  if (!fields.length) return { skipped: "nothing to extract" };
-  const categories = new Set(c.requirements.map((r) => r.category));
-  const docs = c.documents.filter((d) => d.case_check_id === check_id || (!d.case_check_id && categories.has(d.category))).slice(0, 6);
+  const { flat: fields, groups } = extractionFields(check.fields);
+  if (!fields.length && !groups.length) return { skipped: "nothing to extract" };
+  const docs = docsForCheck(c.documents, check_id, c.requirements);
   if (!docs.length) return { skipped: "no documents" };
   const blocks: Anthropic.ContentBlockParam[] = [];
   for (const d of docs) {
@@ -112,24 +128,44 @@ export const aiExtract: JobHandler = async (job, { admin }) => {
     if (b) blocks.push(b);
     else if (d.text) blocks.push(P.text(d.text.slice(0, 6000)));
   }
-  const prompt = P.extractPrompt({ checkLabel: check.label, fields: fields.map((f) => ({ key: f.key, label: f.label, type: f.type, hint: f.ai?.hint, options: f.options })) });
+  const describe = (f: (typeof fields)[number]) => ({ key: f.key, label: f.label, type: f.type, hint: f.ai?.hint, options: f.options });
+  const prompt = P.extractPrompt({ checkLabel: check.label, fields: fields.map(describe), groups: groups.map((g) => ({ key: g.key, label: g.label, fields: g.fields.map(describe) })) });
   const r = await runStructured(admin, "document.extract", ctx(job, c, P.EXTRACT_VERSION, "jobs/ai-extract"), {
     system: prompt.system,
     content: [P.text(prompt.text), ...blocks],
     schema: P.ExtractSchema,
+    minTokens: P.EXTRACT_MIN_TOKENS,
   });
   if (!r.ok) return { skipped: r.reason };
+  const found: Record<string, unknown> = {};
   let n = 0;
-  for (const f of r.data.fields) {
-    if (!fields.some((x) => x.key === f.key) || f.value === null || f.value === "") continue;
-    if (JSON.stringify(check.values[f.key]) === JSON.stringify(f.value)) continue;
+  const leave = async (key: string, value: unknown, confidence: number, source: string | null, writtenAs?: string | null) => {
+    found[key] = value;
+    if (JSON.stringify(check.values[key]) === JSON.stringify(value)) return;
+    const rationale = [source ? `From ${source}` : null, writtenAs ? `written as “${writtenAs}”` : null].filter(Boolean).join(", ");
     await suggest(admin, {
-      org_id: c.org_id, run_id: r.runId, capability: "document.extract", entity_type: "case_check", entity_id: check_id, field_key: f.key,
-      value: f.value, confidence: f.confidence, rationale: f.source ? `From ${f.source}` : null, source_refs: f.source ? [f.source] : [],
+      org_id: c.org_id, run_id: r.runId, capability: "document.extract", entity_type: "case_check", entity_id: check_id, field_key: key,
+      value, confidence, rationale: rationale || null, source_refs: source ? [source] : [],
     });
     n++;
+  };
+  for (const f of r.data.fields) {
+    if (!fields.some((x) => x.key === f.key) || f.value === null || f.value === "") continue;
+    await leave(f.key, f.value, f.confidence, f.source, f.written_as);
   }
-  return { suggested: n };
+  for (const g of r.data.groups) {
+    const group = groups.find((x) => x.key === g.key);
+    const rows = group ? groupRows(group, g.rows) : [];
+    if (rows.length) await leave(g.key, rows, g.confidence, g.source);
+  }
+  // Tell the team what came of it, on the timeline: what was found and what nobody has yet.
+  const missing = missingDetails(check.fields, { ...check.values, ...found }, "entry");
+  await admin.rpc("log_case_event", {
+    p_case: c.id, p_check: check_id, p_kind: "ai_read", p_title: `AI read the documents for ${check.label}`,
+    p_body: [r.data.overall, n ? `Found ${n} ${n === 1 ? "detail" : "details"} to confirm.` : "Nothing new to fill in.", missing.length ? `Still missing: ${missing.join(", ")}.` : "Nothing is missing."].filter(Boolean).join(" "),
+    p_data: { found: n, missing }, p_client: false, p_candidate: false,
+  });
+  return { suggested: n, missing: missing.length };
 };
 
 /** ai.consistency (case enters Pre-QC), then the Pre-QC copilot. */

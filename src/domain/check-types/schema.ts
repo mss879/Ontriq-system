@@ -41,6 +41,14 @@ export const FIELD_TYPE_LABELS: Record<FieldType, string> = {
   repeatable_group: "Repeating group",
 };
 
+/**
+ * When a field is filled in. Data entry works from the documents; verification
+ * records what the source confirmed. A required field only holds up its own
+ * stage, so nobody has to invent a result to get past Data Entry.
+ */
+export const FIELD_STAGES = ["data_entry", "verification"] as const;
+export type FieldStage = (typeof FIELD_STAGES)[number];
+
 const keySchema = z.string().regex(/^[a-z][a-z0-9_]{0,47}$/, "Use lowercase letters, digits and underscores, starting with a letter.");
 
 const optionSchema = z.object({ value: z.string().min(1).max(80), label: z.string().min(1).max(120) });
@@ -59,6 +67,7 @@ const baseField = z.object({
   label: z.string().trim().min(1).max(120),
   type: z.enum(FIELD_TYPES),
   required: z.boolean().default(false),
+  stage: z.enum(FIELD_STAGES).default("data_entry"),
   help: z.string().max(300).optional(),
   placeholder: z.string().max(120).optional(),
   options: z.array(optionSchema).optional(),

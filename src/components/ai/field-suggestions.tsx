@@ -7,6 +7,17 @@ import { confidenceLabel, HIGH_CONFIDENCE, sameValue } from "@/domain/ai/suggest
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
+/** One line per row for a repeating group; the plain formatted value for anything else. */
+function showValue(f: FieldDef, value: unknown): string {
+  if (f.type !== "repeatable_group" || !Array.isArray(value)) return formatFieldValue(f, value);
+  return (value as Record<string, unknown>[])
+    .map((row, i) => {
+      const cells = (f.fields ?? []).flatMap((c) => (row[c.key] === undefined || row[c.key] === null || row[c.key] === "" ? [] : [formatFieldValue(c, row[c.key])]));
+      return `${f.group?.item_label ?? "Item"} ${i + 1}: ${cells.join(", ")}`;
+    })
+    .join("\n");
+}
+
 export type FieldSuggestion = { id: string; fieldKey: string; value: unknown; confidence: number | null; rationale: string | null };
 
 /**
@@ -50,7 +61,7 @@ export function FieldSuggestions({
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <Sparkles className="size-4 text-brand-blue dark:text-brand-sky" aria-hidden />
         <h3 className="text-sm font-semibold">Found in the documents</h3>
-        <span className="text-xs text-muted-foreground">AI suggested · check each against the file</span>
+        <span className="text-xs text-muted-foreground">{applied.size ? `${applied.size} placed in the form below. Check them against the file, then save.` : "AI suggested · check each against the file"}</span>
         {actionable && high.length > 1 ? (
           <Button size="xs" variant="outline" className="ml-auto" onClick={() => onAccept(high)} disabled={busy}>
             <CheckCheck /> Accept {high.length} high-confidence
@@ -67,12 +78,12 @@ export function FieldSuggestions({
             <li key={s.id} className="flex flex-wrap items-start gap-x-3 gap-y-1.5 py-2.5 first:pt-0 last:pb-0">
               <div className="min-w-0 flex-1">
                 <p className="text-xs text-muted-foreground">{f.label}</p>
-                <p className={cn("text-sm font-medium", isApplied && "text-success")}>{formatFieldValue(f, s.value)}</p>
+                <p className={cn("text-sm font-medium whitespace-pre-line", isApplied && "text-success")}>{showValue(f, s.value)}</p>
                 <p className="text-xs text-muted-foreground">
                   {conf ? <span className={cn((s.confidence ?? 0) < 0.6 && "text-warning-foreground dark:text-warning")}>{conf}</span> : null}
                   {conf && s.rationale ? " · " : null}
                   {s.rationale}
-                  {!isApplied && current !== undefined && current !== null && current !== "" ? ` · now ${formatFieldValue(f, current)}` : null}
+                  {!isApplied && current !== undefined && current !== null && current !== "" ? ` · now ${showValue(f, current)}` : null}
                 </p>
               </div>
               {actionable ? (

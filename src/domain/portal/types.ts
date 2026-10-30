@@ -45,6 +45,8 @@ export type PortalVisibility = {
   show_documents: boolean;
   show_results_before_release: boolean;
   show_candidate_progress: boolean;
+  /** Candidate NIC, email and phone. Off unless Ontriq turns it on for this client. */
+  show_candidate_details: boolean;
   hidden_check_types: string[];
 };
 
@@ -54,6 +56,7 @@ export const DEFAULT_PORTAL_VISIBILITY: PortalVisibility = {
   show_documents: true,
   show_results_before_release: false,
   show_candidate_progress: true,
+  show_candidate_details: false,
   hidden_check_types: [],
 };
 

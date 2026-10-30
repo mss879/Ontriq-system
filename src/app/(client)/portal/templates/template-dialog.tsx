@@ -28,7 +28,7 @@ export function TemplateButton({ packages, editing }: { packages: PackageOption[
           <Pencil /> Edit
         </Button>
       ) : (
-        <Button variant="brand" size="lg" className="h-9 px-3.5" onClick={() => setOpen(true)} disabled={!packages.length}>
+        <Button size="lg" className="h-9 px-3.5" onClick={() => setOpen(true)} disabled={!packages.length}>
           <Plus /> New template
         </Button>
       )}
@@ -155,7 +155,7 @@ function TemplateForm({ packages, editing, onDone }: { packages: PackageOption[]
         </button>
       </div>
       <DialogFooter>
-        <Button variant="brand" onClick={save} disabled={pending}>
+        <Button onClick={save} disabled={pending}>
           {pending ? <Spinner /> : <Check />} {editing ? "Save template" : "Create template"}
         </Button>
       </DialogFooter>

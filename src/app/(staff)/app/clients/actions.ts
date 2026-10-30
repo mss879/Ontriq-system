@@ -288,6 +288,7 @@ const visibilitySchema = z.object({
   show_documents: z.boolean(),
   show_results_before_release: z.boolean(),
   show_candidate_progress: z.boolean(),
+  show_candidate_details: z.boolean(),
   hidden_check_types: z.array(z.uuid()).max(50),
 });
 

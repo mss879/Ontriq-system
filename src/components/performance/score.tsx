@@ -40,7 +40,7 @@ export function PartBars({ parts, weights }: { parts: Record<Part, number | null
               <span className="tabular-nums text-muted-foreground">{v === null ? "No data yet" : `${Math.round(v * 100)}%`}</span>
             </div>
             <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-              {v !== null ? <div className="h-full rounded-full bg-[linear-gradient(90deg,#0c5a9a,#0098f3)]" style={{ width: `${Math.max(2, v * 100)}%` }} /> : null}
+              {v !== null ? <div className="h-full rounded-full bg-brand-bar" style={{ width: `${Math.max(2, v * 100)}%` }} /> : null}
             </div>
           </li>
         );

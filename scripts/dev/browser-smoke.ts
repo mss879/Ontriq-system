@@ -56,6 +56,8 @@ async function contextFor(browser: Browser, v: Visit, opts: { mobile?: boolean; 
     hasTouch: opts.mobile,
     colorScheme: opts.dark ? "dark" : "light",
   });
+  // Dark mode is a stored choice, not the operating system's setting.
+  await ctx.addInitScript((theme) => localStorage.setItem("theme", theme), opts.dark ? "dark" : "light");
   await ctx.addCookies(cookies.map((c) => ({ name: c.name, value: c.value, url: base })));
   return ctx;
 }

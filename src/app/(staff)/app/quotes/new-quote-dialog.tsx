@@ -29,7 +29,7 @@ export function NewQuoteDialog({ clients }: { clients: { id: string; name: strin
 
   return (
     <>
-      <Button variant="brand" size="lg" className="h-9 px-3.5" onClick={() => setOpen(true)}>
+      <Button size="lg" className="h-9 px-3.5" onClick={() => setOpen(true)}>
         <Plus /> New quotation
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
@@ -59,7 +59,7 @@ export function NewQuoteDialog({ clients }: { clients: { id: string; name: strin
             <Button variant="ghost" onClick={() => setOpen(false)} disabled={pending}>
               Cancel
             </Button>
-            <Button variant="brand" onClick={create} disabled={!picked || pending}>
+            <Button onClick={create} disabled={!picked || pending}>
               {pending ? <Spinner /> : <Plus />} Start the quotation
             </Button>
           </DialogFooter>

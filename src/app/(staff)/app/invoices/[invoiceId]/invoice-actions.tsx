@@ -15,6 +15,7 @@ import { BillingReasonDialog } from "@/components/billing/reason-dialog";
 import { PAYMENT_METHODS } from "@/components/billing/invoice-status";
 import { formatMoney } from "@/domain/pricing/money";
 import { issueCreditNote, recordPayment, sendInvoice, setRemindersPaused, voidInvoice, voidPayment } from "../actions";
+import { DateField } from "@/components/forms/date-field";
 
 type Recipient = { email: string; name: string; source: "contact" | "portal"; preselected: boolean };
 const today = () => new Date(Date.now() + 5.5 * 3600_000).toISOString().slice(0, 10);
@@ -232,7 +233,7 @@ function PaymentDialog({ invoice }: { invoice: { id: string; number: string | nu
             </label>
             <label className="flex flex-col gap-1.5 text-sm font-medium">
               Received on
-              <Input type="date" value={paidOn} max={today()} onChange={(e) => setPaidOn(e.target.value)} />
+              <DateField value={paidOn} max={today()} onChange={(e) => setPaidOn(e.target.value)} />
             </label>
           </div>
           <label className="flex flex-col gap-1.5 text-sm font-medium">

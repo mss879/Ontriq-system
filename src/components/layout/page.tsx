@@ -2,7 +2,7 @@ import { cn } from "@/lib/utils";
 
 /** Standard page container used by every screen. */
 export function Page({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <div className={cn("mx-auto w-full max-w-6xl flex-1 space-y-6 px-4 py-6 md:px-8 md:py-10", className)}>{children}</div>;
+  return <div className={cn("mx-auto w-full max-w-6xl flex-1 space-y-5 px-4 py-5 md:px-8 md:py-7", className)}>{children}</div>;
 }
 
 /** The website's section label: a short orange bar and spaced capitals. */
@@ -33,13 +33,13 @@ export function PageHeader({
   eyebrow?: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-      <div className="space-y-2">
+    <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+      <div className="min-w-0 space-y-1.5">
         {eyebrow ? <Eyebrow>{eyebrow}</Eyebrow> : null}
-        <h1 className="font-display text-[1.75rem] leading-tight font-semibold tracking-tight text-balance md:text-[2rem]">{title}</h1>
+        <h1 className="font-display text-2xl leading-tight font-semibold tracking-tight text-balance md:text-[1.75rem]">{title}</h1>
         {description ? <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">{description}</p> : null}
       </div>
-      {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
+      {actions ? <div className="flex flex-wrap items-center gap-2 lg:shrink-0">{actions}</div> : null}
     </div>
   );
 }

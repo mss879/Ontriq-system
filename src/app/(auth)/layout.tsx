@@ -52,7 +52,7 @@ export default function AuthLayout({ children }: LayoutProps<"/">) {
                   <span
                     className={
                       row.tone === "done"
-                        ? "flex size-5 items-center justify-center rounded-full bg-emerald-400/90 text-[#0A1A2F]"
+                        ? "flex size-5 items-center justify-center rounded-full bg-on-dark-success text-brand"
                         : row.tone === "active"
                           ? "flex size-5 items-center justify-center rounded-full border-2 border-brand-orange"
                           : "flex size-5 items-center justify-center rounded-full border border-white/25"
@@ -61,7 +61,7 @@ export default function AuthLayout({ children }: LayoutProps<"/">) {
                     {row.tone === "done" ? <Check className="size-3" strokeWidth={3} /> : row.tone === "active" ? <span className="size-1.5 rounded-full bg-brand-orange" /> : null}
                   </span>
                   <span className="flex-1 text-white/85">{row.label}</span>
-                  <span className={row.tone === "done" ? "text-emerald-300" : row.tone === "active" ? "text-[#ffb08f]" : "text-white/45"}>{row.state}</span>
+                  <span className={row.tone === "done" ? "text-on-dark-success" : row.tone === "active" ? "text-brand-peach" : "text-white/45"}>{row.state}</span>
                 </li>
               ))}
             </ul>
@@ -73,7 +73,7 @@ export default function AuthLayout({ children }: LayoutProps<"/">) {
           <ul className="grid gap-5">
             {POINTS.map(({ icon: Icon, title, text }) => (
               <li key={title} className="flex gap-4">
-                <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-white/[0.07] text-[#ffb08f] ring-1 ring-white/10">
+                <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-xl bg-white/[0.07] text-brand-peach ring-1 ring-white/10">
                   <Icon className="size-[18px]" />
                 </span>
                 <span>

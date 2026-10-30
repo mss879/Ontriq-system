@@ -241,10 +241,10 @@ function Welcome({ view, t, first }: { view: CandidateView; t: CandidateDict; fi
         <p className="text-sm leading-relaxed text-white/65">{fmt(t.welcome.whatIs, { org: view.org.name })}</p>
         <ul className="space-y-1.5 text-sm text-white/80">
           <li className="flex gap-2">
-            <Clock3 className="mt-0.5 size-4 shrink-0 text-[#ffb08f]" aria-hidden /> {t.welcome.howLong}
+            <Clock3 className="mt-0.5 size-4 shrink-0 text-brand-peach" aria-hidden /> {t.welcome.howLong}
           </li>
           <li className="flex gap-2">
-            <ShieldCheck className="mt-0.5 size-4 shrink-0 text-[#ffb08f]" aria-hidden /> {t.welcome.yourPart}
+            <ShieldCheck className="mt-0.5 size-4 shrink-0 text-brand-peach" aria-hidden /> {t.welcome.yourPart}
           </li>
         </ul>
         {view.checks.length ? (

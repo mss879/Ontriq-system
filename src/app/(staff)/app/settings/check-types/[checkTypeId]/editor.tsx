@@ -58,6 +58,7 @@ const newField = (): FieldDef => ({
   label: "",
   type: "text",
   required: false,
+  stage: "data_entry",
   visibility: { client: false, report: true, candidate: false },
   fill_by: ["staff"],
   width: "half",
@@ -239,6 +240,7 @@ export function CheckTypeEditor({ data, categories }: { data: CheckTypeEditorDat
                         {f.type === "repeatable_group" ? ` · ${f.fields?.length ?? 0} fields per ${(f.group?.item_label ?? "item").toLowerCase()} · ${f.group?.min ?? 0}–${f.group?.max ?? 10}` : ""}
                         {f.options?.length ? ` · ${f.options.length} choices` : ""}
                         {f.width === "full" ? " · full width" : ""}
+                        {f.stage === "verification" ? " · filled in at verification" : ""}
                       </p>
                       <Visibility v={f.visibility} />
                       {fe.length ? <p className="mt-1 text-xs text-destructive">{fe.flatMap(([, v]) => v).join(" ")}</p> : null}
@@ -548,6 +550,18 @@ function FieldEditor({ initial, existingKeys, onSave, onCancel, nested = false }
             </SelectContent>
           </Select>
         </Field>
+        <Field className="sm:col-span-2">
+          <FieldLabel>Filled in during</FieldLabel>
+          <Select value={f.stage} onValueChange={(v) => set("stage", v as FieldDef["stage"])}>
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="data_entry">Data entry, from the documents</SelectItem>
+              <SelectItem value="verification">Verification, once the source has confirmed</SelectItem>
+            </SelectContent>
+          </Select>
+        </Field>
         <TextField name="help" label="Help text" className="sm:col-span-2" value={f.help ?? ""} onChange={(e) => set("help", e.target.value)} />
         {["text", "textarea", "number", "phone", "email", "address", "nic"].includes(f.type) ? (
           <TextField name="placeholder" label="Placeholder" value={f.placeholder ?? ""} onChange={(e) => set("placeholder", e.target.value)} />
@@ -583,7 +597,7 @@ function FieldEditor({ initial, existingKeys, onSave, onCancel, nested = false }
         <label className="flex items-center justify-between gap-3 rounded-xl bg-muted/40 px-3.5 py-3 text-sm ring-1 ring-foreground/[0.05] sm:col-span-2">
           <span>
             <span className="block font-medium">Required</span>
-            <span className="block text-xs text-muted-foreground">Verification can’t start until it’s filled in.</span>
+            <span className="block text-xs text-muted-foreground">{f.stage === "verification" ? "The check’s outcome can’t be recorded until it’s filled in." : "Verification can’t start until it’s filled in."}</span>
           </span>
           <Switch checked={f.required} onCheckedChange={(v) => set("required", v)} />
         </label>

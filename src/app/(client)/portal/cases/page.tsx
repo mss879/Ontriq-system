@@ -1,7 +1,8 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import type { Metadata } from "next";
-import { ChevronLeft, ChevronRight, FilePlus2, SearchX } from "lucide-react";
+import { FilePlus2, SearchX } from "lucide-react";
+import { Pagination } from "@/components/admin/pagination";
 import { Page, PageHeader, SectionSkeleton } from "@/components/layout/page";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
@@ -10,7 +11,6 @@ import { getClientViewer } from "@/lib/server/viewer";
 import { parsePortalFilters, portalCases, PORTAL_PAGE_SIZE } from "@/lib/server/portal/queries";
 import { can } from "@/domain/permissions";
 import { PortalCasesFilters } from "./cases-filters";
-import { portalCasesHref } from "./url";
 
 export const metadata: Metadata = { title: "Cases" };
 
@@ -38,7 +38,7 @@ async function Header() {
       description={DESCRIPTION}
       actions={
         can(viewer, "portal.cases.create") ? (
-          <Button asChild variant="brand" size="lg" className="h-9 px-3.5">
+          <Button asChild size="lg" className="h-9 px-3.5">
             <Link href="/portal/cases/new">
               <FilePlus2 /> New request
             </Link>
@@ -55,9 +55,6 @@ async function CasesContent({ searchParams }: Pick<PageProps<"/portal/cases">, "
   const { total, rows } = await portalCases(filters);
   const query = new URLSearchParams(Object.entries(sp).flatMap(([k, v]) => (typeof v === "string" ? [[k, v]] : []))).toString();
   const page = filters.page ?? 1;
-  const pages = Math.max(1, Math.ceil(total / PORTAL_PAGE_SIZE));
-  const from = total ? (page - 1) * PORTAL_PAGE_SIZE + 1 : 0;
-  const to = Math.min(total, page * PORTAL_PAGE_SIZE);
 
   return (
     <div className="space-y-4">
@@ -86,38 +83,12 @@ async function CasesContent({ searchParams }: Pick<PageProps<"/portal/cases">, "
           </Empty>
         )}
       </div>
-      {total > 0 ? (
-        <div className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
-          <span className="tabular-nums">
-            {from}–{to} of {total}
-          </span>
-          {pages > 1 ? (
-            <div className="flex items-center gap-1.5">
-              <Button asChild={page > 1} variant="outline" size="sm" disabled={page <= 1}>
-                {page > 1 ? (
-                  <Link href={portalCasesHref(query, { page: String(page - 1) })}>
-                    <ChevronLeft /> Previous
-                  </Link>
-                ) : (
-                  <span>
-                    <ChevronLeft /> Previous
-                  </span>
-                )}
-              </Button>
-              <Button asChild={page < pages} variant="outline" size="sm" disabled={page >= pages}>
-                {page < pages ? (
-                  <Link href={portalCasesHref(query, { page: String(page + 1) })}>
-                    Next <ChevronRight />
-                  </Link>
-                ) : (
-                  <span>
-                    Next <ChevronRight />
-                  </span>
-                )}
-              </Button>
-            </div>
-          ) : null}
-        </div>
+      {total > PORTAL_PAGE_SIZE ? (
+        <Pagination page={page} pageSize={PORTAL_PAGE_SIZE} total={total} params={Object.fromEntries(new URLSearchParams(query))} basePath="/portal/cases" />
+      ) : total > 0 ? (
+        <p className="text-sm text-muted-foreground tabular-nums">
+          {total} {total === 1 ? "case" : "cases"}
+        </p>
       ) : null}
     </div>
   );

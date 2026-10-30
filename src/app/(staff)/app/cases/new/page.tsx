@@ -42,6 +42,7 @@ async function Wizard({ searchParams }: Pick<PageProps<"/app/cases/new">, "searc
   return (
     <NewCaseWizard
       clients={clients}
+      canAddClient={can(viewer, "clients.manage")}
       checkTypes={catalog.checkTypes.filter((t) => t.published && !t.archived)}
       packages={catalog.packages.filter((p) => p.isActive)}
       templates={catalog.templates.filter((t) => t.isActive)}

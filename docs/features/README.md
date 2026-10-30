@@ -39,6 +39,8 @@ Each feature is one migration file.
 - [Billing fixes](0036-billing-fixes.md) — `0036_billing_fixes.sql`
 - [Report draft permissions](0037-report-permissions.md) — `0037_report_permissions.sql`
 - [Security review fixes](0038-security-fixes.md) — `0038_security_fixes.sql`
+- [Reading documents into checks](0039-document-reading.md) — no migration
+- [Evidence and data entry rules](0040-evidence-and-entry-rules.md) — `0040_evidence_and_entry_rules.sql`
 
 ## Notes from Phase 0
 

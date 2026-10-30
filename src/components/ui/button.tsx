@@ -12,6 +12,8 @@ const buttonVariants = cva(
           "bg-primary text-primary-foreground shadow-[inset_0_1px_0_rgb(255_255_255/0.14),0_1px_2px_rgb(0_0_0/0.14)] hover:bg-primary/90",
         brand:
           "border-transparent text-white shadow-[0_6px_18px_-6px_rgb(218_78_36/0.55)] [background:linear-gradient(var(--brand),var(--brand))_padding-box,linear-gradient(163deg,#ff8918_28%,#a22904_54%,#000_68%,#0098f3_100%)_border-box] hover:shadow-[0_8px_24px_-6px_rgb(218_78_36/0.7)] hover:[background:linear-gradient(color-mix(in_oklch,var(--brand),white_8%),color-mix(in_oklch,var(--brand),white_8%))_padding-box,linear-gradient(163deg,#ff8918_28%,#a22904_54%,#000_68%,#0098f3_100%)_border-box] dark:[background:linear-gradient(oklch(0.1_0.02_258),oklch(0.1_0.02_258))_padding-box,linear-gradient(163deg,#ff8918_28%,#a22904_54%,#000_68%,#0098f3_100%)_border-box]",
+        inverse:
+          "rounded-xl bg-white font-semibold text-brand shadow-[0_8px_24px_-8px_rgb(247_88_52/0.6)] hover:bg-white/90 [&_svg]:text-brand-orange",
         outline:
           "border-border bg-background hover:bg-muted hover:text-foreground aria-expanded:bg-muted aria-expanded:text-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
         secondary:

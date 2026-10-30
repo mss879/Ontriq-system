@@ -140,7 +140,7 @@ export function CommandWorkspace({
             )}
             {briefing.risks.length > 0 && (
               <div className="mt-3">
-                <p className="text-xs font-semibold text-amber-700 dark:text-amber-400">At risk</p>
+                <p className="text-xs font-semibold text-warning-foreground dark:text-warning">At risk</p>
                 <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm text-foreground/90">
                   {briefing.risks.slice(0, 5).map((r, i) => (
                     <li key={i}>{r}</li>

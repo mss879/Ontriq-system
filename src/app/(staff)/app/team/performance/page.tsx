@@ -3,6 +3,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { Page, PageHeader, SectionSkeleton } from "@/components/layout/page";
 import { Surface, SurfaceHeader, TH } from "@/components/admin/surface";
+import { DataTable, HEAD_ROW, ListCard, ROW_ACTION } from "@/components/layout/data-table";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { PeriodSwitch } from "@/components/performance/period-switch";
 import { PushDialog } from "@/components/performance/push-dialog";
@@ -24,7 +25,7 @@ const BASE = "/app/team/performance";
 export default function PerformancePage({ searchParams }: PageProps<"/app/team/performance">) {
   return (
     <Page>
-      <Suspense fallback={<PageHeader eyebrow="Team" title="Performance" description="Throughput, timeliness, quality and responsiveness for everyone doing casework." />}>
+      <Suspense fallback={<PageHeader eyebrow="Workspace" title="Performance" description="Throughput, timeliness, quality and responsiveness for everyone doing casework." />}>
         <Header searchParams={searchParams} />
       </Suspense>
       <Suspense fallback={<SectionSkeleton rows={8} />}>
@@ -43,7 +44,7 @@ async function Header({ searchParams }: Pick<PageProps<"/app/team/performance">,
   const team = can(viewer, "staff.performance.read");
   return (
     <PageHeader
-      eyebrow="Team"
+      eyebrow="Workspace"
       title={team ? "Performance" : "Your scorecard"}
       description={
         team
@@ -89,24 +90,55 @@ async function Leaderboard({ searchParams }: Pick<PageProps<"/app/team/performan
   const nudge = can(viewer, "staff.nudge");
   const weights = PARTS.map((p) => `${PART_LABELS[p]} ${Math.round(rules.weights[p] * 100)}%`).join(" · ");
 
-  return (
-    <Surface>
-      <SurfaceHeader title="Leaderboard" description={`Last ${label}. Score weights: ${weights}.`} aside={can(viewer, "assignment.configure") ? <Link href="/app/settings/assignment" className="text-xs font-medium text-primary">Change weights</Link> : null} />
-      {board.rows.length === 0 ? (
+  const header = <SurfaceHeader title="Leaderboard" description={`Last ${label}. Score weights: ${weights}.`} aside={can(viewer, "assignment.configure") ? <Link href="/app/settings/assignment" className="text-xs font-medium text-primary">Change weights</Link> : null} />;
+  if (board.rows.length === 0) {
+    return (
+      <Surface>
+        {header}
         <p className="px-5 py-10 text-center text-sm text-muted-foreground">Nobody on the team does casework yet.</p>
-      ) : (
-        <div className="overflow-x-auto">
+      </Surface>
+    );
+  }
+
+  return (
+    <DataTable
+      header={header}
+      cards={board.rows.map((r) => (
+        <ListCard
+          key={r.user_id}
+          href={`${BASE}/${r.user_id}${period === "week" ? "" : `?period=${period}`}`}
+          title={r.name}
+          subtitle={r.role}
+          aside={
+            <span className="flex items-center gap-1.5">
+              <ScorePill score={r.score} />
+              {r.score !== null ? <TrendIcon trend={r.trend} /> : null}
+            </span>
+          }
+        >
+          <span className="text-xs text-muted-foreground tabular-nums">
+            {r.checks_completed} completed · {r.onTimePct === null ? "—" : `${r.onTimePct}%`} on time · {r.open} open
+          </span>
+          {r.overdue ? <span className="rounded-md bg-destructive/10 px-1.5 py-0.5 text-xs font-medium text-destructive">{r.overdue} late</span> : null}
+          {nudge && r.user_id !== viewer.userId ? (
+            <span className={`ml-auto ${ROW_ACTION}`}>
+              <PushDialog userId={r.user_id} name={r.name} overdue={r.overdue} />
+            </span>
+          ) : null}
+        </ListCard>
+      ))}
+    >
           <Table>
             <TableHeader>
-              <TableRow className="bg-muted/40 hover:bg-muted/40">
+              <TableRow className={HEAD_ROW}>
                 <TableHead className={cn(TH, "w-12 pl-5")}>#</TableHead>
                 <TableHead className={TH}>Person</TableHead>
                 <TableHead className={TH}>Score</TableHead>
                 <TableHead className={cn(TH, "text-right")}>Completed</TableHead>
                 <TableHead className={cn(TH, "text-right")}>On time</TableHead>
-                <TableHead className={cn(TH, "hidden text-right md:table-cell")}>QC returns</TableHead>
+                <TableHead className={cn(TH, "text-right")}>QC returns</TableHead>
                 <TableHead className={cn(TH, "text-right")}>Open</TableHead>
-                <TableHead className={cn(TH, "hidden lg:table-cell")}>Daily checks</TableHead>
+                <TableHead className={TH}>Daily checks</TableHead>
                 {nudge ? <TableHead className="w-24 pr-5" /> : null}
               </TableRow>
             </TableHeader>
@@ -131,12 +163,12 @@ async function Leaderboard({ searchParams }: Pick<PageProps<"/app/team/performan
                   </TableCell>
                   <TableCell className="text-right tabular-nums">{r.checks_completed}</TableCell>
                   <TableCell className="text-right tabular-nums">{r.onTimePct === null ? "—" : `${r.onTimePct}%`}</TableCell>
-                  <TableCell className="hidden text-right tabular-nums md:table-cell">{r.qc_returns}</TableCell>
+                  <TableCell className="text-right tabular-nums">{r.qc_returns}</TableCell>
                   <TableCell className="text-right tabular-nums">
                     {r.open}
                     {r.overdue ? <span className="ml-1.5 rounded-md bg-destructive/10 px-1.5 py-0.5 text-xs font-medium text-destructive">{r.overdue} late</span> : null}
                   </TableCell>
-                  <TableCell className="hidden lg:table-cell">
+                  <TableCell>
                     <Sparkline values={fillSeries(r.days, board.from, board.to).map((d) => d.checks)} label={`${r.name}, checks per day`} />
                   </TableCell>
                   {nudge ? (
@@ -146,9 +178,7 @@ async function Leaderboard({ searchParams }: Pick<PageProps<"/app/team/performan
               ))}
             </TableBody>
           </Table>
-        </div>
-      )}
-    </Surface>
+    </DataTable>
   );
 }
 

@@ -39,6 +39,7 @@ export function ReportPanel({
   versions,
   summary,
   recipients,
+  missingAnnexures,
   perms,
   viewerId,
 }: {
@@ -49,6 +50,8 @@ export function ReportPanel({
   versions: ReportVersion[];
   summary: DraftSummary | null;
   recipients: ReleaseRecipient[];
+  /** Checks whose fixed annexure has no file yet. */
+  missingAnnexures: string[];
   perms: ReportPerms;
   viewerId: string;
 }) {
@@ -56,7 +59,7 @@ export function ReportPanel({
   const busy = latest?.status === "queued" || latest?.status === "rendering";
   return (
     <div className="space-y-5">
-      <NextStep caseId={caseId} stage={stage} onHold={onHold} clientName={clientName} latest={latest} summary={summary} recipients={recipients} perms={perms} viewerId={viewerId} />
+      <NextStep caseId={caseId} stage={stage} onHold={onHold} clientName={clientName} latest={latest} summary={summary} recipients={recipients} missingAnnexures={missingAnnexures} perms={perms} viewerId={viewerId} />
       {versions.length ? (
         <div>
           <p className="mb-1.5 text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">Versions</p>
@@ -92,6 +95,7 @@ function NextStep({
   latest,
   summary,
   recipients,
+  missingAnnexures,
   perms,
   viewerId,
 }: {
@@ -102,6 +106,8 @@ function NextStep({
   latest: ReportVersion | null;
   summary: DraftSummary | null;
   recipients: ReleaseRecipient[];
+  /** Checks whose fixed annexure has no file yet. */
+  missingAnnexures: string[];
   perms: ReportPerms;
   viewerId: string;
 }) {
@@ -133,7 +139,16 @@ function NextStep({
   );
 
   let content: React.ReactNode = null;
-  if (stage === "report") {
+  if (stage === "report" && missingAnnexures.length) {
+    content = (
+      <Callout
+        tone="warning"
+        icon={<TriangleAlert className="size-4" />}
+        title={`${missingAnnexures.join(", ")} has no report attached`}
+        body="It goes in the final report as its own annexure, so the draft can't be made without it. Upload the file under Documents."
+      />
+    );
+  } else if (stage === "report") {
     content = (
       <Callout
         tone={failed ? "danger" : "info"}
@@ -336,6 +351,9 @@ function VersionRow({ v }: { v: ReportVersion }) {
         </p>
         {v.status === "failed" && v.error ? <p className="text-xs text-destructive">{v.error}</p> : null}
         {v.revisionReason && v.kind === "final" ? <p className="text-xs text-muted-foreground">Revision: {v.revisionReason}</p> : null}
+        {v.annexures.some((a) => a.kind === "fixed" && a.embedded) ? (
+          <p className="text-xs text-muted-foreground">Attached unchanged: {v.annexures.filter((a) => a.kind === "fixed" && a.embedded).map((a) => a.title).join(", ")}</p>
+        ) : null}
         {v.annexures.some((a) => !a.embedded) ? (
           <p className="text-xs text-warning-foreground dark:text-warning">Some annexures couldn’t be embedded: {v.annexures.filter((a) => !a.embedded).map((a) => a.filename).join(", ")}</p>
         ) : null}

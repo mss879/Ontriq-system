@@ -47,7 +47,7 @@ export type AiCase = {
   client_name: string;
   checks: AiCheck[];
   documents: AiDoc[];
-  requirements: { category: string; label: string; status: string; min_count: number; received_count: number; client_visible: boolean }[];
+  requirements: { case_check_id: string | null; category: string; label: string; status: string; min_count: number; received_count: number; client_visible: boolean }[];
 };
 
 export async function loadAiCase(admin: ServiceClient, caseId: string): Promise<AiCase> {
@@ -60,7 +60,7 @@ export async function loadAiCase(admin: ServiceClient, caseId: string): Promise<
   const [{ data: checks }, { data: docs }, { data: reqs }, { data: cats }] = await Promise.all([
     admin.from("case_checks").select("id, label, sort, state, result, result_tone, client_note, values, check_type:check_types(key), version:check_type_versions(schema)").eq("case_id", caseId).order("sort"),
     admin.from("documents").select("id, case_check_id, category, filename, mime, storage_bucket, storage_path, size_bytes, text:document_texts(text), ai:document_ai(classification)").eq("case_id", caseId).in("status", ["uploaded", "accepted"]),
-    admin.from("case_check_requirements").select("category, label, status, min_count, received_count, client_visible").eq("case_id", caseId),
+    admin.from("case_check_requirements").select("case_check_id, category, label, status, min_count, received_count, client_visible").eq("case_id", caseId),
     admin.from("document_categories").select("key, name").eq("org_id", c.org_id),
   ]);
   const catName = new Map((cats ?? []).map((x) => [x.key, x.name]));
@@ -110,12 +110,36 @@ export async function loadAiCase(admin: ServiceClient, caseId: string): Promise<
   };
 }
 
-/** A document's bytes as a Claude content block (images and PDFs up to ~8 MB), or null. */
+/** Claude takes images up to 5 MB once encoded, which is about this much file. */
+const MAX_IMAGE_BYTES = 3.7 * 1024 * 1024;
+const MAX_FILE_BYTES = 25 * 1024 * 1024;
+
+/**
+ * A copy of a photo small enough to send, as a JPEG. Only the copy changes: the
+ * file in Storage stays as uploaded, because it is the evidence. Null when the
+ * image library isn't available or can't read the format.
+ */
+async function shrinkImage(bytes: Uint8Array): Promise<Uint8Array | null> {
+  try {
+    const { default: sharp } = await import("sharp");
+    const out = await sharp(bytes).rotate().resize({ width: 2400, height: 2400, fit: "inside", withoutEnlargement: true }).jpeg({ quality: 85 }).toBuffer();
+    return out.byteLength <= MAX_IMAGE_BYTES ? new Uint8Array(out) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A document as a Claude content block (PDFs up to 10 MB, photos of any size we accept), or null. */
 export async function documentBlock(admin: ServiceClient, d: Pick<AiDoc, "storage_bucket" | "storage_path" | "mime" | "size_bytes">): Promise<Anthropic.ContentBlockParam | null> {
-  if (d.size_bytes > 8 * 1024 * 1024) return null;
+  if (d.size_bytes > MAX_FILE_BYTES) return null;
   const file = await admin.storage.from(d.storage_bucket).download(d.storage_path);
   if (!file.data) return null;
-  return fileBlock(new Uint8Array(await file.data.arrayBuffer()), d.mime);
+  const bytes = new Uint8Array(await file.data.arrayBuffer());
+  if (d.mime === "image/heic" || (d.mime.startsWith("image/") && bytes.byteLength > MAX_IMAGE_BYTES)) {
+    const small = await shrinkImage(bytes);
+    return small ? fileBlock(small, "image/jpeg") : null;
+  }
+  return fileBlock(bytes, d.mime);
 }
 
 /** Leave a suggestion for a person to decide. Older pending ones for the same thing are superseded. */

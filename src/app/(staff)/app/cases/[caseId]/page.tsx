@@ -2,14 +2,17 @@ import { Suspense } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Ban, ChevronLeft, PauseCircle, RotateCcw, ShieldCheck, ShieldOff } from "lucide-react";
+import { Ban, PauseCircle, RotateCcw, ShieldCheck, ShieldOff } from "lucide-react";
+import { SURFACE } from "@/components/admin/surface";
+import { SetCrumbs } from "@/components/layout/crumbs";
 import { Page, SectionSkeleton } from "@/components/layout/page";
+import { SectionBoundary } from "@/components/layout/section-boundary";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
-import { PriorityBadge, ProcessTypeBadge, ResultBadge, StagePill, statusLabel, ToneChip } from "@/components/cases/badges";
+import { PriorityBadge, ProcessTypeBadge, ResultBadge, shownResult, StagePill, statusNote, ToneChip } from "@/components/cases/badges";
 import { PersonChip } from "@/components/cases/person";
 import { RelativeTime, SlaBadge } from "@/components/cases/sla-badge";
 import { getStaffViewer } from "@/lib/server/viewer";
-import { getAssignments, getCase, getCaseChecks, getDocuments, getQcReviews, getRequirements, getTimeline, staffOptions } from "@/lib/server/cases/queries";
+import { getAssignments, getCase, getCaseChecks, getDocuments, getQcReviews, getRequirements, getStageDates, getTimeline, staffOptions } from "@/lib/server/cases/queries";
 import { getDocumentCategories } from "@/lib/server/cases/detail-queries";
 import { consentMissing, getCandidatePanel } from "@/lib/server/cases/candidate-queries";
 import { can, type Permission } from "@/domain/permissions";
@@ -17,6 +20,7 @@ import { availableActions } from "@/domain/workflow/transitions-core";
 import { CaseActions } from "./_components/case-actions";
 import { EraseCaseDialog } from "./_components/erase-dialog";
 import { CheckCards } from "./_components/check-cards";
+import { CaseSectionsBar, type SectionLink } from "./_components/case-sections-bar";
 import { StageRail } from "./_components/stage-rail";
 import { DocumentsPanel } from "./_components/documents-panel";
 import { Timeline } from "./_components/timeline";
@@ -24,12 +28,15 @@ import { AssignmentCard } from "./_components/assignment-card";
 import { CandidateCard, DetailsCard } from "./_components/info-cards";
 import { CandidatePanel } from "./_components/candidate-panel";
 import { ReportPanel } from "./_components/report-panel";
-import { getReleaseRecipients, getReportVersions } from "@/lib/server/reports/queries";
+import { getMissingAnnexures, getReleaseRecipients, getReportVersions } from "@/lib/server/reports/queries";
+import { validateCheckValues } from "@/domain/check-types/validate";
+import { fixedAnnexureCategories } from "@/domain/reports/compile-core";
 import { aiItem, getAiStatus, getAiWork, getCaseAi, getDocumentAi } from "@/lib/server/ai/queries";
 import { canDecide, canRerun, RERUN, type RerunCapability } from "@/domain/ai/suggestions";
 import type { ConsistencyResult, PostQcResult, PreQcResult } from "@/lib/ai/prompts";
 import { CaseCopilot } from "@/components/ai/case-copilot";
 import { AiOffNote } from "@/components/ai/ai-badge";
+import { cn } from "@/lib/utils";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -50,15 +57,22 @@ export default function CasePage({ params }: PageProps<"/app/cases/[caseId]">) {
       <Suspense fallback={<HeaderSkeleton />}>
         <Header params={params} />
       </Suspense>
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_21rem]">
-        <div className="min-w-0 space-y-6">
-          <Suspense fallback={null}>
-            <Report params={params} />
-          </Suspense>
-          <Suspense fallback={<SectionSkeleton rows={3} />}>
-            <Copilot params={params} />
-          </Suspense>
-          <Section title="Checks">
+      <Suspense fallback={<div className="-mt-5 h-11" aria-hidden />}>
+        <SectionsBar params={params} />
+      </Suspense>
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_21rem]">
+        <div className="min-w-0 space-y-5">
+          <SectionBoundary label="the report">
+            <Suspense fallback={null}>
+              <Report params={params} />
+            </Suspense>
+          </SectionBoundary>
+          <SectionBoundary label="AI suggestions">
+            <Suspense fallback={<SectionSkeleton rows={3} />}>
+              <Copilot params={params} />
+            </Suspense>
+          </SectionBoundary>
+          <Section title="Checks" id="checks">
             <Suspense fallback={<SectionSkeleton rows={4} className="shadow-none ring-0" />}>
               <Checks params={params} />
             </Suspense>
@@ -79,7 +93,7 @@ export default function CasePage({ params }: PageProps<"/app/cases/[caseId]">) {
             </Suspense>
           </Section>
         </div>
-        <aside className="min-w-0 space-y-6">
+        <aside id="details" className="min-w-0 scroll-mt-32 space-y-5">
           <Suspense fallback={<SectionSkeleton rows={3} />}>
             <Owner params={params} />
           </Suspense>
@@ -97,7 +111,7 @@ export default function CasePage({ params }: PageProps<"/app/cases/[caseId]">) {
 
 function Section({ title, id, children, action }: { title: string; id?: string; children: React.ReactNode; action?: React.ReactNode }) {
   return (
-    <section id={id} className="scroll-mt-20 rounded-2xl bg-card p-5 shadow-soft ring-1 ring-foreground/[0.07] md:p-6">
+    <section id={id} className={cn(SURFACE, "scroll-mt-32 p-5 md:p-6")}>
       <div className="mb-4 flex items-center justify-between gap-2">
         <h2 className="font-display text-lg font-semibold tracking-tight">{title}</h2>
         {action}
@@ -132,16 +146,21 @@ async function Header({ params }: Params) {
       onHold: c.onHold,
       documentsOutstanding: missing((s) => s === "documents"),
       verificationDocumentsOutstanding: missing(() => true),
-      checks: checks.map((k) => ({ state: k.state, valuesValid: k.valuesValid })),
+      checks: checks.map((k) => ({ state: k.state, entryReady: k.valuesValid || validateCheckValues(k.schema.fields, k.values, "entry").ok })),
+      annexuresMissing: c.stage === "verification" ? await getMissingAnnexures(caseId) : [],
       isOwner: c.assignee?.id === viewer.userId,
       consentMissing: consentMissing(candidate),
     },
     (p) => can(viewer, p as Permission),
   );
   const closed = c.stage === "released" || c.stage === "cancelled";
+  const stageDates = await getStageDates(caseId);
+  const result = shownResult(c);
+  const note = statusNote(c.statusKey);
 
   return (
-    <header className="space-y-4">
+    <header className="space-y-3">
+      <SetCrumbs items={[{ label: c.reference }]} />
       <RealtimeRefresh
         sources={[
           { table: "cases", filter: `id=eq.${c.id}` },
@@ -155,13 +174,10 @@ async function Header({ params }: Params) {
           { table: "report_versions", filter: `case_id=eq.${c.id}` },
         ]}
       />
-      <Link href="/app/cases" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-        <ChevronLeft className="size-4" /> Cases
-      </Link>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0 space-y-2">
+        <div className="min-w-0 space-y-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="font-display text-[1.75rem] leading-tight font-semibold tracking-tight md:text-[2rem]">{c.reference}</h1>
+            <h1 className="font-display text-2xl leading-tight font-semibold tracking-tight md:text-[1.75rem]">{c.reference}</h1>
             <PriorityBadge priority={c.priority} />
           </div>
           <p className="text-base">
@@ -178,21 +194,15 @@ async function Header({ params }: Params) {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-          <StagePill stage={c.stage} onHold={c.onHold} />
-          <ToneChip tone="neutral" dot={false}>
-            {statusLabel(c.statusKey)}
-          </ToneChip>
-          <ResultBadge result={c.finalResult ?? c.proposedResult} prefix={c.finalResult ? "Result:" : "Proposed:"} />
+          {note ? (
+            <ToneChip tone={c.statusKey === "returned_for_correction" ? "warning" : "neutral"} dot={false}>
+              {note}
+            </ToneChip>
+          ) : null}
+          {result ? <ResultBadge result={result} prefix={c.finalResult ? "Result:" : "Proposed:"} /> : null}
           {!closed && c.stage !== "report" && c.stage !== "approval" ? <SlaBadge dueAt={c.dueAt} startedAt={c.receivedAt} /> : null}
+          <PersonChip person={c.assignee} empty="Manager queue" className="max-w-44" />
         </div>
-      </div>
-
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
-        <span className="text-muted-foreground">Owner</span>
-        <PersonChip person={c.assignee} empty="Manager queue" />
-        <span className="text-muted-foreground">
-          {c.checksDone}/{c.checksTotal} checks done
-        </span>
       </div>
 
       {c.onHold ? (
@@ -220,7 +230,9 @@ async function Header({ params }: Params) {
         </Banner>
       ) : null}
 
-      <StageRail stage={c.stage} returned={Boolean(c.returnedAt)} onHold={c.onHold} />
+      <div className={cn(SURFACE, "px-4 py-3.5 sm:px-3")}>
+        <StageRail stage={c.stage} returned={Boolean(c.returnedAt)} onHold={c.onHold} enteredAt={stageDates} />
+      </div>
       <CaseActions
         caseId={c.id}
         stage={c.stage}
@@ -234,6 +246,39 @@ async function Header({ params }: Params) {
         </div>
       ) : null}
     </header>
+  );
+}
+
+/** Jump links: what is on this page, and how much of it is finished. */
+async function SectionsBar({ params }: Params) {
+  const { caseId } = await params;
+  const [viewer, c] = await Promise.all([getStaffViewer(), loadCase(caseId)]);
+  if (!c) return null;
+  const canReport = can(viewer, "reports.preview");
+  const [reqs, versions] = await Promise.all([getRequirements(caseId), canReport ? getReportVersions(caseId) : null]);
+  const missing = reqs.filter((r) => r.status === "pending" && r.minCount > r.receivedCount).length;
+  const closed = c.stage === "released" || c.stage === "cancelled";
+  const atReport = canReport && (c.stage === "report" || c.stage === "approval" || c.stage === "released" || Boolean(versions?.versions.length));
+  const links: SectionLink[] = [
+    ...(atReport ? [{ href: "#report", label: "Report" }] : []),
+    { href: "#checks", label: "Checks", note: `${c.checksDone}/${c.checksTotal}` },
+    { href: "#documents", label: "Documents", note: missing ? `${missing} missing` : undefined, alert: missing > 0 },
+    { href: "#candidate", label: "Candidate" },
+    { href: "#activity", label: "Activity" },
+    { href: "#details", label: "Details", phoneOnly: true },
+  ];
+  return (
+    <CaseSectionsBar
+      reference={c.reference}
+      candidate={c.candidate.fullName}
+      links={links}
+      status={
+        <>
+          <StagePill stage={c.stage} onHold={c.onHold} />
+          {!closed ? <SlaBadge dueAt={c.dueAt} startedAt={c.receivedAt} compact /> : null}
+        </>
+      }
+    />
   );
 }
 
@@ -264,6 +309,7 @@ async function Report({ params }: Params) {
   const { versions, draftSummary } = await getReportVersions(caseId);
   const atReport = c.stage === "report" || c.stage === "approval" || c.stage === "released";
   if (!atReport && !versions.length) return null;
+  const missingAnnexures = c.stage === "report" ? await getMissingAnnexures(caseId) : [];
   const canRelease = can(viewer, "reports.release");
   const recipients = canRelease && c.stage === "approval" ? await getReleaseRecipients(c.client.id) : [];
   return (
@@ -276,6 +322,7 @@ async function Report({ params }: Params) {
         versions={versions}
         summary={draftSummary}
         recipients={recipients}
+        missingAnnexures={missingAnnexures}
         perms={{
           preview: can(viewer, "cases.stage.change") || can(viewer, "reports.approve") || c.assignee?.id === viewer.userId,
           approve: can(viewer, "reports.approve"),
@@ -321,7 +368,14 @@ async function Copilot({ params }: Params) {
     return (
       <>
         {live}
-        <AiOffNote className="px-1" />
+        {can(viewer, "ai.configure") ? (
+          <AiOffNote className="px-1">
+            AI isn&apos;t switched on, so suggestions won&apos;t appear here.{" "}
+            <Link href="/app/settings/ai" className="underline underline-offset-2 hover:text-foreground">
+              Set it up
+            </Link>
+          </AiOffNote>
+        ) : null}
       </>
     );
   }
@@ -369,8 +423,8 @@ async function Checks({ params }: Params) {
   const { caseId } = await params;
   const c = await loadCase(caseId);
   if (!c) return null;
-  const checks = await getCaseChecks(caseId);
-  return <CheckCards caseId={caseId} checks={checks} receivedAt={c.receivedAt} />;
+  const [checks, ai] = await Promise.all([getCaseChecks(caseId), getCaseAi(caseId)]);
+  return <CheckCards caseId={caseId} checks={checks} stage={c.stage} receivedAt={c.receivedAt} found={Object.fromEntries(Object.entries(ai.checks).map(([id, k]) => [id, k.extract.length]))} />;
 }
 
 async function Documents({ params }: Params) {
@@ -391,6 +445,7 @@ async function Documents({ params }: Params) {
       documents={docs}
       categories={categories}
       checks={checks.map((k) => ({ id: k.id, label: k.label }))}
+      fixedCategories={fixedAnnexureCategories(checks)}
       perms={{
         upload: can(viewer, "cases.update") || can(viewer, "candidates.manage"),
         review: can(viewer, "cases.update") || can(viewer, "qc.pre"),
@@ -497,7 +552,7 @@ async function QcHistory({ params }: Params) {
   if (!reviews.length) return null;
   const label = (id: string) => checks.find((k) => k.id === id)?.label ?? "a check";
   return (
-    <section className="rounded-2xl bg-card p-5 shadow-soft ring-1 ring-foreground/[0.07]">
+    <section className={cn(SURFACE, "p-5")}>
       <h2 className="mb-3 text-sm font-semibold">Quality reviews</h2>
       <ol className="space-y-4">
         {reviews.map((r) => (

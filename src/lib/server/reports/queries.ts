@@ -84,6 +84,13 @@ export const getReportVersions = cache(async (caseId: string): Promise<{ version
   return { versions, draftSummary };
 });
 
+/** Checks with a result whose fixed annexure (Global Sanction report) has no file (0040). */
+export const getMissingAnnexures = cache(async (caseId: string): Promise<string[]> => {
+  const supabase = await createRequestClient();
+  const { data } = await supabase.rpc("case_missing_annexures", { p_case: caseId });
+  return data ?? [];
+});
+
 export type ReleaseRecipient = { id: string; name: string; email: string; roleName: string; readsCases: boolean };
 
 /** The client's active portal users, for the release dialog. */

@@ -17,6 +17,7 @@ import { draftQuoteText, saveQuoteDraft } from "@/app/(staff)/app/quotes/actions
 import { QuoteLinesEditor, QuoteTiersEditor } from "./quote-lines-editor";
 import { QuoteActions } from "./quote-actions";
 import type { QuoteBuilderData, QuoteDraft } from "./types";
+import { DateField } from "@/components/forms/date-field";
 
 type SaveState = { kind: "idle" } | { kind: "saving" } | { kind: "saved"; at: string } | { kind: "error"; message: string };
 
@@ -171,7 +172,7 @@ export function QuoteBuilder({ data }: { data: QuoteBuilderData }) {
                   </Select>
                 </Labeled>
                 <Labeled label="Valid until">
-                  <Input type="date" value={draft.valid_until} onChange={(e) => e.target.value && update({ valid_until: e.target.value })} />
+                  <DateField value={draft.valid_until} onChange={(e) => e.target.value && update({ valid_until: e.target.value })} />
                 </Labeled>
                 <Labeled label="Payment terms (days)">
                   <Input type="number" min={0} max={180} value={draft.payment_terms_days} onChange={(e) => update({ payment_terms_days: Math.min(180, Math.max(0, Math.round(Number(e.target.value) || 0))) })} />

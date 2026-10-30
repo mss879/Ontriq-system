@@ -33,7 +33,10 @@ export type CaseFacts = {
   documentsOutstanding: number;
   /** Required documents due by the end of verification not yet received or waived. */
   verificationDocumentsOutstanding: number;
-  checks: { state: CheckState; valuesValid: boolean }[];
+  /** entryReady: everything Data Entry owes is in. Results wait for verification. */
+  checks: { state: CheckState; entryReady: boolean }[];
+  /** Completed checks whose fixed annexure has no file (public.case_missing_annexures, 0040). */
+  annexuresMissing?: string[];
   /** The viewer owns the case. */
   isOwner: boolean;
   /** A candidate link was issued and the candidate has not signed consent yet (0008: needed before Pre-QC). */
@@ -96,7 +99,7 @@ export function availableActions(facts: CaseFacts, can: (permission: string) => 
       break;
     case "data_entry": {
       if (can("checks.data_entry") || can("cases.stage.change")) {
-        const invalid = counted.filter((c) => !c.valuesValid).length;
+        const invalid = counted.filter((c) => !c.entryReady).length;
         out.push({
           action: "start_verification",
           label: "Start verification",
@@ -111,11 +114,18 @@ export function availableActions(facts: CaseFacts, can: (permission: string) => 
       if (mover) {
         const open = counted.filter((c) => !isTerminalCheck(c.state)).length;
         const docs = facts.verificationDocumentsOutstanding;
+        const annexures = facts.annexuresMissing ?? [];
         out.push({
           action: "submit_post_qc",
           label: "Send to Post-QC",
-          allowed: open === 0 && docs === 0,
-          reason: open ? `${plural(open, "check")} still open.` : docs ? `${plural(docs, "required document")} still missing.` : undefined,
+          allowed: open === 0 && docs === 0 && annexures.length === 0,
+          reason: open
+            ? `${plural(open, "check")} still open.`
+            : docs
+              ? `${plural(docs, "required document")} still missing.`
+              : annexures.length
+                ? `${annexures.join(", ")} has no report attached. Upload it first: it goes in the final report.`
+                : undefined,
           emphasis: "primary",
         });
       }

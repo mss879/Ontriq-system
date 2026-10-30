@@ -21,7 +21,7 @@ function useMinutesLeft(until: string | null | undefined) {
 const TONE: Record<ActionState["status"], string> = {
   proposed: "ring-primary/25 bg-primary/[0.03]",
   confirmed: "ring-primary/25",
-  done: "ring-emerald-500/30 bg-emerald-500/[0.04]",
+  done: "ring-success/30 bg-success/[0.04]",
   failed: "ring-destructive/30 bg-destructive/[0.04]",
   cancelled: "ring-foreground/10 opacity-75",
   undone: "ring-foreground/10 opacity-75",
@@ -69,7 +69,7 @@ export function ActionCard({ card, state, onState }: { card: Card; state: Action
     <section className={cn("rounded-xl p-3 ring-1 transition-colors", TONE[s.status])} aria-label={`Proposed action: ${card.title}`}>
       <div className="flex items-start gap-2">
         <span className="mt-0.5 shrink-0 text-primary">
-          {s.status === "done" ? <Check className="size-4 text-emerald-600" /> : s.status === "failed" ? <CircleAlert className="size-4 text-destructive" /> : s.status === "cancelled" ? <CircleSlash className="size-4 text-muted-foreground" /> : s.status === "undone" ? <RotateCcw className="size-4 text-muted-foreground" /> : <ShieldCheck className="size-4" />}
+          {s.status === "done" ? <Check className="size-4 text-success" /> : s.status === "failed" ? <CircleAlert className="size-4 text-destructive" /> : s.status === "cancelled" ? <CircleSlash className="size-4 text-muted-foreground" /> : s.status === "undone" ? <RotateCcw className="size-4 text-muted-foreground" /> : <ShieldCheck className="size-4" />}
         </span>
         <div className="min-w-0 flex-1 space-y-1">
           <p className="text-sm font-semibold">{card.title}</p>
@@ -82,7 +82,7 @@ export function ActionCard({ card, state, onState }: { card: Card; state: Action
               ))}
             </ul>
           )}
-          {s.status === "done" && s.summary && <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400">{s.summary}</p>}
+          {s.status === "done" && s.summary && <p className="text-xs font-medium text-success">{s.summary}</p>}
           {s.status === "undone" && <p className="text-xs text-muted-foreground">{s.summary ?? "Undone."}</p>}
           {s.status === "cancelled" && <p className="text-xs text-muted-foreground">Cancelled. Nothing was changed.</p>}
           {s.status === "failed" && <p className="text-xs text-destructive">{s.error ?? "It didn't work."}</p>}

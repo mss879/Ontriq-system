@@ -62,6 +62,11 @@ export const reportRender: JobHandler = async (job, { admin, heartbeat }) => {
     });
     await heartbeat({ step: "body" });
     const assembled = await assembleReport(new Uint8Array(body), annexures, { reference: snapshot.case.reference, draft: v.kind === "draft" });
+    // A report without its fixed annexure is not a report: stop here and say why.
+    const lost = snapshot.annexures.find((a) => a.kind === "fixed" && assembled.skipped.includes(a.filename));
+    if (lost) {
+      throw new NonRetryableError(`${lost.title} (${lost.filename}) couldn't be attached. It must be a PDF, JPEG or PNG that opens normally. Upload a new version, then generate the draft again.`);
+    }
 
     const path = `org/${v.org_id}/case/${v.case_id}/report/v${v.version}-${v.kind}.pdf`;
     const up = await admin.storage.from("reports").upload(path, assembled.bytes, { contentType: "application/pdf", upsert: true });

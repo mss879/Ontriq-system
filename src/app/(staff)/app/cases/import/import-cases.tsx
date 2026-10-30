@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { AlertTriangle, CheckCircle2, Download, FileSpreadsheet, Mail, RotateCcw, Upload, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Download, FileSpreadsheet, Mail, Plus, RotateCcw, Upload, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { IMPORT_COLUMNS, IMPORT_MAX_ROWS, importTemplateCsv, validateImport } from "@/domain/cases/import-core";
 import { importCases, type ImportLineResult } from "./actions";
+import { QuickClientDialog } from "../../clients/quick-client-dialog";
 
 type ProcessType = "client_supplied" | "candidate_collected";
 type Priority = "normal" | "high" | "urgent";
@@ -32,17 +33,22 @@ const MAX_FILE_BYTES = 1024 * 1024;
 type Filter = "all" | "problems";
 
 export function ImportCases({
-  clients,
+  clients: loadedClients,
+  canAddClient,
   packages,
   templates,
   initialClientId,
 }: {
   clients: { id: string; name: string; code: string }[];
+  canAddClient: boolean;
   packages: PackageOption[];
   templates: TemplateOption[];
   initialClientId?: string;
 }) {
   const input = useRef<HTMLInputElement>(null);
+  const [addingClient, setAddingClient] = useState(false);
+  const [addedClients, setAddedClients] = useState<{ id: string; name: string; code: string }[]>([]);
+  const clients = useMemo(() => [...addedClients, ...loadedClients.filter((c) => !addedClients.some((a) => a.id === c.id))], [addedClients, loadedClients]);
   const [clientId, setClientId] = useState(initialClientId ?? "");
   const [setup, setSetup] = useState(""); // "t:<id>" or "p:<id>"
   const [processType, setProcessType] = useState<ProcessType>("client_supplied");
@@ -172,7 +178,7 @@ export function ImportCases({
           >
             <RotateCcw /> Import another file
           </Button>
-          <Button asChild variant="brand">
+          <Button asChild>
             <Link href={`/app/cases?client=${clientId}`}>Open {client?.name}&rsquo;s cases</Link>
           </Button>
         </div>
@@ -189,7 +195,25 @@ export function ImportCases({
         </div>
         <div className="grid gap-4 md:grid-cols-2">
           <Field>
-            <FieldLabel htmlFor="import-client">Client</FieldLabel>
+            <div className="flex items-center justify-between gap-2">
+              <FieldLabel htmlFor="import-client">Client</FieldLabel>
+              {canAddClient ? (
+                <button type="button" className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline dark:text-brand-sky" onClick={() => setAddingClient(true)}>
+                  <Plus className="size-3" /> New client
+                </button>
+              ) : null}
+            </div>
+            <QuickClientDialog
+              open={addingClient}
+              onOpenChange={setAddingClient}
+              existing={clients}
+              onPick={(client) => {
+                setAddingClient(false);
+                if (client.name && client.code) setAddedClients((prev) => [{ id: client.id, name: client.name as string, code: client.code as string }, ...prev]);
+                setClientId(client.id);
+                setSetup("");
+              }}
+            />
             <Select
               value={clientId}
               onValueChange={(v) => {
@@ -291,7 +315,7 @@ export function ImportCases({
             <Button variant="outline" onClick={downloadTemplate}>
               <Download /> Template
             </Button>
-            <Button variant={file ? "outline" : "brand"} onClick={() => input.current?.click()}>
+            <Button variant={file ? "outline" : "default"} onClick={() => input.current?.click()}>
               <Upload /> {file ? "Choose another" : "Choose CSV"}
             </Button>
             <input
@@ -405,7 +429,7 @@ export function ImportCases({
             </>
           )}
         </p>
-        <Button variant="brand" size="lg" className="h-10 shrink-0 px-5" onClick={() => setConfirming(true)} disabled={pending || !canImport}>
+        <Button size="lg" className="h-10 shrink-0 px-5" onClick={() => setConfirming(true)} disabled={pending || !canImport}>
           {pending ? <Spinner /> : <Upload />} Create {ready.length || ""} {ready.length === 1 ? "case" : "cases"}
         </Button>
       </div>

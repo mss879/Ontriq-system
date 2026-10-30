@@ -6,6 +6,7 @@ import { Download, ExternalLink, FileText } from "lucide-react";
 import { Page, PageHeader, SectionSkeleton } from "@/components/layout/page";
 import { ListFilters } from "@/components/admin/list-filters";
 import { Surface, TH } from "@/components/admin/surface";
+import { DataTable, HEAD_ROW, ListCard, ROW, ROW_ACTION, ROW_LINK } from "@/components/layout/data-table";
 import { ResultBadge, ToneChip } from "@/components/cases/badges";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
@@ -21,7 +22,7 @@ export default function ReportsPage({ searchParams }: PageProps<"/app/reports">)
   return (
     <Page className="max-w-7xl">
       <PageHeader
-        eyebrow="Workspace"
+        eyebrow="Directory"
         title="Reports"
         description="Every final report released to a client. Versions replaced by a revision stay here, marked as replaced; nothing is overwritten."
       />
@@ -60,6 +61,23 @@ async function Filters() {
   );
 }
 
+function FileActions({ reference, version, versionId }: { reference: string; version: number; versionId: string }) {
+  return (
+    <>
+      <Button asChild variant="ghost" size="icon-sm" aria-label={`Open ${reference} version ${version}`}>
+        <a href={`/api/reports/${versionId}`} target="_blank" rel="noreferrer">
+          <ExternalLink />
+        </a>
+      </Button>
+      <Button asChild variant="ghost" size="icon-sm" aria-label={`Download ${reference} version ${version}`}>
+        <a href={`/api/reports/${versionId}?download=1`}>
+          <Download />
+        </a>
+      </Button>
+    </>
+  );
+}
+
 async function Archive({ searchParams }: Pick<PageProps<"/app/reports">, "searchParams">) {
   const [viewer, sp] = await Promise.all([getStaffViewer(), searchParams]);
   if (!can(viewer, "reports.preview")) redirect("/app");
@@ -84,24 +102,43 @@ async function Archive({ searchParams }: Pick<PageProps<"/app/reports">, "search
 
   return (
     <div className="space-y-3">
-      <Surface className="overflow-hidden p-0">
-        <div className="overflow-x-auto">
+      <DataTable
+        cards={rows.map((r) => (
+          <ListCard
+            key={r.versionId}
+            href={`/app/cases/${r.caseId}#report`}
+            title={
+              <>
+                <span className="block font-mono text-xs font-semibold text-primary dark:text-brand-sky">{r.reference}</span>
+                {r.candidateName}
+              </>
+            }
+            subtitle={`${r.clientName} · ${formatDate(r.releasedAt)} · v${r.version}`}
+            aside={r.finalResult ? <ResultBadge result={r.finalResult} /> : undefined}
+          >
+            {r.status === "superseded" ? <ToneChip tone="neutral">Replaced</ToneChip> : null}
+            <span className={`ml-auto flex gap-1 ${ROW_ACTION}`}>
+              <FileActions reference={r.reference} version={r.version} versionId={r.versionId} />
+            </span>
+          </ListCard>
+        ))}
+      >
           <Table>
             <TableHeader>
-              <TableRow>
-                <TableHead className={TH}>Case</TableHead>
+              <TableRow className={HEAD_ROW}>
+                <TableHead className={`${TH} pl-5`}>Case</TableHead>
                 <TableHead className={TH}>Client</TableHead>
                 <TableHead className={TH}>Result</TableHead>
                 <TableHead className={TH}>Released</TableHead>
                 <TableHead className={TH}>Version</TableHead>
-                <TableHead className={`${TH} text-right`}>File</TableHead>
+                <TableHead className={`${TH} pr-5 text-right`}>File</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {rows.map((r) => (
-                <TableRow key={r.versionId}>
-                  <TableCell>
-                    <Link href={`/app/cases/${r.caseId}#report`} className="font-mono text-[13px] font-semibold text-primary hover:underline dark:text-brand-sky">
+                <TableRow key={r.versionId} className={`group ${ROW}`}>
+                  <TableCell className="pl-5">
+                    <Link href={`/app/cases/${r.caseId}#report`} className={`font-mono text-[13px] font-semibold text-primary group-hover:underline dark:text-brand-sky ${ROW_LINK}`}>
                       {r.reference}
                     </Link>
                     <p className="text-sm">{r.candidateName}</p>
@@ -116,26 +153,16 @@ async function Archive({ searchParams }: Pick<PageProps<"/app/reports">, "search
                     </div>
                     {r.revisionReason ? <p className="max-w-56 truncate text-xs text-muted-foreground" title={r.revisionReason}>Revision: {r.revisionReason}</p> : null}
                   </TableCell>
-                  <TableCell className="text-right">
+                  <TableCell className={`pr-5 text-right ${ROW_ACTION}`}>
                     <div className="flex justify-end gap-1">
-                      <Button asChild variant="ghost" size="icon-sm" aria-label={`Open ${r.reference} version ${r.version}`}>
-                        <a href={`/api/reports/${r.versionId}`} target="_blank" rel="noreferrer">
-                          <ExternalLink />
-                        </a>
-                      </Button>
-                      <Button asChild variant="ghost" size="icon-sm" aria-label={`Download ${r.reference} version ${r.version}`}>
-                        <a href={`/api/reports/${r.versionId}?download=1`}>
-                          <Download />
-                        </a>
-                      </Button>
+                      <FileActions reference={r.reference} version={r.version} versionId={r.versionId} />
                     </div>
                   </TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
-        </div>
-      </Surface>
+      </DataTable>
       {total > rows.length || capped ? (
         <p className="text-sm text-muted-foreground">
           Showing the latest {Math.min(rows.length, ARCHIVE_LIMIT)} of {capped ? "many" : total}. Narrow the dates or search to find older reports.

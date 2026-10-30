@@ -2,7 +2,8 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { BUILTIN_CHECK_TYPES, BUILTIN_PACKAGES, DOCUMENT_CATEGORIES } from "@/domain/check-types/builtin";
 import { checkTypeSchema, parseCheckTypeSchema, type FieldDef } from "@/domain/check-types/schema";
-import { completion, validateCheckValues } from "@/domain/check-types/validate";
+import { completion, modeAt, validateCheckValues } from "@/domain/check-types/validate";
+import type { Stage } from "@/domain/workflow/stages";
 
 const byKey = (key: string) => parseCheckTypeSchema(BUILTIN_CHECK_TYPES.find((t) => t.key === key)!.schema);
 
@@ -43,7 +44,33 @@ describe("built-in check types", () => {
     const end = sql.indexOf("$builtin$", start);
     const seeded = JSON.parse(sql.slice(start, end)) as { key: string; schema: unknown }[];
     expect(seeded.map((s) => s.key)).toEqual(BUILTIN_CHECK_TYPES.map((t) => t.key));
-    for (const t of BUILTIN_CHECK_TYPES) expect(seeded.find((s) => s.key === t.key)!.schema).toEqual(parseCheckTypeSchema(t.schema));
+    // 0024 predates field stages; 0040 adds them, checked below.
+    const withoutStage = (f: FieldDef): Partial<FieldDef> => {
+      const copy: Partial<FieldDef> = { ...f };
+      delete copy.stage;
+      if (f.fields) copy.fields = (f.fields as FieldDef[]).map(withoutStage) as FieldDef["fields"];
+      return copy;
+    };
+    for (const t of BUILTIN_CHECK_TYPES) {
+      const parsed = parseCheckTypeSchema(t.schema);
+      expect(seeded.find((s) => s.key === t.key)!.schema).toEqual({ ...parsed, fields: parsed.fields.map(withoutStage) });
+    }
+  });
+
+  it("are marked for verification exactly as 0040 marks stored versions", () => {
+    const sql = readFileSync("supabase/migrations/0040_evidence_and_entry_rules.sql", "utf8");
+    const start = sql.indexOf("$stages$") + "$stages$".length;
+    const marked = JSON.parse(sql.slice(start, sql.indexOf("$stages$", start))) as Record<string, string[]>;
+    const later = (fields: FieldDef[]): string[] => fields.flatMap((f) => [...(f.stage === "verification" ? [f.key] : []), ...later((f.fields ?? []) as FieldDef[])]);
+    for (const t of BUILTIN_CHECK_TYPES) expect(marked[t.key]).toEqual(later(parseCheckTypeSchema(t.schema).fields));
+  });
+
+  it("never ask Data Entry for a result", () => {
+    const later = (k: string) => byKey(k).fields.filter((f) => f.stage === "verification").map((f) => f.key);
+    expect(later("sanction")).toEqual(expect.arrayContaining(["sanctions_found", "details"]));
+    expect(later("nic")).toContain("validation_source");
+    expect(later("address")).toContain("verified_by");
+    expect(later("police")).toContain("verified_by");
   });
 
   it("rejects duplicate keys and empty choices", () => {
@@ -62,6 +89,35 @@ describe("built-in check types", () => {
 describe("check values", () => {
   const employment = byKey("employment").fields;
   const reference = byKey("reference").fields;
+
+  it("asks Data Entry only for its own fields, and verification for the rest", () => {
+    const sanction = byKey("sanction").fields;
+    expect(validateCheckValues(sanction, {}, "entry").ok).toBe(true);
+    expect(validateCheckValues(sanction, {}, "submit").errors).toHaveProperty("sanctions_found");
+
+    const nic = byKey("nic").fields;
+    const typed = { nic_number: "853400937V", name_on_nic: "Nimal Perera" };
+    expect(Object.keys(validateCheckValues(nic, {}, "entry").errors).sort()).toEqual(["name_on_nic", "nic_number"]);
+    expect(validateCheckValues(nic, typed, "entry").ok).toBe(true);
+    expect(validateCheckValues(nic, typed, "submit").errors).toHaveProperty("validation_source");
+    expect(validateCheckValues(nic, { ...typed, validation_source: "drp" }, "submit").ok).toBe(true);
+  });
+
+  it("still checks formats on fields that aren't due yet", () => {
+    expect(validateCheckValues(byKey("sanction").fields, { screened_on: "not a date" }, "entry").errors).toHaveProperty("screened_on");
+  });
+
+  it("counts only what is due at this stage", () => {
+    const nic = byKey("nic").fields;
+    expect(completion(nic, {}, "entry").required).toBe(2);
+    expect(completion(nic, {}).required).toBe(3);
+    expect(completion(byKey("sanction").fields, {}, "entry").required).toBe(0);
+  });
+
+  it("switches from Data Entry's fields to all of them when verification starts", () => {
+    expect(["intake", "documents", "pre_qc", "data_entry"].map((s) => modeAt(s as Stage))).toEqual(["entry", "entry", "entry", "entry"]);
+    expect(["verification", "post_qc", "report"].map((s) => modeAt(s as Stage))).toEqual(["submit", "submit", "submit"]);
+  });
 
   it("lets a draft be saved with required fields missing", () => {
     const r = validateCheckValues(employment, { candidate_name: "  Nimal Perera " }, "draft");

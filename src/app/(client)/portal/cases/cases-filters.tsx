@@ -1,10 +1,9 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Search } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { SegmentedTabs } from "@/components/layout/tabs";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
@@ -39,26 +38,7 @@ export function PortalCasesFilters({ query, q: urlQ, status, sort, base = "/port
 
   return (
     <div className="space-y-3">
-      {tabs ? (
-        <div className="-mx-4 overflow-x-auto px-4 md:mx-0 md:px-0">
-          <div className="inline-flex gap-1 rounded-xl bg-muted p-1" role="tablist" aria-label="Status">
-            {TABS.map((t) => (
-              <Link
-                key={t.key}
-                href={portalCasesHref(query, { status: t.key }, base)}
-                role="tab"
-                aria-selected={status === t.key}
-                className={cn(
-                  "flex h-8 shrink-0 items-center rounded-lg px-3 text-[13px] font-medium whitespace-nowrap text-muted-foreground transition-colors hover:text-foreground",
-                  status === t.key && "bg-card text-foreground shadow-soft ring-1 ring-foreground/[0.06]",
-                )}
-              >
-                {t.label}
-              </Link>
-            ))}
-          </div>
-        </div>
-      ) : null}
+      {tabs ? <SegmentedTabs label="Status" active={status} items={TABS.map((t) => ({ key: t.key, label: t.label, href: portalCasesHref(query, { status: t.key }, base) }))} /> : null}
       <div className="flex items-center gap-2">
         <div className="relative min-w-0 flex-1 sm:max-w-sm">
           <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />

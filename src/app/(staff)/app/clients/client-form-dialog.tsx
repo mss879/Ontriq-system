@@ -34,7 +34,8 @@ export type ClientFormValues = {
   notes: string;
 };
 
-const EMPTY: ClientFormValues = {
+/** A new client's starting values. */
+export const EMPTY_CLIENT: ClientFormValues = {
   name: "",
   code: "",
   legalName: "",
@@ -79,7 +80,7 @@ export function ClientFormDialog({ mode, clientId, initial, onDark }: { mode: "c
         )}
       </DialogTrigger>
       <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-2xl">
-        <ClientForm key={formKey} mode={mode} clientId={clientId} initial={initial ?? EMPTY} onDone={() => setOpen(false)} />
+        <ClientForm key={formKey} mode={mode} clientId={clientId} initial={initial ?? EMPTY_CLIENT} onDone={() => setOpen(false)} />
       </DialogContent>
     </Dialog>
   );

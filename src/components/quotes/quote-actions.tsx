@@ -58,7 +58,7 @@ export function QuoteActions({ data, beforeConfirm }: { data: QuoteBuilderData; 
   return (
     <div className="flex flex-wrap items-center gap-2">
       {draft && data.canEdit ? (
-        <Button variant="brand" size="lg" className="h-9 px-3.5" onClick={() => setConfirmOpen(true)} disabled={pending}>
+        <Button size="lg" className="h-9 px-3.5" onClick={() => setConfirmOpen(true)} disabled={pending}>
           <Lock /> Confirm
         </Button>
       ) : null}
@@ -99,7 +99,7 @@ export function QuoteActions({ data, beforeConfirm }: { data: QuoteBuilderData; 
         )
       ) : null}
       {sendable && data.canSend ? (
-        <Button variant={q.sent_at ? "outline" : "brand"} size="lg" className="h-9 px-3.5" onClick={() => setSendOpen(true)} disabled={pending}>
+        <Button variant={q.sent_at ? "outline" : "default"} size="lg" className="h-9 px-3.5" onClick={() => setSendOpen(true)} disabled={pending}>
           <Send /> {q.sent_at ? "Send again" : "Send"}
         </Button>
       ) : null}
@@ -202,7 +202,7 @@ function SendForm({ data, onDone }: { data: QuoteBuilderData; onDone: () => void
         <Button variant="ghost" onClick={onDone} disabled={pending}>
           Cancel
         </Button>
-        <Button variant="brand" onClick={send} disabled={pending || (!picked.length && !extra.trim())}>
+        <Button onClick={send} disabled={pending || (!picked.length && !extra.trim())}>
           {pending ? <Spinner /> : <Send />} Send
         </Button>
       </DialogFooter>
@@ -211,7 +211,7 @@ function SendForm({ data, onDone }: { data: QuoteBuilderData; onDone: () => void
 }
 
 /** "New quotation" for a client (client page, quotations list). */
-export function NewQuoteForClient({ clientId, label = "New quotation", variant = "outline" }: { clientId: string; label?: string; variant?: "outline" | "brand" }) {
+export function NewQuoteForClient({ clientId, label = "New quotation", variant = "outline" }: { clientId: string; label?: string; variant?: "outline" | "default" }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   return (

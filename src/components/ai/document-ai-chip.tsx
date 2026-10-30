@@ -28,8 +28,8 @@ export function DocumentAiChip({ ai, typeName, canDismiss }: { ai: DocumentAi; t
     ...(ai.matchesExpected === false && ai.type ? [`looks like ${typeName(ai.type).toLowerCase()}`] : []),
     ...ai.issues.map((i) => ISSUE[i] ?? i.replace(/_/g, " ")),
   ];
-  const tone = ai.possibleTampering ? "danger" : problems.length ? "warning" : "neutral";
-  const label = ai.possibleTampering ? "Check for editing" : problems.length ? (problems.length === 1 ? capital(problems[0]) : `${problems.length} quality issues`) : ai.type ? typeName(ai.type) : "Read by AI";
+  const tone = ai.possibleTampering ? "danger" : problems.length || ai.notRead ? "warning" : "neutral";
+  const label = ai.notRead ? "Not read by AI" : ai.possibleTampering ? "Check for editing" : problems.length ? (problems.length === 1 ? capital(problems[0]) : `${problems.length} quality issues`) : ai.type ? typeName(ai.type) : "Read by AI";
   const flagIds = [ai.qualitySuggestionId, ai.tamperSuggestionId].filter((x): x is string => Boolean(x));
 
   const dismiss = () =>
@@ -58,7 +58,7 @@ export function DocumentAiChip({ ai, typeName, canDismiss }: { ai: DocumentAi; t
           <span className="truncate">{label}</span>
         </button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-72 space-y-2 text-sm">
+      <PopoverContent align="end" className="w-80 space-y-2 text-sm">
         <p className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
           <Sparkles className="size-3.5" aria-hidden /> AI suggested · a person decides
         </p>
@@ -69,6 +69,14 @@ export function DocumentAiChip({ ai, typeName, canDismiss }: { ai: DocumentAi; t
           {ai.issues.length ? <Row k="Quality" v={ai.issues.map((i) => ISSUE[i] ?? i).join(", ")} /> : null}
           {ai.language ? <Row k="Language" v={ai.language === "si" ? "Sinhala" : ai.language === "ta" ? "Tamil" : ai.language === "en" ? "English" : ai.language} /> : null}
         </dl>
+        {ai.notRead ? <p className="rounded-lg bg-warning/10 px-2.5 py-2 text-xs">The AI couldn&apos;t read this file. {ai.notRead}</p> : null}
+        {ai.translation ? (
+          <div className="space-y-1">
+            <p className="text-xs font-medium">English translation</p>
+            <p className="max-h-48 overflow-y-auto rounded-lg bg-muted/60 px-2.5 py-2 text-xs leading-relaxed whitespace-pre-wrap">{ai.translation}</p>
+            <p className="text-[11px] text-muted-foreground">Machine translation. Check it against the file before relying on it.</p>
+          </div>
+        ) : null}
         {ai.possibleTampering ? (
           <p className="rounded-lg bg-destructive/5 px-2.5 py-2 text-xs text-destructive">
             Possible signs of editing{ai.tamperNotes ? `: ${ai.tamperNotes}` : "."} This is not proof; compare with the original or the source.

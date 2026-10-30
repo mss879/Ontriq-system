@@ -1,11 +1,12 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import type { Metadata } from "next";
-import { AlarmClock, ArrowRight, ArrowUpRight, Boxes, CheckCircle2, ClipboardList, FilePlus2, FileWarning, Inbox, LayoutTemplate, ShieldCheck, Timer } from "lucide-react";
-import { Eyebrow, Page, SectionSkeleton } from "@/components/layout/page";
+import { AlarmClock, ArrowRight, Boxes, CheckCircle2, ClipboardList, FilePlus2, FileWarning, Inbox, LayoutTemplate, ShieldCheck, Timer } from "lucide-react";
+import { Page, SectionSkeleton } from "@/components/layout/page";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Button } from "@/components/ui/button";
+import { KpiTile } from "@/components/charts/kpi";
 import { PortalCaseList } from "@/components/portal/case-list";
 import { waitsOnClient } from "@/components/portal/portal-badges";
 import { getClientViewer } from "@/lib/server/viewer";
@@ -17,8 +18,8 @@ export const metadata: Metadata = { title: "Client portal" };
 
 export default function PortalHome() {
   return (
-    <Page className="space-y-8">
-      <Suspense fallback={<div className="h-[212px] animate-pulse rounded-3xl bg-brand/90" aria-hidden />}>
+    <Page>
+      <Suspense fallback={<div className="h-[84px] animate-pulse rounded-2xl bg-brand/90" aria-hidden />}>
         <Welcome />
       </Suspense>
       <Suspense fallback={<DashboardSkeleton />}>
@@ -33,38 +34,32 @@ async function Welcome() {
   const first = viewer.fullName.split(" ")[0] || "there";
   const canCreate = can(viewer, "portal.cases.create");
   return (
-    <section className="brand-glow relative overflow-hidden rounded-3xl px-6 py-8 text-white shadow-lift ring-1 ring-black/5 md:px-9 md:py-10 dark:ring-white/[0.07]">
+    <section className="brand-glow relative overflow-hidden rounded-2xl px-5 py-4 text-white shadow-soft ring-1 ring-black/5 md:px-7 dark:ring-white/[0.07]">
       <div aria-hidden className="pointer-events-none absolute inset-0 bg-grid bg-grid-fade opacity-[0.06]" />
-      <div className="relative flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
-        <div className="space-y-3">
-          <Eyebrow tone="onDark">{viewer.clientName}</Eyebrow>
-          <h1 className="font-display text-[2rem] leading-[1.1] font-semibold tracking-tight md:text-[2.5rem]">Welcome, {first}</h1>
-          <p className="max-w-xl text-sm leading-relaxed text-white/70">
-            Track every background check for your candidates, see what’s needed from you, and download reports the moment they’re released.
+      <div className="relative flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="font-display text-xl leading-tight font-semibold tracking-tight md:text-2xl">Welcome, {first}</h1>
+          <p className="mt-1 flex flex-wrap items-center gap-x-2 text-[13px] text-white/65">
+            <span>{viewer.clientName}</span>
+            <span aria-hidden>·</span>
+            <span className="inline-flex items-center gap-1">
+              <ShieldCheck className="size-3.5 text-brand-peach" aria-hidden /> Confidential by design
+            </span>
           </p>
-          <ul className="flex flex-wrap gap-x-5 gap-y-1.5 pt-1 text-[13px] text-white/75">
-            <li className="flex items-center gap-1.5">
-              <ShieldCheck className="size-4 text-[#ffb08f]" /> Confidential by design
-            </li>
-            <li className="flex items-center gap-1.5">
-              <ArrowUpRight className="size-4 text-[#ffb08f]" /> Live status, no phone calls
-            </li>
-          </ul>
         </div>
         {canCreate ? (
-          <div className="flex flex-wrap gap-2">
-            <Link
-              href="/portal/cases/new"
-              className="inline-flex h-10 items-center gap-2 rounded-xl bg-white px-4 text-sm font-semibold text-[#0A1A2F] shadow-[0_8px_24px_-8px_rgb(247_88_52/0.6)] transition-transform hover:-translate-y-px"
-            >
-              <FilePlus2 className="size-4 text-brand-orange" /> New request
-            </Link>
+          <div className="flex shrink-0 flex-wrap gap-2">
             <Link
               href="/portal/cases"
-              className="inline-flex h-10 items-center gap-2 rounded-xl bg-white/10 px-4 text-sm font-medium text-white ring-1 ring-white/15 backdrop-blur transition-colors hover:bg-white/15"
+              className="inline-flex h-9 items-center gap-2 rounded-xl bg-white/10 px-3.5 text-sm font-medium text-white ring-1 ring-white/15 backdrop-blur transition-colors outline-none hover:bg-white/15 focus-visible:ring-2 focus-visible:ring-white/60"
             >
               All cases <ArrowRight className="size-4" />
             </Link>
+            <Button asChild variant="inverse" size="lg" className="h-9 px-3.5">
+              <Link href="/portal/cases/new">
+                <FilePlus2 /> New request
+              </Link>
+            </Button>
           </div>
         ) : null}
       </div>
@@ -126,7 +121,7 @@ async function Dashboard() {
             </EmptyHeader>
             {canCreate ? (
               <EmptyContent>
-                <Button asChild variant="brand">
+                <Button asChild>
                   <Link href="/portal/cases/new">
                     <FilePlus2 /> New request
                   </Link>
@@ -141,39 +136,21 @@ async function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <dl className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        {tiles.map((t) => {
-          const Icon = t.icon;
-          const body = (
-            <div
-              className={cn(
-                "flex h-full flex-col gap-3 rounded-2xl bg-card p-4 shadow-soft ring-1 ring-foreground/[0.07] transition-all",
-                t.href && "group-hover:-translate-y-0.5 group-hover:shadow-lift",
-                t.warn && "ring-brand-orange/30",
-                t.danger && "ring-destructive/30",
-              )}
-            >
-              <div className="flex items-center justify-between">
-                <dt className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">{t.label}</dt>
-                <Icon className={cn("size-4 text-muted-foreground", t.warn && "text-brand-orange", t.danger && "text-destructive")} aria-hidden />
-              </div>
-              <dd className={cn("font-display text-[1.75rem] leading-none font-semibold tabular-nums", t.danger && "text-destructive")}>{t.value}</dd>
-              <dd className="text-xs text-muted-foreground">{t.sub}</dd>
-            </div>
-          );
-          return (
-            <div key={t.label} className={cn(t.label === "Turnaround" && "col-span-2 lg:col-span-1")}>
-              {t.href ? (
-                <Link href={t.href} className="group block h-full">
-                  {body}
-                </Link>
-              ) : (
-                body
-              )}
-            </div>
-          );
-        })}
-      </dl>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        {tiles.map((t) => (
+          <KpiTile
+            key={t.label}
+            label={t.label}
+            value={String(t.value)}
+            sub={t.sub}
+            icon={t.icon}
+            href={t.href}
+            tone={t.danger ? "bad" : t.warn ? "warn" : "default"}
+            alert={t.danger}
+            className={t.warn ? "ring-brand-orange/30" : undefined}
+          />
+        ))}
+      </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="min-w-0 space-y-6 lg:col-span-2">
@@ -232,7 +209,7 @@ async function Dashboard() {
                   </div>
                   <div className="h-1.5 overflow-hidden rounded-full bg-muted">
                     <div
-                      className={cn("h-full rounded-full", s.key === "released" ? "bg-success" : s.key === "documents" ? "bg-brand-orange" : "bg-brand-blue dark:bg-brand-sky")}
+                      className={cn("h-full rounded-full", s.key === "released" ? "bg-success" : "bg-brand-blue dark:bg-brand-sky")}
                       style={{ width: `${(s.value / max) * 100}%` }}
                     />
                   </div>
@@ -250,7 +227,7 @@ async function Dashboard() {
                 {[
                   ...(canCreate ? [{ href: "/portal/cases/new", label: "Request a verification", text: "One candidate or a spreadsheet", icon: FilePlus2 }] : []),
                   { href: "/portal/packages", label: "Packages and prices", text: "What each package checks", icon: Boxes },
-                  { href: "/portal/templates", label: "Request templates", text: "One-click requests for common roles", icon: LayoutTemplate },
+                  ...(canCreate ? [{ href: "/portal/templates", label: "Request templates", text: "One-click requests for common roles", icon: LayoutTemplate }] : []),
                 ].map((l) => (
                   <li key={l.href}>
                     <Link href={l.href} className="group flex items-center gap-3 rounded-xl px-2 py-2.5 transition-colors hover:bg-muted/60">

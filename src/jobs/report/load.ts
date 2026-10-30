@@ -6,7 +6,7 @@
  */
 import { createHash } from "node:crypto";
 import type { ServiceClient } from "../admin-client";
-import { canonicalJson, compileReport, type ReportInputs, type ReportSnapshot } from "../../domain/reports/compile-core";
+import { canonicalJson, compileReport, fixedAnnexureCategories, type ReportInputs, type ReportSnapshot } from "../../domain/reports/compile-core";
 import { checkTypeSchema } from "../../domain/check-types/schema";
 import type { ResultTone } from "../../domain/check-types/schema";
 
@@ -29,12 +29,16 @@ export async function loadReportInputs(admin: ServiceClient, caseId: string): Pr
     .select("id, label, sort, state, result, result_tone, client_note, values, completed_at, check_type:check_types(key), version:check_type_versions(schema)")
     .eq("case_id", caseId);
 
-  const { data: docs } = await admin
+  const parsed = (checks ?? []).map((k) => ({ k, schema: checkTypeSchema.parse((k.version as unknown as { schema: unknown }).schema) }));
+
+  // Files marked for the report, plus the fixed annexure: it goes in without anyone having to mark it.
+  const fixed = fixedAnnexureCategories(parsed.map(({ k, schema }) => ({ state: k.state, schema })));
+  const annexed = admin
     .from("documents")
     .select("id, case_check_id, category, filename, mime, sha256, created_at, storage_bucket, storage_path")
     .eq("case_id", caseId)
-    .eq("visibility", "report")
     .in("status", ["uploaded", "accepted"]);
+  const { data: docs } = await (fixed.length ? annexed.or(`visibility.eq.report,category.in.(${fixed.join(",")})`) : annexed.eq("visibility", "report"));
   const { data: cats } = await admin.from("document_categories").select("key, name").eq("org_id", c.org_id);
   const catName = new Map((cats ?? []).map((x) => [x.key, x.name]));
 
@@ -65,22 +69,19 @@ export async function loadReportInputs(admin: ServiceClient, caseId: string): Pr
       proposed_result: c.proposed_result as ResultTone | null,
     },
     candidate: c.candidate as unknown as ReportInputs["candidate"],
-    checks: (checks ?? []).map((k) => {
-      const schema = checkTypeSchema.parse((k.version as unknown as { schema: unknown }).schema);
-      return {
-        id: k.id,
-        key: (k.check_type as unknown as { key: string }).key,
-        label: k.label,
-        sort: k.sort,
-        state: k.state,
-        result: k.result,
-        result_tone: k.result_tone as ResultTone | null,
-        client_note: k.client_note,
-        values: (k.values ?? {}) as Record<string, unknown>,
-        completed_at: k.completed_at,
-        schema: { fields: schema.fields, result: schema.result, fixed_annexure: schema.fixed_annexure },
-      };
-    }),
+    checks: parsed.map(({ k, schema }) => ({
+      id: k.id,
+      key: (k.check_type as unknown as { key: string }).key,
+      label: k.label,
+      sort: k.sort,
+      state: k.state,
+      result: k.result,
+      result_tone: k.result_tone as ResultTone | null,
+      client_note: k.client_note,
+      values: (k.values ?? {}) as Record<string, unknown>,
+      completed_at: k.completed_at,
+      schema: { fields: schema.fields, result: schema.result, fixed_annexure: schema.fixed_annexure },
+    })),
     documents: (docs ?? []).map((d) => ({
       id: d.id,
       case_check_id: d.case_check_id,

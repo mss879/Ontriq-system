@@ -1,11 +1,11 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ChevronRight } from "lucide-react";
+import { SURFACE } from "@/components/admin/surface";
+import { SetCrumbs } from "@/components/layout/crumbs";
 import { Page, SectionSkeleton } from "@/components/layout/page";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
-import { CheckStatePill, StagePill, ToneChip } from "@/components/cases/badges";
+import { CheckStatePill, RESULT_TONE, StagePill, ToneChip } from "@/components/cases/badges";
 import { SlaBadge } from "@/components/cases/sla-badge";
 import { getStaffViewer } from "@/lib/server/viewer";
 import { getCase, getCaseChecks, getDocuments, getRequirements, getTimeline, staffOptions } from "@/lib/server/cases/queries";
@@ -20,8 +20,10 @@ import { CheckForm } from "./check-form";
 import { CheckAssignment, StatusPanel } from "./status-panel";
 import { aiItem, getAiStatus, getAiWork, getCaseAi, getDocumentAi } from "@/lib/server/ai/queries";
 import { canDecide } from "@/domain/ai/suggestions";
+import { fixedAnnexureCategories } from "@/domain/reports/compile-core";
 import type { OutreachResult, ResponseResult } from "@/lib/ai/prompts";
 import { CheckAiPanel } from "@/components/ai/check-ai-panel";
+import { cn } from "@/lib/utils";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 type Params = Pick<PageProps<"/app/cases/[caseId]/checks/[checkId]">, "params">;
@@ -47,8 +49,14 @@ export default function CheckPage({ params }: PageProps<"/app/cases/[caseId]/che
       <Suspense fallback={<div className="h-24 animate-pulse rounded-2xl bg-muted/60" aria-hidden />}>
         <Header params={params} />
       </Suspense>
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem]">
-        <div className="min-w-0 space-y-6">
+      {/* Phones read top to bottom, so what you do with a check comes before its details. */}
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_20rem] lg:grid-rows-[auto_1fr]">
+        <aside className="min-w-0 space-y-5 lg:col-start-2 lg:row-start-1">
+          <Suspense fallback={<SectionSkeleton rows={4} />}>
+            <Actions params={params} />
+          </Suspense>
+        </aside>
+        <div className="min-w-0 space-y-5 lg:col-start-1 lg:row-span-2 lg:row-start-1">
           <Section title="Details">
             <Suspense fallback={<SectionSkeleton rows={8} className="shadow-none ring-0" />}>
               <Form params={params} />
@@ -65,9 +73,9 @@ export default function CheckPage({ params }: PageProps<"/app/cases/[caseId]/che
             </Suspense>
           </Section>
         </div>
-        <aside className="min-w-0 space-y-6">
+        <aside className="min-w-0 space-y-5 lg:col-start-2 lg:row-start-2">
           <Suspense fallback={<SectionSkeleton rows={4} />}>
-            <Side params={params} />
+            <About params={params} />
           </Suspense>
         </aside>
       </div>
@@ -77,7 +85,7 @@ export default function CheckPage({ params }: PageProps<"/app/cases/[caseId]/che
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-2xl bg-card p-5 shadow-soft ring-1 ring-foreground/[0.07] md:p-6">
+    <section className={cn(SURFACE, "p-5 md:p-6")}>
       <h2 className="mb-4 font-display text-lg font-semibold tracking-tight">{title}</h2>
       {children}
     </section>
@@ -92,6 +100,7 @@ async function Header({ params }: Params) {
   const option = check.schema.result.options.find((o) => o.key === check.result);
   return (
     <header className="space-y-3">
+      <SetCrumbs items={[{ label: c.reference, href: `/app/cases/${c.id}` }, { label: check.label }]} />
       <RealtimeRefresh
         sources={[
           { table: "case_checks", filter: `id=eq.${check.id}` },
@@ -103,26 +112,13 @@ async function Header({ params }: Params) {
           { table: "jobs", filter: `entity_id=eq.${check.id}` },
         ]}
       />
-      <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-1 text-sm text-muted-foreground">
-        <Link href="/app/cases" className="hover:text-foreground">
-          Cases
-        </Link>
-        <ChevronRight className="size-3.5" aria-hidden />
-        <Link href={`/app/cases/${c.id}`} className="hover:text-foreground">
-          {c.reference}
-        </Link>
-        <ChevronRight className="size-3.5" aria-hidden />
-        <span className="text-foreground" aria-current="page">
-          {check.label}
-        </span>
-      </nav>
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-center gap-3">
           <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-brand-blue/10 text-brand-blue dark:bg-brand-sky/10 dark:text-brand-sky">
             <CheckIcon icon={check.icon} className="size-5" />
           </span>
           <div className="min-w-0">
-            <h1 className="font-display text-[1.6rem] leading-tight font-semibold tracking-tight">{check.label}</h1>
+            <h1 className="font-display text-2xl leading-tight font-semibold tracking-tight">{check.label}</h1>
             <p className="truncate text-sm text-muted-foreground">
               {c.candidate.fullName} · {c.client.name}
             </p>
@@ -130,7 +126,7 @@ async function Header({ params }: Params) {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <CheckStatePill state={check.state} />
-          {option && check.resultTone ? <ToneChip tone={check.resultTone === "green" ? "success" : check.resultTone === "red" ? "danger" : "warning"}>{option.label}</ToneChip> : null}
+          {option && check.resultTone ? <ToneChip tone={RESULT_TONE[check.resultTone]}>{option.label}</ToneChip> : null}
           <StagePill stage={c.stage} onHold={c.onHold} />
           {!isTerminalCheck(check.state) ? <SlaBadge dueAt={check.dueAt} startedAt={check.startedAt ?? c.receivedAt} /> : null}
         </div>
@@ -166,6 +162,7 @@ async function Form({ params }: Params) {
       key={check.id}
       checkId={check.id}
       fields={check.schema.fields}
+      stage={c.stage}
       initialValues={check.values}
       editable={editable}
       lockedReason={lockedReason}
@@ -195,6 +192,7 @@ async function Documents({ params }: Params) {
       documents={docs}
       categories={categories}
       checks={data.checks.map((k) => ({ id: k.id, label: k.label }))}
+      fixedCategories={fixedAnnexureCategories(data.checks)}
       perms={{
         upload: can(viewer, "cases.update") || can(viewer, "candidates.manage"),
         review: can(viewer, "cases.update") || can(viewer, "qc.pre"),
@@ -215,16 +213,13 @@ async function Notes({ params }: Params) {
   return <Timeline caseId={caseId} checkId={checkId} events={events} checks={data.checks.map((k) => ({ id: k.id, label: k.label }))} canNote />;
 }
 
-async function Side({ params }: Params) {
+async function Actions({ params }: Params) {
   const { caseId, checkId } = await params;
   const [viewer, data] = await Promise.all([getStaffViewer(), load(caseId, checkId)]);
   if (!data) return null;
   const { c, check } = data;
   const manager = can(viewer, "cases.stage.change") || can(viewer, "cases.assign");
   const canVerify = can(viewer, "checks.verify") && (check.assignee?.id === viewer.userId || c.assignee?.id === viewer.userId || manager);
-  const canAssign = can(viewer, "cases.assign");
-  const staff = canAssign ? await staffOptions() : [];
-  const closed = c.stage === "released" || c.stage === "cancelled";
   return (
     <>
       <StatusPanel
@@ -241,8 +236,22 @@ async function Side({ params }: Params) {
         canWaive={manager || can(viewer, "qc.post")}
       />
       <CheckAi caseId={caseId} checkId={checkId} canVerify={canVerify} />
+    </>
+  );
+}
+
+async function About({ params }: Params) {
+  const { caseId, checkId } = await params;
+  const [viewer, data] = await Promise.all([getStaffViewer(), load(caseId, checkId)]);
+  if (!data) return null;
+  const { c, check } = data;
+  const canAssign = can(viewer, "cases.assign");
+  const staff = canAssign ? await staffOptions() : [];
+  const closed = c.stage === "released" || c.stage === "cancelled";
+  return (
+    <>
       <CheckAssignment checkId={check.id} assignee={check.assignee} staff={staff} canAssign={canAssign} closed={closed} />
-      <section className="rounded-2xl bg-card p-5 shadow-soft ring-1 ring-foreground/[0.07]">
+      <section className={cn(SURFACE, "p-5")}>
         <h2 className="mb-2 text-sm font-semibold">About this check</h2>
         <dl className="divide-y text-sm">
           {[

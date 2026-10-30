@@ -4,10 +4,10 @@ import { useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Download } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { PERIOD_PRESETS, type PeriodPreset } from "@/domain/analytics/period";
+import { DateField } from "@/components/forms/date-field";
 
 /** Period, client and export controls; everything lives in the URL. */
 export function AnalyticsFilters({
@@ -70,9 +70,9 @@ export function AnalyticsFilters({
       </Select>
       {preset === "custom" ? (
         <div className="flex items-center gap-2">
-          <Input type="date" aria-label="From" className="h-9 w-full sm:w-40" max={custom.to || today} value={custom.from} onChange={(e) => applyCustom({ ...custom, from: e.target.value })} />
+          <DateField aria-label="From" className="h-9 w-full sm:w-40" max={custom.to || today} value={custom.from} onChange={(e) => applyCustom({ ...custom, from: e.target.value })} />
           <span className="text-xs text-muted-foreground">to</span>
-          <Input type="date" aria-label="To" className="h-9 w-full sm:w-40" min={custom.from} max={today} value={custom.to} onChange={(e) => applyCustom({ ...custom, to: e.target.value })} />
+          <DateField aria-label="To" className="h-9 w-full sm:w-40" min={custom.from} max={today} value={custom.to} onChange={(e) => applyCustom({ ...custom, to: e.target.value })} />
         </div>
       ) : null}
       {showClient ? (

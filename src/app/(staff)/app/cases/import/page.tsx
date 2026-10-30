@@ -39,6 +39,7 @@ async function Importer({ searchParams }: Pick<PageProps<"/app/cases/import">, "
   return (
     <ImportCases
       clients={clients.map(({ id, name, code }) => ({ id, name, code }))}
+      canAddClient={can(viewer, "clients.manage")}
       packages={catalog.packages
         .filter((p) => p.isActive)
         .map((p) => ({ id: p.id, name: p.name, code: p.code, clientId: p.ownerScope === "client" ? p.clientId : null, checks: p.items.length, tatDays: p.tatDays, defaultProcessType: p.defaultProcessType }))}

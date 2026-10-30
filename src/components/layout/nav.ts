@@ -58,6 +58,18 @@ export const STAFF_NAV: NavSection[] = [
   },
 ];
 
+/** The sidebar's subtitle: what this part of the system is for the person using it. */
+export const AREA_LABELS: Record<string, string> = {
+  super_admin: "Operations",
+  admin: "Operations",
+  operations_manager: "Operations",
+  verification_officer: "Verification",
+  qc_officer: "Quality control",
+  data_entry_officer: "Data entry",
+  client_relations: "Client relations",
+  viewer: "Overview",
+};
+
 /** Settings sub-pages, each gated by its own permission. */
 export const SETTINGS_NAV: NavItem[] = [
   { title: "Organisation", href: "/app/settings", icon: Settings, permission: "settings.manage" },

@@ -47,13 +47,19 @@ describe("stage transitions", () => {
   });
 
   it("needs valid details on every check to start verification", () => {
-    const f = facts({ stage: "data_entry", checks: [{ state: "in_progress", valuesValid: true }, { state: "not_started", valuesValid: false }, { state: "waived", valuesValid: false }] });
+    const f = facts({ stage: "data_entry", checks: [{ state: "in_progress", entryReady: true }, { state: "not_started", entryReady: false }, { state: "waived", entryReady: false }] });
     expect(availableActions(f, only("checks.data_entry"))[0]).toMatchObject({ action: "start_verification", allowed: false, reason: "1 check still has missing or invalid details." });
   });
 
   it("needs every check closed before Post-QC", () => {
-    const f = facts({ stage: "verification", isOwner: true, checks: [{ state: "completed", valuesValid: true }, { state: "awaiting_response", valuesValid: true }] });
+    const f = facts({ stage: "verification", isOwner: true, checks: [{ state: "completed", entryReady: true }, { state: "awaiting_response", entryReady: true }] });
     expect(availableActions(f, only("cases.update"))[0]).toMatchObject({ action: "submit_post_qc", allowed: false, reason: "1 check still open." });
+  });
+
+  it("won't send a case to Post-QC while its fixed annexure has no file", () => {
+    const f = facts({ stage: "verification", isOwner: true, checks: [{ state: "completed", entryReady: true }], annexuresMissing: ["Global sanction screening"] });
+    expect(availableActions(f, only("cases.update"))[0]).toMatchObject({ action: "submit_post_qc", allowed: false, reason: "Global sanction screening has no report attached. Upload it first: it goes in the final report." });
+    expect(availableActions({ ...f, annexuresMissing: [] }, only("cases.update"))[0]).toMatchObject({ action: "submit_post_qc", allowed: true });
   });
 
   it("offers only resume and cancel while on hold, and nothing once released", () => {

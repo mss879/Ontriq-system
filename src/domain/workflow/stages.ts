@@ -90,18 +90,28 @@ export const CHECK_STATE_TONES: Record<CheckState, Tone> = {
   waived: "neutral",
 };
 
+/**
+ * Colour says how a case is doing, so every stage in flight shares one tone and
+ * amber stays reserved for trouble. Position comes from stageStep().
+ */
 export const STAGE_TONES: Record<Stage, Tone> = {
   intake: "neutral",
-  documents: "info",
+  documents: "progress",
   pre_qc: "progress",
   data_entry: "progress",
   verification: "progress",
   post_qc: "progress",
-  report: "info",
-  approval: "warning",
+  report: "progress",
+  approval: "progress",
   released: "success",
   cancelled: "neutral",
 };
+
+/** The stage's 1-based step in the flow, or null for cancelled. */
+export function stageStep(stage: Stage): number | null {
+  const i = STAGE_FLOW.indexOf(stage);
+  return i < 0 ? null : i + 1;
+}
 
 export const FINAL_RESULTS = ["green", "amber", "red"] as const;
 export type FinalResult = (typeof FINAL_RESULTS)[number];

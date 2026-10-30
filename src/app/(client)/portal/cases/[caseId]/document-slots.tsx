@@ -99,7 +99,7 @@ export function DocumentSlots({ caseId, requirements, canUpload, fromCandidate }
                 {canUpload ? (
                   <UploadButton
                     label={missing ? "Upload" : "Add another"}
-                    variant={missing && !fromCandidate ? "brand" : "outline"}
+                    variant={missing && !fromCandidate ? "default" : "outline"}
                     busy={busy?.key === key ? busy : null}
                     disabled={Boolean(busy)}
                     onFiles={(files) => send(key, { requirementId: r.id }, files)}
@@ -140,7 +140,7 @@ function UploadButton({
   onFiles,
 }: {
   label: string;
-  variant: "brand" | "outline";
+  variant: "default" | "outline";
   icon?: "upload" | "file";
   busy: Busy;
   disabled: boolean;

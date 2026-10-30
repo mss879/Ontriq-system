@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Download, FileSpreadsheet } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { DateField } from "@/components/forms/date-field";
 
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 
@@ -19,11 +19,11 @@ export function StatementDownload({ clientId, compact = false }: { clientId: str
       <div className={compact ? "grid grid-cols-2 gap-2" : "flex flex-col gap-2 sm:flex-row"}>
         <label className="flex flex-col gap-1 text-xs text-muted-foreground">
           From
-          <Input type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} className="h-9" />
+          <DateField value={from} max={to} onChange={(e) => setFrom(e.target.value)} className="h-9" />
         </label>
         <label className="flex flex-col gap-1 text-xs text-muted-foreground">
           To
-          <Input type="date" value={to} min={from} onChange={(e) => setTo(e.target.value)} className="h-9" />
+          <DateField value={to} min={from} onChange={(e) => setTo(e.target.value)} className="h-9" />
         </label>
       </div>
       <div className="flex flex-wrap gap-2">

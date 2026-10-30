@@ -15,6 +15,7 @@ import { invoiceModel, TEMPLATE_KEYS, TEMPLATE_LABELS, type Issuer, type Templat
 import { invoiceTotals, type TaxRate } from "@/domain/pricing/invoice-core";
 import { formatAmount, formatMoney, lineTotal } from "@/domain/pricing/money";
 import { confirmInvoice, saveInvoiceDraft } from "../actions";
+import { DateField } from "@/components/forms/date-field";
 
 type Line = { key: string; id?: string; description: string; quantity: string; unit_price: string; discount_pct: string; case_reference: string | null };
 type Contact = { id: string; name: string; title: string | null; email: string | null };
@@ -275,8 +276,8 @@ export function InvoiceEditor({
             </label>
             <label className="flex flex-col gap-1.5 text-sm font-medium">
               Invoice date
-              <Input
-                type="date"
+              <DateField
+
                 value={issueDate}
                 onChange={(e) => {
                   setIssueDate(e.target.value);

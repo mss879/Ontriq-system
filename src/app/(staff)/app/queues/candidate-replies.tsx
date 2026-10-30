@@ -1,18 +1,12 @@
 import Link from "next/link";
-import { ArrowRight, FileSignature, Inbox, MessageCircleReply } from "lucide-react";
+import { ArrowRight, FileSignature, MessageCircleReply } from "lucide-react";
 import type { CandidateReply } from "@/lib/server/cases/candidate-queries";
 import { RelativeTime } from "@/components/cases/sla-badge";
+import { QueueEmpty } from "./queue-empty";
 
 /** Answers, uploads for requests and consents the candidate sent, waiting for someone to look. Oldest first. */
 export function CandidateReplies({ replies }: { replies: CandidateReply[] }) {
-  if (!replies.length) {
-    return (
-      <div className="flex items-center gap-3 rounded-2xl border border-dashed bg-card/60 px-5 py-8 text-sm text-muted-foreground">
-        <Inbox className="size-5 shrink-0" />
-        No candidate replies waiting. Answers and signed consents appear here.
-      </div>
-    );
-  }
+  if (!replies.length) return <QueueEmpty text="No candidate replies waiting. Answers and signed consents appear here." />;
   return (
     <ul className="divide-y overflow-hidden rounded-2xl bg-card shadow-soft ring-1 ring-foreground/[0.07]">
       {replies.map((r) => {

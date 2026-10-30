@@ -15,6 +15,9 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import { SURFACE } from "@/components/admin/surface";
+import { cn } from "@/lib/utils";
+import { DateField } from "@/components/forms/date-field";
 
 const LANGUAGES = { en: "English", si: "Sinhala", ta: "Tamil" } as const;
 const NO_DISTRICT = "__none__";
@@ -30,7 +33,7 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
 
 function CardShell({ title, onEdit, children }: { title: string; onEdit?: () => void; children: React.ReactNode }) {
   return (
-    <section className="rounded-2xl bg-card p-5 shadow-soft ring-1 ring-foreground/[0.07]">
+    <section className={cn(SURFACE, "p-5")}>
       <div className="mb-2 flex items-center justify-between gap-2">
         <h2 className="text-sm font-semibold">{title}</h2>
         {onEdit ? (
@@ -337,7 +340,7 @@ function DetailsForm({ caseId, details, canSetDue, onDone }: { caseId: string; d
         </FieldBlock>
         {canSetDue ? (
           <FieldBlock id="det-due" label="Due date" hint="Due at close of business, Colombo time.">
-            <Input id="det-due" type="date" value={v.due} onChange={set("due")} />
+            <DateField id="det-due" value={v.due} onChange={set("due")} />
           </FieldBlock>
         ) : (
           <div />

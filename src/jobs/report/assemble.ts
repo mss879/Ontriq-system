@@ -46,11 +46,14 @@ export async function assembleReport(
       skipped.push(a.filename);
       continue;
     }
-    bytesSeen += a.bytes.byteLength;
-    if (bytesSeen > MAX_ANNEXURE_BYTES || (a.kind === "evidence" && added >= MAX_ANNEXURE_PAGES)) {
-      cover(n, a, "Not embedded: the report reached its size limit. Ontriq can share this file separately.");
-      skipped.push(a.filename);
-      continue;
+    // The caps protect the worker from evidence piling up. The fixed annexure is always embedded.
+    if (a.kind === "evidence") {
+      bytesSeen += a.bytes.byteLength;
+      if (bytesSeen > MAX_ANNEXURE_BYTES || added >= MAX_ANNEXURE_PAGES) {
+        cover(n, a, "Not embedded: the report reached its size limit. Ontriq can share this file separately.");
+        skipped.push(a.filename);
+        continue;
+      }
     }
     try {
       if (a.mime === "application/pdf") {

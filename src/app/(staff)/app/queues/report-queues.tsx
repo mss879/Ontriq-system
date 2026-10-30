@@ -1,19 +1,13 @@
 import Link from "next/link";
-import { ArrowRight, FileCheck2, Inbox, Send } from "lucide-react";
+import { ArrowRight, FileCheck2, Send } from "lucide-react";
 import type { ReportQueueItem } from "@/lib/server/reports/queries";
 import { ResultBadge } from "@/components/cases/badges";
 import { RelativeTime } from "@/components/cases/sla-badge";
+import { QueueEmpty } from "./queue-empty";
 
 /** Reports waiting for a decision: drafts to approve, or finals to release. Oldest first. */
 export function ReportQueue({ items, kind }: { items: ReportQueueItem[]; kind: "approve" | "release" }) {
-  if (!items.length) {
-    return (
-      <div className="flex items-center gap-3 rounded-2xl border border-dashed bg-card/60 px-5 py-8 text-sm text-muted-foreground">
-        <Inbox className="size-5 shrink-0" />
-        {kind === "approve" ? "No reports are waiting for approval." : "No approved reports are waiting to be released."}
-      </div>
-    );
-  }
+  if (!items.length) return <QueueEmpty text={kind === "approve" ? "No reports are waiting for approval." : "No approved reports are waiting to be released."} />;
   const Icon = kind === "approve" ? FileCheck2 : Send;
   return (
     <ul className="divide-y overflow-hidden rounded-2xl bg-card shadow-soft ring-1 ring-foreground/[0.07]">

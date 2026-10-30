@@ -7,6 +7,7 @@ import { Page, PageHeader, SectionSkeleton } from "@/components/layout/page";
 import { ListFilters } from "@/components/admin/list-filters";
 import { one } from "@/components/admin/pagination";
 import { Surface, TH } from "@/components/admin/surface";
+import { DataTable, HEAD_ROW, ListCard, ROW, ROW_LINK } from "@/components/layout/data-table";
 import { ToneChip } from "@/components/cases/badges";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -74,16 +75,30 @@ async function ClientList({ searchParams }: Pick<PageProps<"/app/clients">, "sea
   }
 
   return (
-    <Surface>
-      <div className="flex items-center justify-between border-b px-5 py-3.5">
-        <p className="text-sm font-semibold">
-          {clients.length} {clients.length === 1 ? "client" : "clients"}
-        </p>
-        <p className="text-xs text-muted-foreground">{clients.reduce((a, c) => a + c.activeCases, 0)} active cases</p>
-      </div>
+    <DataTable
+      header={
+        <div className="flex items-center justify-between border-b px-5 py-3.5">
+          <p className="text-sm font-semibold">
+            {clients.length} {clients.length === 1 ? "client" : "clients"}
+          </p>
+          <p className="text-xs text-muted-foreground">{clients.reduce((a, c) => a + c.activeCases, 0)} active cases</p>
+        </div>
+      }
+      cards={clients.map((c) => (
+        <ListCard
+          key={c.id}
+          href={`/app/clients/${c.id}`}
+          title={c.name}
+          subtitle={`${c.code}${c.industry ? ` · ${c.industry}` : ""}`}
+          aside={<span className="font-medium tabular-nums">{c.activeCases} active</span>}
+        >
+          {c.status === "active" ? null : <ToneChip tone={CLIENT_STATUS_TONE[c.status]}>{clientStatusLabel(c.status)}</ToneChip>}
+        </ListCard>
+      ))}
+    >
       <Table>
         <TableHeader>
-          <TableRow className="bg-muted/40 hover:bg-muted/40">
+          <TableRow className={HEAD_ROW}>
             <TableHead className={`${TH} pl-5`}>Client</TableHead>
             <TableHead className={`${TH} hidden md:table-cell`}>Contact</TableHead>
             <TableHead className={TH}>Status</TableHead>
@@ -93,9 +108,9 @@ async function ClientList({ searchParams }: Pick<PageProps<"/app/clients">, "sea
         </TableHeader>
         <TableBody>
           {clients.map((c) => (
-            <TableRow key={c.id} className="group">
+            <TableRow key={c.id} className={`group ${ROW}`}>
               <TableCell className="pl-5">
-                <Link href={`/app/clients/${c.id}`} className="flex min-w-0 items-center gap-3 outline-none">
+                <Link href={`/app/clients/${c.id}`} className={`flex min-w-0 items-center gap-3 ${ROW_LINK}`}>
                   <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/8 text-[11px] font-semibold text-primary ring-1 ring-primary/15">
                     {c.code.slice(0, 3)}
                   </span>
@@ -113,7 +128,7 @@ async function ClientList({ searchParams }: Pick<PageProps<"/app/clients">, "sea
                 <span className="block truncate text-xs text-muted-foreground">{c.phone ?? ""}</span>
               </TableCell>
               <TableCell>
-                <ToneChip tone={CLIENT_STATUS_TONE[c.status]}>{clientStatusLabel(c.status)}</ToneChip>
+                {c.status === "active" ? <span className="text-sm text-muted-foreground">Active</span> : <ToneChip tone={CLIENT_STATUS_TONE[c.status]}>{clientStatusLabel(c.status)}</ToneChip>}
               </TableCell>
               <TableCell className="text-right font-medium tabular-nums">{c.activeCases}</TableCell>
               <TableCell className="hidden pr-5 text-right text-muted-foreground tabular-nums sm:table-cell">{c.totalCases}</TableCell>
@@ -121,6 +136,6 @@ async function ClientList({ searchParams }: Pick<PageProps<"/app/clients">, "sea
           ))}
         </TableBody>
       </Table>
-    </Surface>
+    </DataTable>
   );
 }

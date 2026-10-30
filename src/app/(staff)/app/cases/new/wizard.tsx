@@ -10,6 +10,7 @@ import {
   ClipboardList,
   FileCheck2,
   LayoutTemplate,
+  Plus,
   Search,
   Sparkles,
   Star,
@@ -31,6 +32,7 @@ import { parseNic } from "@/domain/nic-core";
 import { PRIORITY_LABELS, PROCESS_TYPE_LABELS, type Priority, type ProcessType } from "@/domain/workflow/stages";
 import type { CatalogCheckType, CatalogPackage, CatalogTemplate, ClientOption } from "@/lib/server/cases/queries";
 import { createCase, findCandidateByNic } from "../actions";
+import { QuickClientDialog } from "../../clients/quick-client-dialog";
 
 type Errors = Record<string, string[] | undefined>;
 
@@ -96,7 +98,8 @@ function stepOf(key: string): number {
 }
 
 export function NewCaseWizard({
-  clients,
+  clients: loadedClients,
+  canAddClient,
   checkTypes,
   packages,
   templates,
@@ -104,6 +107,7 @@ export function NewCaseWizard({
   initialTemplateId,
 }: {
   clients: ClientOption[];
+  canAddClient: boolean;
   checkTypes: CatalogCheckType[];
   packages: CatalogPackage[];
   templates: CatalogTemplate[];
@@ -111,6 +115,9 @@ export function NewCaseWizard({
   initialTemplateId?: string;
 }) {
   const router = useRouter();
+  // A client added here stays at the top of the list, where the person just saw it appear.
+  const [addedClients, setAddedClients] = useState<ClientOption[]>([]);
+  const clients = useMemo(() => [...addedClients, ...loadedClients.filter((c) => !addedClients.some((a) => a.id === c.id))], [addedClients, loadedClients]);
   const typeById = useMemo(() => new Map(checkTypes.map((t) => [t.id, t])), [checkTypes]);
   const packageById = useMemo(() => new Map(packages.map((p) => [p.id, p])), [packages]);
 
@@ -286,7 +293,17 @@ export function NewCaseWizard({
           {step === 0 ? (
             <StartStep templates={visibleTemplates} packageById={packageById} typeById={typeById} clients={clients} onPick={pickTemplate} selectedId={form.templateId} />
           ) : step === 1 ? (
-            <ClientStep clients={clients} value={form.clientId} onChange={(id) => set("clientId", id)} error={err("clientId")} />
+            <ClientStep
+              clients={clients}
+              value={form.clientId}
+              onChange={(id) => set("clientId", id)}
+              canAdd={canAddClient}
+              onAdded={(client) => {
+                setAddedClients((prev) => [client, ...prev]);
+                set("clientId", client.id);
+              }}
+              error={err("clientId")}
+            />
           ) : step === 2 ? (
             <section className="space-y-5">
               <StepTitle title="Who is being verified?" text="Start with the NIC: if Ontriq has checked this person before, the case links to their existing record." />
@@ -394,7 +411,7 @@ export function NewCaseWizard({
               Continue <ArrowRight />
             </Button>
           ) : (
-            <Button variant="brand" size="lg" className="h-10 px-5" onClick={submit} disabled={creating}>
+            <Button size="lg" className="h-10 px-5" onClick={submit} disabled={creating}>
               {creating ? <Spinner /> : <Check />} Create case
             </Button>
           )}
@@ -503,7 +520,7 @@ function StartStep({
                 onClick={() => onPick(t)}
                 className={cn(
                   "min-w-0 group flex flex-col gap-3 rounded-2xl bg-card p-4 text-left ring-1 ring-foreground/[0.08] transition hover:-translate-y-px hover:shadow-lift hover:ring-brand-orange/40",
-                  selectedId === t.id && "ring-2 ring-brand-orange",
+                  selectedId === t.id && "bg-primary/[0.05] ring-2 ring-primary dark:bg-brand-sky/[0.08] dark:ring-brand-sky",
                 )}
               >
                 <div className="flex items-start justify-between gap-3">
@@ -549,20 +566,45 @@ function StartStep({
   );
 }
 
-function ClientStep({ clients, value, onChange, error }: { clients: ClientOption[]; value?: string; onChange: (id: string) => void; error?: string[] }) {
+function ClientStep({
+  clients,
+  value,
+  onChange,
+  canAdd,
+  onAdded,
+  error,
+}: {
+  clients: ClientOption[];
+  value?: string;
+  onChange: (id: string) => void;
+  canAdd: boolean;
+  onAdded: (client: ClientOption) => void;
+  error?: string[];
+}) {
   const [q, setQ] = useState("");
+  // The name the add dialog opens with, or null while it's closed.
+  const [adding, setAdding] = useState<string | null>(null);
   const list = clients.filter((c) => !q.trim() || `${c.name} ${c.code}`.toLowerCase().includes(q.trim().toLowerCase()));
   return (
     <section className="space-y-5">
       <StepTitle title="Which client is this for?" text="Reports, turnaround and pricing follow the client's settings." />
-      <div className="relative max-w-sm">
-        <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search clients" className="pl-8" aria-label="Search clients" />
+      <div className="flex items-center justify-between gap-2">
+        <div className="relative min-w-0 flex-1 sm:max-w-sm">
+          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search clients" className="pl-8" aria-label="Search clients" />
+        </div>
+        {canAdd ? (
+          <Button type="button" variant="outline" className="shrink-0" onClick={() => setAdding("")}>
+            <Plus /> New client
+          </Button>
+        ) : null}
       </div>
       {clients.length === 0 ? (
-        <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">No active clients yet. Add one under Clients first.</p>
+        <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
+          {canAdd ? "No active clients yet. Add the first one with New client." : "No active clients yet. Someone who manages clients needs to add one first."}
+        </p>
       ) : (
-        <div role="radiogroup" aria-label="Client" className="grid max-h-[26rem] gap-2 overflow-y-auto sm:grid-cols-2">
+        <div role="radiogroup" aria-label="Client" className="-m-1 grid max-h-[26rem] gap-2 overflow-y-auto p-1 sm:grid-cols-2">
           {list.map((c) => (
             <button
               key={c.id}
@@ -585,10 +627,31 @@ function ClientStep({ clients, value, onChange, error }: { clients: ClientOption
               {value === c.id ? <Check className="size-4 text-primary dark:text-brand-sky" /> : null}
             </button>
           ))}
-          {list.length === 0 ? <p className="col-span-full py-6 text-center text-sm text-muted-foreground">No clients match “{q}”.</p> : null}
+          {list.length === 0 ? (
+            <div className="col-span-full flex flex-col items-center gap-3 py-6 text-center">
+              <p className="text-sm text-muted-foreground">No clients match “{q.trim()}”.</p>
+              {canAdd ? (
+                <Button type="button" variant="outline" onClick={() => setAdding(q.trim())}>
+                  <Plus /> Add “{q.trim()}” as a new client
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       )}
       <FieldError errors={error?.map((message) => ({ message }))} />
+      <QuickClientDialog
+        open={adding !== null}
+        onOpenChange={(open) => !open && setAdding(null)}
+        initialName={adding ?? ""}
+        existing={clients}
+        onPick={(client) => {
+          setAdding(null);
+          setQ("");
+          if (client.name) onAdded(client as ClientOption);
+          else onChange(client.id);
+        }}
+      />
     </section>
   );
 }
@@ -677,7 +740,7 @@ function ChecksStep({
                   onClick={() => toggleType(t.id)}
                   className={cn(
                     "inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-sm ring-1 transition",
-                    on ? "bg-primary text-primary-foreground ring-primary dark:bg-brand-sky dark:text-[#0A1A2F] dark:ring-brand-sky" : "bg-card ring-border hover:bg-muted",
+                    on ? "bg-primary text-primary-foreground ring-primary dark:bg-brand-sky dark:text-brand dark:ring-brand-sky" : "bg-card ring-border hover:bg-muted",
                   )}
                 >
                   {on ? <Check className="size-3.5" /> : null}

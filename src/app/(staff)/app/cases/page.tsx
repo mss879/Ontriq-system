@@ -58,7 +58,7 @@ async function CasesHeader({ searchParams }: Pick<PageProps<"/app/cases">, "sear
                   <Upload /> Import
                 </Link>
               </Button>
-              <Button asChild variant="brand" size="lg" className="h-9 px-3.5">
+              <Button asChild size="lg" className="h-9 px-3.5">
                 <Link href="/app/cases/new">
                   <Plus /> New case
                 </Link>

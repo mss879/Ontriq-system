@@ -5,9 +5,8 @@ import { MoreHorizontal, RotateCw, ShieldCheck, ShieldOff, UserPlus } from "luci
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { formatDate } from "@/lib/format";
-import { initials } from "@/components/layout/user-menu";
+import { PersonAvatar } from "@/components/cases/person";
 import { ToneChip } from "@/components/cases/badges";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
@@ -26,7 +25,7 @@ export function InviteButton({ roles }: { roles: RoleOption[] }) {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <Button variant="brand" size="lg" className="h-9 px-3.5" onClick={() => setOpen(true)}>
+      <Button size="lg" className="h-9 px-3.5" onClick={() => setOpen(true)}>
         <UserPlus /> Invite a colleague
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
@@ -78,7 +77,6 @@ function InviteForm({ roles, onDone }: { roles: RoleOption[]; onDone: () => void
       </div>
       <DialogFooter>
         <Button
-          variant="brand"
           disabled={pending}
           onClick={() =>
             start(async () => {
@@ -124,9 +122,7 @@ export function TeamList({ members, roles }: { members: PortalTeamMember[]; role
           const s = STATUS[m.status];
           return (
             <li key={m.membership_id} className={cn("flex items-center gap-3 px-5 py-3.5", pending && "opacity-80")}>
-              <Avatar className="size-9">
-                <AvatarFallback className="bg-[linear-gradient(135deg,#0c5a9a,#0098f3)] text-xs font-semibold text-white">{initials(m.full_name ?? "", m.email ?? "")}</AvatarFallback>
-              </Avatar>
+              <PersonAvatar id={m.membership_id} name={m.full_name || m.email || "?"} size="lg" />
               <div className="min-w-0 flex-1">
                 <p className="flex items-center gap-2 truncate text-sm font-medium">
                   <span className="truncate">{m.full_name || m.email}</span>
@@ -137,9 +133,13 @@ export function TeamList({ members, roles }: { members: PortalTeamMember[]; role
                   {m.status === "invited" && m.invited_at ? ` · invited ${formatDate(m.invited_at)}` : m.activated_at ? ` · since ${formatDate(m.activated_at)}` : ""}
                 </p>
               </div>
-              <ToneChip tone={s.tone} className="hidden sm:inline-flex">
-                {s.label}
-              </ToneChip>
+              {m.status === "active" ? (
+                <span className="hidden text-sm text-muted-foreground sm:inline">Active</span>
+              ) : (
+                <ToneChip tone={s.tone} className="hidden sm:inline-flex">
+                  {s.label}
+                </ToneChip>
+              )}
               {m.is_me ? (
                 <span className="size-7" />
               ) : (

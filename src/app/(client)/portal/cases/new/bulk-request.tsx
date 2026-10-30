@@ -102,7 +102,7 @@ export function BulkRequest({ templates, packages }: { templates: PortalTemplate
           <Button variant="outline" onClick={() => { setResults(null); setFile(null); }}>
             <RotateCcw /> Another file
           </Button>
-          <Button asChild variant="brand">
+          <Button asChild>
             <Link href="/portal/cases">All cases</Link>
           </Button>
         </div>
@@ -127,7 +127,7 @@ export function BulkRequest({ templates, packages }: { templates: PortalTemplate
             <Button variant="outline" onClick={downloadTemplate}>
               <Download /> Template
             </Button>
-            <Button variant={file ? "outline" : "brand"} onClick={() => input.current?.click()}>
+            <Button variant={file ? "outline" : "default"} onClick={() => input.current?.click()}>
               <FileSpreadsheet /> {file ? "Choose another" : "Choose CSV"}
             </Button>
             <input ref={input} type="file" accept=".csv,text/csv" className="sr-only" tabIndex={-1} onChange={(e) => { void onFile(e.target.files?.[0]); e.target.value = ""; }} />
@@ -226,7 +226,7 @@ export function BulkRequest({ templates, packages }: { templates: PortalTemplate
             "Choose a CSV file to preview it."
           )}
         </p>
-        <Button variant="brand" size="lg" className="h-10 shrink-0 px-5" onClick={send} disabled={pending || !check || !valid || Boolean(check?.missingColumns.length) || !pick.packageId}>
+        <Button size="lg" className="h-10 shrink-0 px-5" onClick={send} disabled={pending || !check || !valid || Boolean(check?.missingColumns.length) || !pick.packageId}>
           {pending ? <Spinner /> : <Send />} Send {valid ? Math.min(valid, BULK_MAX_ROWS) : ""} requests
         </Button>
       </div>

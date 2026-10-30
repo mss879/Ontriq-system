@@ -1,6 +1,7 @@
 /**
- * Validates check values against a check type's fields. Two modes:
+ * Validates check values against a check type's fields. Three modes:
  *   draft  — save partial work: formats are checked, required fields are not.
+ *   entry  — what Data Entry owes: required fields, except those filled during verification.
  *   submit — everything the type requires must be present and valid.
  * Returns normalised values (trimmed strings, numbers as numbers, empty
  * values dropped) and errors keyed by path ("employers.0.company").
@@ -10,9 +11,11 @@ import { isValidPhoneNumber } from "libphonenumber-js";
 import { z } from "zod";
 import { parseNic } from "../nic-core";
 import { DISTRICTS } from "../districts";
+import type { Stage } from "../workflow/stages";
 import type { FieldDef } from "./schema";
 
 export type CheckValues = Record<string, unknown>;
+export type ValidationMode = "draft" | "entry" | "submit";
 export type ValidationResult = { ok: boolean; values: CheckValues; errors: Record<string, string> };
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -106,7 +109,15 @@ function missingRequired(f: FieldDef, value: unknown): boolean {
   return isEmpty(value);
 }
 
-function validateFields(fields: FieldDef[], input: CheckValues, mode: "draft" | "submit", prefix: string, errors: Record<string, string>): CheckValues {
+/** Does this mode hold the field to account? Verification's fields wait for verification. */
+const dueIn = (f: FieldDef, mode: ValidationMode) => mode === "submit" || (mode === "entry" && f.stage !== "verification");
+
+/** What a check owes at this point in the case: Data Entry's details until verification starts, then everything. */
+export function modeAt(stage: Stage): "entry" | "submit" {
+  return stage === "intake" || stage === "documents" || stage === "pre_qc" || stage === "data_entry" ? "entry" : "submit";
+}
+
+function validateFields(fields: FieldDef[], input: CheckValues, mode: ValidationMode, prefix: string, errors: Record<string, string>): CheckValues {
   const out: CheckValues = {};
   for (const f of fields) {
     const path = prefix ? `${prefix}.${f.key}` : f.key;
@@ -114,8 +125,9 @@ function validateFields(fields: FieldDef[], input: CheckValues, mode: "draft" | 
 
     if (f.type === "repeatable_group") {
       const items = Array.isArray(raw) ? (raw as CheckValues[]) : [];
-      const kept = items.map((item, i) => validateFields(f.fields ?? [], item ?? {}, mode, `${path}.${i}`, errors)).filter((v) => !isEmpty(v) || mode === "submit");
-      if (mode === "submit") {
+      const due = dueIn(f, mode);
+      const kept = items.map((item, i) => validateFields(f.fields ?? [], item ?? {}, due ? mode : "draft", `${path}.${i}`, errors)).filter((v) => !isEmpty(v) || due);
+      if (due) {
         const min = f.group?.min ?? (f.required ? 1 : 0);
         if (kept.length < min) errors[path] = `${f.label} needs at least ${min} ${min === 1 ? (f.group?.item_label ?? "item").toLowerCase() : `${(f.group?.item_label ?? "item").toLowerCase()}s`}.`;
       }
@@ -125,7 +137,7 @@ function validateFields(fields: FieldDef[], input: CheckValues, mode: "draft" | 
     }
 
     if (isEmpty(raw)) {
-      if (mode === "submit" && f.required) errors[path] = `${f.label} is required.`;
+      if (f.required && dueIn(f, mode)) errors[path] = `${f.label} is required.`;
       continue;
     }
     const result = checkScalar(f, raw);
@@ -133,7 +145,7 @@ function validateFields(fields: FieldDef[], input: CheckValues, mode: "draft" | 
       errors[path] = result.error;
       continue;
     }
-    if (mode === "submit" && f.required && missingRequired(f, result.value)) {
+    if (f.required && dueIn(f, mode) && missingRequired(f, result.value)) {
       errors[path] = `${f.label} needs both dates.`;
       continue;
     }
@@ -142,14 +154,14 @@ function validateFields(fields: FieldDef[], input: CheckValues, mode: "draft" | 
   return out;
 }
 
-export function validateCheckValues(fields: FieldDef[], input: CheckValues | null | undefined, mode: "draft" | "submit"): ValidationResult {
+export function validateCheckValues(fields: FieldDef[], input: CheckValues | null | undefined, mode: ValidationMode): ValidationResult {
   const errors: Record<string, string> = {};
   const values = validateFields(fields, input ?? {}, mode, "", errors);
   return { ok: Object.keys(errors).length === 0, values, errors };
 }
 
 /** The same rules as a zod schema, for callers that compose with zod. */
-export function buildZod(fields: FieldDef[], mode: "draft" | "submit") {
+export function buildZod(fields: FieldDef[], mode: ValidationMode) {
   return z.custom<CheckValues>().transform((input, ctx) => {
     const result = validateCheckValues(fields, input, mode);
     for (const [path, message] of Object.entries(result.errors)) ctx.addIssue({ code: "custom", message, path: path.split(".") });
@@ -158,8 +170,8 @@ export function buildZod(fields: FieldDef[], mode: "draft" | "submit") {
 }
 
 /** How many required top-level fields are filled, for progress meters. */
-export function completion(fields: FieldDef[], values: CheckValues | null | undefined): { filled: number; required: number } {
-  const required = fields.filter((f) => f.required);
+export function completion(fields: FieldDef[], values: CheckValues | null | undefined, mode: ValidationMode = "submit"): { filled: number; required: number } {
+  const required = fields.filter((f) => f.required && dueIn(f, mode));
   const filled = required.filter((f) => !missingRequired(f, values?.[f.key])).length;
   return { filled, required: required.length };
 }

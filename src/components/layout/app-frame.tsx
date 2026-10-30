@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { LogoMark, Wordmark } from "@/components/brand/logo";
 import { CommandProvider } from "@/components/command/command-context";
@@ -16,6 +17,8 @@ import {
   SidebarRail,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
+import { CrumbsProvider, TopbarCrumbs } from "./crumbs";
+import { SidebarStateSync } from "./sidebar-state-sync";
 import { ThemeToggle } from "./theme-toggle";
 
 /**
@@ -34,7 +37,7 @@ export function AppFrame({
   children,
 }: {
   homeHref: string;
-  areaLabel: string;
+  areaLabel: React.ReactNode;
   nav: React.ReactNode;
   footer: React.ReactNode;
   headerEnd?: React.ReactNode;
@@ -44,7 +47,9 @@ export function AppFrame({
 }) {
   return (
     <CommandProvider>
+      <CrumbsProvider>
       <SidebarProvider>
+        <SidebarStateSync />
         <Sidebar collapsible="icon" variant="inset" className="text-sidebar-foreground">
           <SidebarHeader className="relative pt-3">
             <div
@@ -73,8 +78,11 @@ export function AppFrame({
           <header className="sticky top-0 z-20 flex h-14 shrink-0 items-center gap-2 border-b bg-background/80 px-3 backdrop-blur-xl supports-[backdrop-filter]:bg-background/65 md:px-5">
             <SidebarTrigger className="-ml-1 text-muted-foreground hover:text-foreground" />
             <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
-            <CommandTrigger />
-            <div className="ml-auto flex items-center gap-1">
+            <Suspense fallback={<div className="min-w-0 flex-1" />}>
+              <TopbarCrumbs />
+            </Suspense>
+            <div className="ml-auto flex shrink-0 items-center gap-1.5">
+              <CommandTrigger />
               {headerEnd}
               <ThemeToggle />
             </div>
@@ -83,6 +91,7 @@ export function AppFrame({
         </SidebarInset>
         {overlays}
       </SidebarProvider>
+      </CrumbsProvider>
     </CommandProvider>
   );
 }

@@ -5578,12 +5578,14 @@ export type Database = {
           unit_price: number;
         }[];
       };
+      case_missing_annexures: { Args: { p_case: string }; Returns: string[] };
       case_outstanding_requirements: { Args: { p_case: string; p_stage: string }; Returns: number };
       case_transition: {
         Args: { p_case: string; p_event: string; p_reason?: string };
         Returns: Database["public"]["Enums"]["case_stage"];
       };
       case_visible: { Args: { p_case: string }; Returns: boolean };
+      check_entry_complete: { Args: { p_schema: Json; p_values: Json }; Returns: boolean };
       check_state_label: {
         Args: { p: Database["public"]["Enums"]["check_state"] };
         Returns: string;
@@ -5668,6 +5670,7 @@ export type Database = {
         Args: { p_error: string; p_id: string; p_retryable?: boolean; p_worker: string };
         Returns: Database["public"]["Enums"]["job_status"];
       };
+      field_blank: { Args: { p_value: Json }; Returns: boolean };
       finalize_document_upload: {
         Args: { p_document: string; p_sha256?: string };
         Returns: undefined;
@@ -5865,6 +5868,7 @@ export type Database = {
       portal_cases: { Args: { p?: Json }; Returns: Json };
       portal_client: { Args: { p_permission?: string }; Returns: string };
       portal_dashboard: { Args: Record<PropertyKey, never>; Returns: Json };
+      portal_field_value: { Args: { p_field: Json; p_value: Json }; Returns: Json };
       portal_finalize_slip: { Args: { p_sha256?: string; p_slip: string }; Returns: undefined };
       portal_finalize_upload: {
         Args: { p_document: string; p_sha256?: string };

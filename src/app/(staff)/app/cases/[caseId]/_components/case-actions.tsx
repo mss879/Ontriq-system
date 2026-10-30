@@ -93,7 +93,7 @@ export function CaseActions({
         {primary.map((a) => {
           const Icon = ICONS[a.action];
           return (
-            <Button key={a.action} size="lg" variant={a.action === "resume" ? "default" : "brand"} disabled={!a.allowed || pending} onClick={() => run(a)} className="px-3.5">
+            <Button key={a.action} size="lg" disabled={!a.allowed || pending} onClick={() => run(a)} className="px-3.5">
               {pending ? <Spinner /> : Icon ? <Icon /> : null}
               {a.label}
             </Button>

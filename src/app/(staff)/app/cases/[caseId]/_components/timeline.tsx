@@ -14,6 +14,7 @@ import {
   Pencil,
   Play,
   ShieldCheck,
+  Sparkles,
   Undo2,
   Upload,
   UserRound,
@@ -47,6 +48,7 @@ const ICON: Record<string, React.ComponentType<{ className?: string }>> = {
   qc_pre: ShieldCheck,
   qc_post: ShieldCheck,
   details_updated: Pencil,
+  ai_read: Sparkles,
 };
 
 const TONE: Record<string, string> = {
@@ -57,6 +59,7 @@ const TONE: Record<string, string> = {
   qc_pre: "bg-brand-blue/10 text-brand-blue dark:text-brand-sky",
   qc_post: "bg-brand-blue/10 text-brand-blue dark:text-brand-sky",
   stage_changed: "bg-brand-blue/10 text-brand-blue dark:text-brand-sky",
+  ai_read: "bg-brand-blue/10 text-brand-blue dark:text-brand-sky",
 };
 
 export function Timeline({

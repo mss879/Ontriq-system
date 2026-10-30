@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -43,6 +44,7 @@ export function SavedViews({ views, query, view }: { views: SavedView[]; query: 
 
 function ViewChip({ saved, active, view }: { saved: SavedView; active: boolean; view: "table" | "board" }) {
   const [pending, start] = useTransition();
+  const [confirming, setConfirming] = useState(false);
   const params = new URLSearchParams(saved.query);
   if (view === "board") params.set("view", "board");
   return (
@@ -62,18 +64,26 @@ function ViewChip({ saved, active, view }: { saved: SavedView; active: boolean; 
           type="button"
           aria-label={`Delete view ${saved.name}`}
           disabled={pending}
-          onClick={() =>
-            start(async () => {
-              const r = await deleteView(saved.id);
-              if (r.ok) toast.success(`Deleted "${saved.name}"`);
-              else toast.error(r.error);
-            })
-          }
+          onClick={() => setConfirming(true)}
           className={cn("ml-0.5 flex size-5 items-center justify-center rounded-full opacity-60 transition hover:opacity-100", active ? "hover:bg-white/15" : "hover:bg-foreground/10")}
         >
           {pending ? <Spinner className="size-3" /> : <X className="size-3" />}
         </button>
       ) : null}
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title={`Delete the view "${saved.name}"?`}
+        description={saved.shared ? "It's shared, so it disappears for the whole team." : undefined}
+        confirmLabel="Delete view"
+        onConfirm={() =>
+          start(async () => {
+            const r = await deleteView(saved.id);
+            if (r.ok) toast.success(`Deleted "${saved.name}"`);
+            else toast.error(r.error);
+          })
+        }
+      />
     </span>
   );
 }

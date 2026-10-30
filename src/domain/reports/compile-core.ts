@@ -94,6 +94,11 @@ export type ReportInputs = {
   qc: { kind: "pre" | "post"; reviewer: string; created_at: string }[];
 };
 
+/** Document categories annexed automatically on this case (the Global Sanction report). A waived check needs none. */
+export function fixedAnnexureCategories(checks: { state: string; schema: { fixed_annexure?: { category: string } } }[]): string[] {
+  return [...new Set(checks.flatMap((k) => (k.state !== "waived" && k.schema.fixed_annexure ? [k.schema.fixed_annexure.category] : [])))];
+}
+
 const DATE_FMT: Intl.DateTimeFormatOptions = { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Colombo" };
 
 /** "12 Mar 2024" from an ISO date or timestamp. */

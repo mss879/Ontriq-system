@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { Inbox, Wallet } from "lucide-react";
 import { Page, PageHeader, SectionSkeleton } from "@/components/layout/page";
 import { Surface, SurfaceHeader, TH } from "@/components/admin/surface";
+import { DataTable, HEAD_ROW, ListCard, ROW_ACTION } from "@/components/layout/data-table";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { SlipStatusChip, methodLabel } from "@/components/billing/invoice-status";
@@ -77,13 +78,45 @@ async function Recent() {
   const viewer = await getStaffViewer();
   if (!canAny(viewer, ["payments.record", "invoices.manage"])) return null;
   const payments = await recentPayments();
+  if (!payments.length) {
+    return (
+      <Surface>
+        <SurfaceHeader title="Recent payments" />
+        <Empty className="py-10">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <Wallet />
+            </EmptyMedia>
+            <EmptyTitle>No payments yet</EmptyTitle>
+            <EmptyDescription>Record payments on an invoice, or match a client&apos;s slip above.</EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      </Surface>
+    );
+  }
   return (
-    <Surface>
-      <SurfaceHeader title="Recent payments" />
-      {payments.length ? (
+    <DataTable
+      header={<SurfaceHeader title="Recent payments" />}
+      cards={payments.map((p) => (
+        <ListCard
+          key={p.id}
+          href={p.invoice_id ? `/app/invoices/${p.invoice_id}` : undefined}
+          title={p.client_name}
+          subtitle={`${formatPlainDate(p.paid_on)} · ${p.invoice_number ?? "No invoice"} · ${methodLabel(p.method)}${p.reference ? ` · ${p.reference}` : ""}`}
+          aside={<span className={`font-medium tabular-nums ${p.voided_at ? "opacity-60" : ""}`}>{formatMoney(p.amount, p.currency)}</span>}
+        >
+          {p.voided_at ? <span className="text-xs text-destructive">Voided</span> : null}
+          {can(viewer, "payments.record") && !p.voided_at ? (
+            <span className={ROW_ACTION}>
+              <VoidPaymentButton paymentId={p.id} label={formatMoney(p.amount, p.currency)} />
+            </span>
+          ) : null}
+        </ListCard>
+      ))}
+    >
         <Table>
           <TableHeader>
-            <TableRow className="bg-muted/40 hover:bg-muted/40">
+            <TableRow className={HEAD_ROW}>
               <TableHead className={`${TH} pl-5`}>Received</TableHead>
               <TableHead className={TH}>Client</TableHead>
               <TableHead className={`${TH} hidden sm:table-cell`}>Invoice</TableHead>
@@ -121,18 +154,7 @@ async function Recent() {
             ))}
           </TableBody>
         </Table>
-      ) : (
-        <Empty className="py-10">
-          <EmptyHeader>
-            <EmptyMedia variant="icon">
-              <Wallet />
-            </EmptyMedia>
-            <EmptyTitle>No payments yet</EmptyTitle>
-            <EmptyDescription>Record payments on an invoice, or match a client&apos;s slip above.</EmptyDescription>
-          </EmptyHeader>
-        </Empty>
-      )}
-    </Surface>
+    </DataTable>
   );
 }
 

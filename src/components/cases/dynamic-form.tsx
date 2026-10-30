@@ -13,6 +13,7 @@ import { DISTRICTS } from "@/domain/districts";
 import { parseNic } from "@/domain/nic-core";
 import { formatPlainDate } from "@/lib/format";
 import type { FieldDef } from "@/domain/check-types/schema";
+import { DateField } from "@/components/forms/date-field";
 
 export type FormValues = Record<string, unknown>;
 
@@ -208,7 +209,7 @@ function ScalarField({
       );
       break;
     case "date":
-      control = <Input id={id} type="date" value={str} onChange={(e) => onChange(e.target.value)} disabled={readOnly} aria-invalid={invalid || undefined} />;
+      control = <DateField id={id} value={str} onChange={(e) => onChange(e.target.value)} disabled={readOnly} aria-invalid={invalid || undefined} />;
       break;
     case "date_range": {
       const r = (value ?? {}) as { from?: string; to?: string };
@@ -216,11 +217,11 @@ function ScalarField({
         <div className="grid grid-cols-2 gap-2">
           <label className="space-y-1">
             <span className="text-[11px] text-muted-foreground">From</span>
-            <Input id={id} type="date" value={r.from ?? ""} onChange={(e) => onChange({ ...r, from: e.target.value })} disabled={readOnly} aria-invalid={invalid || undefined} />
+            <DateField id={id} value={r.from ?? ""} onChange={(e) => onChange({ ...r, from: e.target.value })} disabled={readOnly} aria-invalid={invalid || undefined} />
           </label>
           <label className="space-y-1">
             <span className="text-[11px] text-muted-foreground">To</span>
-            <Input type="date" value={r.to ?? ""} onChange={(e) => onChange({ ...r, to: e.target.value })} disabled={readOnly} aria-invalid={invalid || undefined} aria-label={`${field.label}: to`} />
+            <DateField value={r.to ?? ""} onChange={(e) => onChange({ ...r, to: e.target.value })} disabled={readOnly} aria-invalid={invalid || undefined} aria-label={`${field.label}: to`} />
           </label>
         </div>
       );

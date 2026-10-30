@@ -14,8 +14,9 @@ type BoolKey = Exclude<keyof PortalVisibility, "hidden_check_types">;
 const SEE: { key: BoolKey; label: string; hint: string }[] = [
   { key: "show_check_progress", label: "Progress of each check", hint: "Not started, in progress, completed." },
   { key: "show_timeline", label: "Case timeline", hint: "Client-safe events only, never internal notes or QC remarks." },
-  { key: "show_documents", label: "Shared documents", hint: "Files you mark “Client can see”, and their own uploads." },
+  { key: "show_documents", label: "Shared documents", hint: "Files you mark “Client can see”, and their own uploads. Report evidence stays in the released PDF." },
   { key: "show_candidate_progress", label: "Candidate progress", hint: "Whether the candidate opened their link and signed consent." },
+  { key: "show_candidate_details", label: "Candidate personal details", hint: "NIC, email and phone. Off by default: they see the candidate's name only." },
   { key: "show_results_before_release", label: "Results before release", hint: "Off by default: results appear once the report is released." },
 ];
 

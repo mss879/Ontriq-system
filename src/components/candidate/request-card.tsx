@@ -11,6 +11,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { candidateDict, type CandidateLang } from "@/domain/candidate/i18n";
 import { answerRequest } from "@/app/(candidate)/c/session/actions";
 import { errorText } from "./errors";
+import { DateField } from "@/components/forms/date-field";
 
 export type RequestData = {
   id: string;
@@ -58,12 +59,12 @@ export function RequestCard({ lang, request }: { lang: CandidateLang; request: R
       case "address":
         return <Textarea id={`answer-${request.id}`} value={value} onChange={(e) => setValue(e.target.value)} rows={3} className="text-[15px]" />;
       case "date":
-        return <Input id={`answer-${request.id}`} type="date" value={value} onChange={(e) => setValue(e.target.value)} className="h-11 text-[15px]" />;
+        return <DateField id={`answer-${request.id}`} value={value} onChange={(e) => setValue(e.target.value)} className="h-11 text-[15px]" />;
       case "date_range":
         return (
           <div className="grid grid-cols-2 gap-2">
-            <Input id={`answer-${request.id}`} type="date" value={value} onChange={(e) => setValue(e.target.value)} className="h-11 text-[15px]" />
-            <Input type="date" value={rangeTo} onChange={(e) => setRangeTo(e.target.value)} className="h-11 text-[15px]" aria-label={t.requests.yourAnswer} />
+            <DateField id={`answer-${request.id}`} value={value} onChange={(e) => setValue(e.target.value)} className="h-11 text-[15px]" />
+            <DateField value={rangeTo} onChange={(e) => setRangeTo(e.target.value)} className="h-11 text-[15px]" aria-label={t.requests.yourAnswer} />
           </div>
         );
       case "number":

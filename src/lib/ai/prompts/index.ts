@@ -17,7 +17,14 @@ const HONEST =
 
 // ---------------------------------------------------------------- 1. classify
 
-export const CLASSIFY_VERSION = "classify-v1";
+/** Sinhala and Tamil transcriptions run long, so these calls need more room than a capability's default. */
+export const CLASSIFY_MIN_TOKENS = 12000;
+export const EXTRACT_MIN_TOKENS = 8000;
+
+const LANGUAGES =
+  "Documents may be in English, Sinhala or Tamil, or a mix, printed or handwritten, scanned or photographed. Read everything on every page, including stamps, seals and handwritten entries.";
+
+export const CLASSIFY_VERSION = "classify-v2";
 export const ClassifySchema = z.object({
   document_type: z.string().describe("Best category key from the list given, or 'other'"),
   matches_expected: z.boolean().describe("True if it is the kind of document the slot asked for"),
@@ -27,7 +34,8 @@ export const ClassifySchema = z.object({
   language: z.string().nullable().describe("Main language: en, si, ta or other"),
   names_seen: z.array(z.string()).describe("Personal names printed on the document"),
   key_numbers: z.array(z.object({ label: z.string(), value: z.string() })).describe("NIC numbers, index numbers, dates and similar"),
-  text: z.string().describe("The document's text, transcribed (up to about 3000 characters)"),
+  text: z.string().describe("All of the document's text as written, in its original script (up to about 8000 characters)"),
+  translation_en: z.string().nullable().describe("A faithful English translation of the text if any of it is not in English, otherwise null"),
   possible_tampering: z.boolean(),
   tampering_notes: z.string().nullable(),
   candidate_message: z.string().nullable().describe("If the file is not usable, one friendly sentence telling the candidate what to upload instead"),
@@ -36,33 +44,49 @@ export type ClassifyResult = z.infer<typeof ClassifySchema>;
 
 export function classifyPrompt(input: { expectedCategory: string; expectedLabel: string; categories: { key: string; name: string }[] }) {
   return {
-    system: `${ONTRIQ}\nYou check uploaded documents as they arrive: what they are, whether they can be read, and the text on them. ${HONEST}\nFlag signs of editing (mismatched fonts, misaligned text, inconsistent dates, pasted photos) only when you see them.`,
-    text: `This file was uploaded for the slot "${input.expectedLabel}" (category ${input.expectedCategory}).\nCategories: ${input.categories.map((c) => `${c.key} (${c.name})`).join(", ")}.\nClassify it, check its quality and transcribe it.`,
+    system: `${ONTRIQ}\nYou check uploaded documents as they arrive: what they are, whether they can be read, and the text on them. ${LANGUAGES} ${HONEST}\nWhen something isn't in English, translate it faithfully; mark a word you can't read as [unclear] and never guess it.\nFlag signs of editing (mismatched fonts, misaligned text, inconsistent dates, pasted photos) only when you see them.`,
+    text: `This file was uploaded for the slot "${input.expectedLabel}" (category ${input.expectedCategory}).\nCategories: ${input.categories.map((c) => `${c.key} (${c.name})`).join(", ")}.\nClassify it, check its quality, transcribe all of it, and translate it into English if it is not already in English.`,
   };
 }
 
 // ---------------------------------------------------------------- 2. extract
 
-export const EXTRACT_VERSION = "extract-v1";
+export const EXTRACT_VERSION = "extract-v2";
+const FieldValue = z.union([z.string(), z.number(), z.boolean(), z.null(), z.object({ from: z.string().nullable(), to: z.string().nullable() })]);
 export const ExtractSchema = z.object({
   fields: z.array(
     z.object({
       key: z.string(),
-      value: z.union([z.string(), z.number(), z.boolean(), z.null(), z.object({ from: z.string().nullable(), to: z.string().nullable() })]),
+      value: FieldValue,
       confidence: z.number().describe("0 to 1"),
       source: z.string().nullable().describe("Which document (file name) the value came from"),
+      written_as: z.string().nullable().describe("The value as printed on the document, when it isn't in English"),
     }),
   ),
+  groups: z.array(
+    z.object({
+      key: z.string().describe("The group's key"),
+      rows: z.array(z.object({ cells: z.array(z.object({ key: z.string(), value: FieldValue })) })).describe("One row per employer, referee or similar"),
+      confidence: z.number().describe("0 to 1"),
+      source: z.string().nullable(),
+    }),
+  ),
+  overall: z.string().nullable().describe("One plain sentence on what the documents say, for example that a police report shows no adverse record"),
   notes: z.string().nullable(),
 });
 export type ExtractResult = z.infer<typeof ExtractSchema>;
 
-export function extractPrompt(input: { checkLabel: string; fields: { key: string; label: string; type: string; hint?: string; options?: { value: string; label: string }[] }[] }) {
+type ExtractField = { key: string; label: string; type: string; hint?: string; options?: { value: string; label: string }[] };
+
+const describeField = (f: ExtractField) => `${f.key} (${f.type}): ${f.label}${f.hint ? `. Hint: ${f.hint}` : ""}${f.options ? `. Options: ${f.options.map((o) => `${o.value}=${o.label}`).join(", ")}` : ""}`;
+
+export function extractPrompt(input: { checkLabel: string; fields: ExtractField[]; groups?: { key: string; label: string; fields: ExtractField[] }[] }) {
+  const groups = input.groups ?? [];
   return {
-    system: `${ONTRIQ}\nYou pre-fill a verification check's fields from the candidate's documents so a data entry officer can confirm them side by side. ${HONEST}\nDates are YYYY-MM-DD; a period is {"from","to"}. For a choice field, return one of the option values. Leave a field out if the documents don't show it.`,
-    text: `Check: ${input.checkLabel}\nFields:\n${input.fields
-      .map((f) => `- ${f.key} (${f.type}): ${f.label}${f.hint ? `. Hint: ${f.hint}` : ""}${f.options ? `. Options: ${f.options.map((o) => `${o.value}=${o.label}`).join(", ")}` : ""}`)
-      .join("\n")}\nThe documents follow.`,
+    system: `${ONTRIQ}\nYou pre-fill a verification check's fields from the uploaded documents so a data entry officer can confirm them side by side. ${LANGUAGES} ${HONEST}\nReturn every value in English: translate words, and write names and places in their usual English spelling. Copy numbers exactly (NIC, index, reference and phone numbers), converting any Sinhala or Tamil numerals to 0-9. When you translate a value, put the original in written_as.\nDates are YYYY-MM-DD, and Sri Lankan documents usually write the day first; a period is {"from","to"}. For a choice field, return one of the option values. Leave a field out if the documents don't show it.\nFor a repeating group, return one row per item, each with the columns you can read.`,
+    text: `Check: ${input.checkLabel}\nFields:\n${input.fields.map((f) => `- ${describeField(f)}`).join("\n") || "(none)"}${
+      groups.length ? `\nRepeating groups:\n${groups.map((g) => `- ${g.key}: ${g.label}. Columns:\n${g.fields.map((f) => `  - ${describeField(f)}`).join("\n")}`).join("\n")}` : ""
+    }\nThe documents follow.`,
   };
 }
 

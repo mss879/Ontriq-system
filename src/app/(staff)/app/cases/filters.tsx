@@ -3,18 +3,23 @@
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { KanbanSquare, Rows3, Search, X } from "lucide-react";
+import { KanbanSquare, Rows3, Search } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { FilterChips, type FilterChip } from "@/components/admin/filter-chips";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
-import { STAGE_LABELS, STAGES } from "@/domain/workflow/stages";
+import { STAGE_LABELS, STAGES, type Stage } from "@/domain/workflow/stages";
 import type { CaseFilters } from "@/lib/server/cases/queries";
-import { casesHref, hasFilters } from "./url";
+import { casesHref } from "./url";
 
 const ALL = "__all";
 
 type Option = { id: string; name: string };
+
+const STAGE_GROUPS: Record<string, string> = { all: "All cases", on_hold: "On hold", closed: "Released or cancelled" };
+const OWNER_WORDS: Record<string, string> = { me: "Mine", unassigned: "Unassigned" };
+const DUE_WORDS: Record<string, string> = { overdue: "Overdue", this_week: "Due within 7 days" };
 
 export function CasesFilters({
   query,
@@ -51,6 +56,17 @@ export function CasesFilters({
   }, [q, urlQ, query, router]);
 
   const stageValue = filters.stage ?? "active";
+
+  const chips: FilterChip[] = [];
+  const add = (key: string, label: string | undefined) => {
+    if (label) chips.push({ key, label, href: casesHref(query, { [key]: null }) });
+  };
+  add("q", filters.q ? `“${filters.q}”` : undefined);
+  add("stage", filters.stage && filters.stage !== "active" ? (STAGE_GROUPS[filters.stage] ?? STAGE_LABELS[filters.stage as Stage]) : undefined);
+  add("client", filters.client ? (clients.find((c) => c.id === filters.client)?.name ?? "Client") : undefined);
+  add("assignee", filters.assignee ? (OWNER_WORDS[filters.assignee] ?? staff.find((p) => p.id === filters.assignee)?.name ?? "Owner") : undefined);
+  add("priority", filters.priority ? `${filters.priority.charAt(0).toUpperCase()}${filters.priority.slice(1)} priority` : undefined);
+  add("due", filters.due ? DUE_WORDS[filters.due] : undefined);
 
   return (
     <div className="space-y-2.5">
@@ -149,16 +165,9 @@ export function CasesFilters({
           </SelectContent>
         </Select>
 
-        {hasFilters(query) ? (
-          <Link
-            href={view === "board" ? "/app/cases?view=board" : "/app/cases"}
-            className="inline-flex h-9 items-center gap-1 rounded-lg px-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          >
-            <X className="size-3.5" /> Clear
-          </Link>
-        ) : null}
       </div>
 
+      <FilterChips chips={chips} clearHref={view === "board" ? "/app/cases?view=board" : "/app/cases"} />
     </div>
   );
 }
@@ -169,7 +178,7 @@ function ViewToggle({ href, active, icon, label }: { href: string; active: boole
       href={href}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium transition-colors",
+        "inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-sm font-medium transition-colors outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
         active ? "bg-card text-foreground shadow-sm ring-1 ring-foreground/[0.06]" : "text-muted-foreground hover:text-foreground",
       )}
     >

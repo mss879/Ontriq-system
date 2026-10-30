@@ -262,7 +262,7 @@ export function RequestForm({ templates, packages, initialTemplateId }: { templa
           </p>
           {pkg ? <CheckChips names={pkg.items.map((i) => i.name)} /> : null}
         </div>
-        <Button variant="brand" size="lg" className="h-10 shrink-0 px-5" onClick={submit} disabled={pending || !pkg}>
+        <Button size="lg" className="h-10 shrink-0 px-5" onClick={submit} disabled={pending || !pkg}>
           {pending ? <Spinner /> : <ArrowRight />} Send request
         </Button>
       </div>
@@ -367,7 +367,7 @@ function Created({ created, clientSupplied, onAnother }: { created: { caseId: st
           <Button variant="outline" onClick={onAnother}>
             Send another
           </Button>
-          <Button asChild variant="brand">
+          <Button asChild>
             <Link href={`/portal/cases/${created.caseId}`}>
               View request <ArrowRight />
             </Link>

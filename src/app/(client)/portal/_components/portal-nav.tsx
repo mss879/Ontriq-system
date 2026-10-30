@@ -57,7 +57,7 @@ export function PortalTabs({ keys }: { keys: PortalNavKey[] }) {
             aria-current={on ? "page" : undefined}
             data-active={on || undefined}
             className={cn(
-              "flex h-11 shrink-0 items-center gap-2 border-b-2 border-transparent px-3 text-[13px] font-medium text-muted-foreground transition-colors hover:text-foreground",
+              "flex h-11 shrink-0 items-center gap-2 border-b-2 border-transparent px-3 text-[13px] font-medium text-muted-foreground transition-colors outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50",
               on && "border-brand-orange text-foreground",
             )}
           >

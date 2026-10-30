@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar";
+import { SidebarGroup, SidebarGroupContent, SidebarGroupLabel, SidebarMenu, SidebarMenuButton, SidebarMenuItem, useSidebar } from "@/components/ui/sidebar";
 import { STAFF_NAV, visibleNav } from "./nav";
 
 /** Active items get the website's orange indicator and a lit icon. */
@@ -13,6 +13,7 @@ export const NAV_LABEL_CLASS = "text-[10.5px] font-semibold tracking-[0.2em] tex
 
 export function SidebarNav({ viewer }: { viewer: { permissions: string[]; roleKey: string } }) {
   const pathname = usePathname();
+  const { setOpenMobile } = useSidebar();
   const sections = visibleNav(STAFF_NAV, viewer);
   const matches = (href: string) => (href === "/app" ? pathname === "/app" : pathname === href || pathname.startsWith(`${href}/`));
   // The most specific item wins, so /app/team/performance lights Performance, not Team as well.
@@ -29,7 +30,7 @@ export function SidebarNav({ viewer }: { viewer: { permissions: string[]; roleKe
               {section.items.map((item) => (
                 <SidebarMenuItem key={item.href}>
                   <SidebarMenuButton asChild isActive={isActive(item.href)} tooltip={item.title} className={NAV_ITEM_CLASS}>
-                    <Link href={item.href}>
+                    <Link href={item.href} onClick={() => setOpenMobile(false)}>
                       <item.icon />
                       <span>{item.title}</span>
                     </Link>

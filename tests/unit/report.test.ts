@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { canonicalJson, compileReport, formatFieldValue, type ReportInputs } from "@/domain/reports/compile-core";
+import { PDFDocument } from "pdf-lib";
+import { canonicalJson, compileReport, fixedAnnexureCategories, formatFieldValue, type ReportAnnexure, type ReportInputs } from "@/domain/reports/compile-core";
+import { assembleReport, MAX_ANNEXURE_PAGES } from "../../src/jobs/report/assemble";
 import { BUILTIN_CHECK_TYPES } from "@/domain/check-types/builtin";
 import { parseCheckTypeSchema } from "@/domain/check-types/schema";
 
@@ -60,5 +62,40 @@ describe("report compile", () => {
     expect(formatFieldValue({ key: "p", label: "Period", type: "date_range" } as never, { from: "2020-01-01", to: "" })).toBe("1 Jan 2020 to present");
     expect(formatFieldValue({ key: "x", label: "X", type: "boolean" } as never, false)).toBe("No");
     expect(formatFieldValue({ key: "s", label: "S", type: "select", options: [{ value: "a", label: "Alpha" }] } as never, "a")).toBe("Alpha");
+  });
+});
+
+describe("the fixed annexure", () => {
+  const pdf = async (pages: number) => {
+    const doc = await PDFDocument.create();
+    for (let i = 0; i < pages; i += 1) doc.addPage();
+    return doc.save();
+  };
+  const annexure = (kind: ReportAnnexure["kind"], filename: string, bytes: Uint8Array | null): ReportAnnexure & { bytes: Uint8Array | null } => ({
+    document_id: filename,
+    title: kind === "fixed" ? "Global sanction screening report" : "Evidence",
+    filename,
+    mime: "application/pdf",
+    kind,
+    check_label: null,
+    sha256: null,
+    bytes,
+  });
+  const opts = { reference: "ONT-2026-000001", draft: true };
+
+  it("goes in on any case that still has the check", () => {
+    const sanction = { state: "completed", schema: schemaOf("sanction") };
+    expect(fixedAnnexureCategories([sanction, { state: "completed", schema: schemaOf("nic") }])).toEqual(["sanction_report"]);
+    expect(fixedAnnexureCategories([{ ...sanction, state: "waived" }])).toEqual([]);
+  });
+
+  it("is embedded even when the evidence used up the page limit", async () => {
+    const r = await assembleReport(await pdf(1), [annexure("evidence", "bulky.pdf", await pdf(MAX_ANNEXURE_PAGES + 1)), annexure("evidence", "late.pdf", await pdf(1)), annexure("fixed", "cfirst.pdf", await pdf(3))], opts);
+    expect(r.skipped).toEqual(["late.pdf"]);
+  });
+
+  it("is reported when the file can't be embedded, so the report can stop", async () => {
+    const r = await assembleReport(await pdf(1), [annexure("fixed", "cfirst.pdf", new TextEncoder().encode("not a pdf")), annexure("fixed", "gone.pdf", null)], opts);
+    expect(r.skipped).toEqual(["cfirst.pdf", "gone.pdf"]);
   });
 });

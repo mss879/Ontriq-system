@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { connection } from "next/server";
 import {
   AlarmClock,
+  AlertTriangle,
   ArrowRight,
   ArrowUpRight,
   Bot,
@@ -11,7 +12,12 @@ import {
   Building2,
   Check,
   ClipboardCheck,
+  ClipboardList,
   Cog,
+  FileCheck2,
+  FileClock,
+  FileSignature,
+  FolderKanban,
   Inbox,
   ListChecks,
   Mail,
@@ -25,75 +31,142 @@ import {
   TriangleAlert,
   UserPlus,
   Users,
+  Wallet,
   type LucideIcon,
 } from "lucide-react";
 import { Eyebrow, Page, SectionSkeleton } from "@/components/layout/page";
+import { SectionBoundary } from "@/components/layout/section-boundary";
 import { OpenPaletteButton } from "@/components/command/command-trigger";
+import { KpiTile } from "@/components/charts/kpi";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Kbd } from "@/components/ui/kbd";
 import { createRequestClient } from "@/lib/supabase/server";
-import { getStaffViewer } from "@/lib/server/viewer";
+import { getStaffViewer, type Viewer } from "@/lib/server/viewer";
 import { integrationStatus } from "@/lib/env";
-import { can } from "@/domain/permissions";
+import { can, canAny } from "@/domain/permissions";
 import { cn } from "@/lib/utils";
 import { stageCounts } from "@/lib/server/cases/queries";
-import { myWorkSummary, needsAttention } from "@/lib/server/cases/list-queries";
-import { ACTIVE_STAGES, STAGE_LABELS, STAGE_TONES } from "@/domain/workflow/stages";
-import { TONE_CLASSES } from "@/components/cases/badges";
+import { myWorkSummary, needsAttention, queueCases, queueCounts, queueTabsFor } from "@/lib/server/cases/list-queries";
+import { getReportQueues } from "@/lib/server/reports/queries";
+import { invoiceHeadline } from "@/lib/server/billing/queries";
+import { listQuotes } from "@/lib/server/quotes/queries";
+import { formatMoney } from "@/domain/pricing/money";
+import { ACTIVE_STAGES, STAGE_LABELS, stageStep } from "@/domain/workflow/stages";
+import { stageColor } from "@/components/cases/badges";
 import { NudgeBanner } from "@/components/performance/nudge-banner";
 import { ScorePill, TrendIcon } from "@/components/performance/score";
 import { Sparkline } from "@/components/performance/sparkline";
 import { latestBriefing, myOpenNudges, ownScorecard, performanceBoard } from "@/lib/server/performance/queries";
 import { fillSeries } from "@/domain/performance/score-core";
+import { QueueList } from "./queues/queue-list";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
+const DOES_CASEWORK = ["checks.verify", "checks.data_entry", "qc.pre", "qc.post"] as const;
+
+/** What this person's day is about, which decides the numbers they see first. */
+type Focus = "manager" | "qc" | "data_entry" | "officer" | "relations" | "viewer";
+
+function focusFor(viewer: Viewer): Focus {
+  if (can(viewer, "cases.assign")) return "manager";
+  if (canAny(viewer, ["qc.pre", "qc.post"])) return "qc";
+  if (can(viewer, "checks.data_entry")) return "data_entry";
+  if (can(viewer, "checks.verify")) return "officer";
+  if (canAny(viewer, ["invoices.manage", "quotes.manage"])) return "relations";
+  return "viewer";
+}
+
 export default function DashboardPage({ searchParams }: PageProps<"/app">) {
   return (
-    <Page className="space-y-8">
+    <Page>
       <Suspense fallback={<HeroSkeleton />}>
         <Hero />
       </Suspense>
       <Suspense fallback={null}>
         <Pushes searchParams={searchParams} />
       </Suspense>
-      <Suspense fallback={<WorkSkeleton />}>
-        <MyWork />
-      </Suspense>
-      <div className="grid gap-6 lg:grid-cols-3">
-        <div className="space-y-6 lg:col-span-2">
-          <Suspense fallback={<SectionSkeleton rows={4} />}>
-            <Briefing />
-          </Suspense>
-          <Suspense fallback={<SectionSkeleton rows={6} />}>
-            <Pipeline />
-          </Suspense>
-          <Suspense fallback={<SectionSkeleton rows={6} />}>
-            <SetupChecklist />
-          </Suspense>
+      <SectionBoundary label="your numbers">
+        <Suspense fallback={<WorkSkeleton />}>
+          <Headline />
+        </Suspense>
+      </SectionBoundary>
+      <div className="flex flex-col gap-5 lg:flex-row lg:items-start">
+        <div className="w-full min-w-0 space-y-5 lg:flex-[2]">
+          <SectionBoundary label="your next work">
+            <Suspense fallback={null}>
+              <NextUp />
+            </Suspense>
+          </SectionBoundary>
+          <SectionBoundary label="the briefing">
+            <Suspense fallback={<SectionSkeleton rows={4} />}>
+              <Briefing />
+            </Suspense>
+          </SectionBoundary>
+          <SectionBoundary label="the pipeline">
+            <Suspense fallback={<SectionSkeleton rows={6} />}>
+              <Pipeline />
+            </Suspense>
+          </SectionBoundary>
+          <SectionBoundary label="the setup checklist">
+            <Suspense fallback={null}>
+              <SetupChecklist />
+            </Suspense>
+          </SectionBoundary>
         </div>
-        <div className="space-y-6">
-          <Suspense fallback={<SectionSkeleton rows={4} />}>
-            <MyScorecard />
-          </Suspense>
-          <Suspense fallback={<SectionSkeleton rows={4} />}>
-            <NeedsAttention />
-          </Suspense>
-          <Suspense fallback={<SectionSkeleton rows={4} />}>
-            <SystemStatus />
-          </Suspense>
-          <Suspense fallback={<SectionSkeleton rows={3} />}>
-            <TeamSnapshot />
-          </Suspense>
-        </div>
+        <Suspense fallback={<SectionSkeleton rows={6} className="w-full lg:flex-1" />}>
+          <SideRail />
+        </Suspense>
       </div>
     </Page>
   );
 }
 
+/** Only the cards this person can use, so a role with none gets the full width. */
+async function SideRail() {
+  const viewer = await getStaffViewer();
+  const scorecard = can(viewer, "staff.performance.read") || DOES_CASEWORK.some((p) => can(viewer, p));
+  const attention = can(viewer, "cases.assign") || can(viewer, "cases.stage.change");
+  const status = canAny(viewer, ["settings.manage", "users.manage", "jobs.read"]);
+  const team = can(viewer, "users.manage");
+  if (!scorecard && !attention && !status && !team) return null;
+  return (
+    <div className="w-full min-w-0 space-y-5 lg:flex-1">
+      {scorecard ? (
+        <SectionBoundary label="your scorecard">
+          <Suspense fallback={<SectionSkeleton rows={4} />}>
+            <MyScorecard />
+          </Suspense>
+        </SectionBoundary>
+      ) : null}
+      {attention ? (
+        <SectionBoundary label="what needs attention">
+          <Suspense fallback={<SectionSkeleton rows={4} />}>
+            <NeedsAttention />
+          </Suspense>
+        </SectionBoundary>
+      ) : null}
+      {status ? (
+        <SectionBoundary label="system status">
+          <Suspense fallback={<SectionSkeleton rows={4} />}>
+            <SystemStatus />
+          </Suspense>
+        </SectionBoundary>
+      ) : null}
+      {team ? (
+        <SectionBoundary label="the team">
+          <Suspense fallback={<SectionSkeleton rows={3} />}>
+            <TeamSnapshot />
+          </Suspense>
+        </SectionBoundary>
+      ) : null}
+    </div>
+  );
+}
+
 function HeroSkeleton() {
-  return <div className="h-[212px] animate-pulse rounded-3xl bg-brand/90" aria-hidden />;
+  return <div className="h-[84px] animate-pulse rounded-2xl bg-brand/90" aria-hidden />;
 }
 
 async function Hero() {
@@ -109,51 +182,50 @@ async function Hero() {
   const canCreate = can(viewer, "cases.create");
 
   return (
-    <section className="brand-glow relative overflow-hidden rounded-3xl px-6 py-7 text-white shadow-lift ring-1 ring-black/5 md:px-9 md:py-9 dark:ring-white/[0.07]">
+    <section className="brand-glow relative overflow-hidden rounded-2xl px-5 py-4 text-white shadow-soft ring-1 ring-black/5 md:px-7 dark:ring-white/[0.07]">
       <div aria-hidden className="pointer-events-none absolute inset-0 bg-grid bg-grid-fade opacity-[0.06]" />
-      <div className="relative flex flex-col gap-7 md:flex-row md:items-end md:justify-between">
-        <div className="space-y-3">
-          <Eyebrow tone="onDark">{date}</Eyebrow>
-          <h1 className="font-display text-[2rem] leading-[1.1] font-semibold tracking-tight md:text-[2.5rem]">
+      <div className="relative flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="font-display text-xl leading-tight font-semibold tracking-tight md:text-2xl">
             {part}, {first}
           </h1>
-          <div className="flex flex-wrap items-center gap-2 text-sm text-white/70">
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-white/10 px-2.5 py-1 text-xs font-medium text-white ring-1 ring-white/10">
-              {viewer.roleName}
-            </span>
+          <p className="mt-1 flex flex-wrap items-center gap-x-2 text-[13px] text-white/65">
+            <span>{date}</span>
+            <span aria-hidden>·</span>
+            <span>{viewer.roleName}</span>
             {viewer.aal === "aal2" ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-400/10 px-2.5 py-1 text-xs font-medium text-emerald-300 ring-1 ring-emerald-300/20">
-                <ShieldCheck className="size-3.5" /> Two-step verification on
-              </span>
+              <>
+                <span aria-hidden>·</span>
+                <span className="inline-flex items-center gap-1 text-on-dark-success">
+                  <ShieldCheck className="size-3.5" aria-hidden /> Two-step on
+                </span>
+              </>
             ) : null}
-          </div>
+          </p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <OpenPaletteButton className="inline-flex h-10 items-center gap-2 rounded-xl bg-white/10 px-4 text-sm font-medium text-white ring-1 ring-white/15 backdrop-blur transition-colors hover:bg-white/15">
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <OpenPaletteButton className="inline-flex h-9 items-center gap-2 rounded-xl bg-white/10 px-3.5 text-sm font-medium text-white ring-1 ring-white/15 backdrop-blur transition-colors outline-none hover:bg-white/15 focus-visible:ring-2 focus-visible:ring-white/60">
             <Search className="size-4" /> Search
-            <Kbd className="bg-white/10 text-white/80">⌘K</Kbd>
+            <Kbd className="hidden bg-white/10 text-white/80 sm:inline-flex">⌘K</Kbd>
           </OpenPaletteButton>
           {canCreate ? (
-            <Link
-              href="/app/cases/new"
-              className="inline-flex h-10 items-center gap-2 rounded-xl bg-white px-4 text-sm font-semibold text-[#0A1A2F] shadow-[0_8px_24px_-8px_rgb(247_88_52/0.6)] transition-transform hover:-translate-y-px"
-            >
-              <Plus className="size-4 text-brand-orange" /> New case
-            </Link>
+            <Button asChild variant="inverse" size="lg" className="h-9 px-3.5">
+              <Link href="/app/cases/new">
+                <Plus /> New case
+              </Link>
+            </Button>
           ) : canInvite ? (
-            <Link
-              href="/app/team?invite=1"
-              className="inline-flex h-10 items-center gap-2 rounded-xl bg-white px-4 text-sm font-semibold text-[#0A1A2F] shadow-[0_8px_24px_-8px_rgb(247_88_52/0.6)] transition-transform hover:-translate-y-px"
-            >
-              <UserPlus className="size-4 text-brand-orange" /> Invite a team member
-            </Link>
+            <Button asChild variant="inverse" size="lg" className="h-9 px-3.5">
+              <Link href="/app/team?invite=1">
+                <UserPlus /> Invite a team member
+              </Link>
+            </Button>
           ) : canSettings ? (
-            <Link
-              href="/app/settings"
-              className="inline-flex h-10 items-center gap-2 rounded-xl bg-white px-4 text-sm font-semibold text-[#0A1A2F] transition-transform hover:-translate-y-px"
-            >
-              <Settings className="size-4 text-brand-orange" /> Settings
-            </Link>
+            <Button asChild variant="inverse" size="lg" className="h-9 px-3.5">
+              <Link href="/app/settings">
+                <Settings /> Settings
+              </Link>
+            </Button>
           ) : null}
         </div>
       </div>
@@ -180,9 +252,8 @@ function ProgressRing({ value }: { value: number }) {
         />
         <defs>
           <linearGradient id="ontriq-ring" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="#F78F1E" />
-            <stop offset="55%" stopColor="#F75834" />
-            <stop offset="100%" stopColor="#0C5A9A" />
+            <stop offset="0%" stopColor="var(--brand-orange)" />
+            <stop offset="100%" stopColor="var(--brand-blue)" />
           </linearGradient>
         </defs>
       </svg>
@@ -219,6 +290,15 @@ async function SetupChecklist() {
   ];
   const doneCount = items.filter((i) => i.done).length;
   const percent = Math.round((doneCount / items.length) * 100);
+  const left = items.filter((i) => !i.done);
+
+  if (!left.length) {
+    return (
+      <p className="flex items-center gap-2 px-1 text-sm text-muted-foreground">
+        <Check className="size-4 text-success" aria-hidden /> Ontriq is set up: everything is connected.
+      </p>
+    );
+  }
 
   return (
     <Card>
@@ -228,38 +308,29 @@ async function SetupChecklist() {
           <div className="space-y-1">
             <Eyebrow>Getting started</Eyebrow>
             <CardTitle className="text-lg">Set up Ontriq</CardTitle>
-            <CardDescription>
-              {doneCount === items.length ? "Everything is in place." : `${doneCount} of ${items.length} done. Finish these to go live.`}
-            </CardDescription>
+            <CardDescription>{`${doneCount} of ${items.length} done. Finish these to go live.`}</CardDescription>
           </div>
         </div>
       </CardHeader>
       <CardContent className="-my-1 px-3">
         <ul className="divide-y divide-border/70">
-          {items.map((item) => {
+          {left.map((item) => {
             const Icon = item.icon;
             const body = (
               <div className="flex items-center gap-4 rounded-xl px-2 py-3 transition-colors group-hover:bg-muted/60">
-                <span
-                  className={cn(
-                    "flex size-9 shrink-0 items-center justify-center rounded-xl",
-                    item.done ? "bg-success/12 text-success" : "bg-brand-orange/10 text-brand-orange-ink",
-                  )}
-                >
-                  {item.done ? <Check className="size-4" strokeWidth={2.5} /> : <Icon className="size-[18px]" />}
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-brand-orange/10 text-brand-orange-ink">
+                  <Icon className="size-[18px]" />
                 </span>
                 <div className="min-w-0 flex-1">
-                  <p className={cn("text-sm font-medium", item.done && "text-muted-foreground")}>{item.title}</p>
-                  <p className="mt-0.5 text-[13px] leading-relaxed text-muted-foreground">{item.done ? "Done" : item.text}</p>
+                  <p className="text-sm font-medium">{item.title}</p>
+                  <p className="mt-0.5 text-[13px] leading-relaxed text-muted-foreground">{item.text}</p>
                 </div>
-                {!item.done && item.href ? (
-                  <ArrowRight className="size-4 shrink-0 text-muted-foreground transition-all group-hover:translate-x-0.5 group-hover:text-foreground" />
-                ) : null}
+                {item.href ? <ArrowRight className="size-4 shrink-0 text-muted-foreground transition-all group-hover:translate-x-0.5 group-hover:text-foreground" /> : null}
               </div>
             );
             return (
               <li key={item.title}>
-                {item.href && !item.done ? (
+                {item.href ? (
                   <Link href={item.href} className="group block">
                     {body}
                   </Link>
@@ -276,7 +347,6 @@ async function SetupChecklist() {
 }
 
 async function SystemStatus() {
-  await getStaffViewer();
   const supabase = await createRequestClient();
   const { data } = await supabase.rpc("queue_depth");
   const depth = (data ?? {}) as { queued?: number; running?: number; dead?: number; live_workers?: number };
@@ -365,48 +435,125 @@ function WorkSkeleton() {
   return (
     <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" aria-hidden>
       {[0, 1, 2, 3].map((i) => (
-        <div key={i} className="h-[104px] animate-pulse rounded-2xl bg-muted" />
+        <div key={i} className="h-[84px] animate-pulse rounded-2xl bg-muted" />
       ))}
     </div>
   );
 }
 
-async function MyWork() {
-  const viewer = await getStaffViewer();
-  if (!can(viewer, "cases.read") && !can(viewer, "cases.read_assigned") && !can(viewer, "checks.verify")) return null;
+type Tile = { label: string; value: string; sub?: string; href?: string; icon: LucideIcon; tone?: "default" | "good" | "warn" | "bad"; alert?: boolean };
+
+const plural = (n: number, one: string, many = `${one}s`) => (n === 1 ? one : many);
+
+async function headlineTiles(viewer: Viewer, focus: Focus): Promise<{ tiles: Tile[]; own?: { cases: number; checks: number; dueToday: number } }> {
+  if (focus === "manager") {
+    const money = canAny(viewer, ["invoices.manage", "billing.export"]);
+    const [counts, a, reports, billing, work] = await Promise.all([
+      stageCounts(),
+      needsAttention(),
+      can(viewer, "reports.approve") ? getReportQueues(viewer.userId) : null,
+      money ? invoiceHeadline() : null,
+      myWorkSummary(viewer.userId),
+    ]);
+    const open = ACTIVE_STAGES.reduce((sum, stage) => sum + (counts[stage] ?? 0), 0);
+    const toApprove = reports?.toApprove.length ?? 0;
+    const tiles: Tile[] = [
+      { label: "Open cases", value: String(open), sub: counts.on_hold ? `${counts.on_hold} on hold` : "across every stage", href: "/app/cases", icon: FolderKanban },
+      ...(reports ? [{ label: "To approve", value: String(toApprove), sub: `${plural(toApprove, "report")} waiting for you`, href: "/app/queues?tab=mine", icon: FileCheck2, tone: toApprove ? ("warn" as const) : undefined }] : []),
+      { label: "Unassigned", value: String(a.unassigned), sub: a.unassigned ? "cases nobody owns" : "every case has an owner", href: "/app/queues?tab=unassigned", icon: Inbox, tone: a.unassigned ? "warn" : undefined },
+      { label: "Overdue", value: String(a.overdue), sub: a.overdue ? "past their due date" : "nothing late", href: "/app/queues?tab=overdue", icon: AlarmClock, tone: a.overdue ? "bad" : undefined, alert: a.overdue > 0 },
+      ...(billing
+        ? [
+            { label: "Outstanding", value: formatMoney(billing.outstanding), sub: "confirmed, not yet paid", href: "/app/invoices?status=open", icon: Wallet },
+            { label: "Unpaid and late", value: formatMoney(billing.overdue), sub: "past the due date", href: "/app/invoices?status=overdue", icon: AlertTriangle, tone: billing.overdue > 0 ? ("bad" as const) : undefined, alert: billing.overdue > 0 },
+          ]
+        : []),
+    ];
+    return { tiles, own: { cases: work.openCases, checks: work.openChecks, dueToday: work.dueToday } };
+  }
+
+  if (focus === "qc") {
+    const counts = await queueCounts(viewer, queueTabsFor(viewer));
+    return {
+      tiles: [
+        { label: "Pre-QC", value: String(counts.pre_qc ?? 0), sub: "cases to review", href: "/app/queues?tab=pre_qc", icon: ClipboardCheck, tone: counts.pre_qc ? "warn" : undefined },
+        { label: "Post-QC", value: String(counts.post_qc ?? 0), sub: "cases to review", href: "/app/queues?tab=post_qc", icon: ClipboardList, tone: counts.post_qc ? "warn" : undefined },
+        { label: "Returned", value: String(counts.returned ?? 0), sub: "waiting for corrections", href: "/app/queues?tab=returned", icon: RotateCcw },
+        { label: "Overdue", value: String(counts.overdue ?? 0), sub: counts.overdue ? "past their due date" : "nothing late", href: "/app/queues?tab=overdue", icon: AlarmClock, tone: counts.overdue ? "bad" : undefined, alert: Boolean(counts.overdue) },
+      ],
+    };
+  }
+
+  if (focus === "relations") {
+    const [billing, quotes] = await Promise.all([invoiceHeadline(), listQuotes({ status: "open" })]);
+    return {
+      tiles: [
+        { label: "Outstanding", value: formatMoney(billing.outstanding), sub: "confirmed, not yet paid", href: "/app/invoices?status=open", icon: Wallet },
+        { label: "Unpaid and late", value: formatMoney(billing.overdue), sub: "past the due date", href: "/app/invoices?status=overdue", icon: AlertTriangle, tone: billing.overdue > 0 ? "bad" : undefined, alert: billing.overdue > 0 },
+        { label: "Drafts to check", value: String(billing.drafts), sub: `${plural(billing.drafts, "invoice")} to confirm`, href: "/app/invoices?status=draft", icon: FileClock, tone: billing.drafts ? "warn" : undefined },
+        { label: "Quotes out", value: String(quotes.length), sub: "waiting for the client", href: "/app/quotes?status=open", icon: FileSignature },
+      ],
+    };
+  }
+
+  if (focus === "viewer") return { tiles: [] };
+
   const work = await myWorkSummary(viewer.userId);
-  const tiles: { label: string; value: number; sub: string; href: string; icon: LucideIcon; tone?: "warn" | "danger" }[] = [
-    { label: "My cases", value: work.openCases, sub: "active cases you own", href: "/app/queues", icon: Briefcase },
-    { label: "My checks", value: work.openChecks, sub: "checks still open", href: "/app/queues", icon: ListChecks },
-    { label: "Due today", value: work.dueToday, sub: "by close of business", href: "/app/queues", icon: AlarmClock, tone: work.dueToday ? "warn" : undefined },
-    { label: "Overdue", value: work.overdue, sub: work.overdue ? "past their due date" : "nothing late", href: "/app/queues?tab=overdue", icon: AlarmClock, tone: work.overdue ? "danger" : undefined },
-  ];
+  const held: Tile =
+    focus === "data_entry"
+      ? { label: "Data entry", value: String((await queueCounts(viewer, ["data_entry"])).data_entry ?? 0), sub: "cases waiting for details", href: "/app/queues?tab=data_entry", icon: Briefcase }
+      : { label: "My cases", value: String(work.openCases), sub: "active cases you own", href: "/app/queues?tab=mine", icon: Briefcase };
+  return {
+    tiles: [
+      held,
+      { label: "My checks", value: String(work.openChecks), sub: "checks still open", href: "/app/queues?tab=mine", icon: ListChecks },
+      { label: "Due today", value: String(work.dueToday), sub: "by close of business", href: "/app/queues?tab=mine", icon: AlarmClock, tone: work.dueToday ? "warn" : undefined },
+      { label: "Overdue", value: String(work.overdue), sub: work.overdue ? "past their due date" : "nothing late", href: "/app/queues?tab=overdue", icon: AlarmClock, tone: work.overdue ? "bad" : undefined, alert: work.overdue > 0 },
+    ],
+  };
+}
+
+/** The first row of numbers, chosen for what this person does all day. */
+async function Headline() {
+  const viewer = await getStaffViewer();
+  const { tiles, own } = await headlineTiles(viewer, focusFor(viewer));
+  if (!tiles.length) return null;
+  const mine = own ? own.cases + own.checks : 0;
   return (
-    <section aria-label="My work" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-      {tiles.map((t) => {
-        const Icon = t.icon;
-        return (
-          <Link
-            key={t.label}
-            href={t.href}
-            className={cn(
-              "group rounded-2xl bg-card p-4 shadow-soft ring-1 ring-foreground/[0.07] transition hover:-translate-y-px hover:shadow-lift",
-              t.tone === "danger" && "ring-destructive/25",
-              t.tone === "warn" && "ring-warning/40",
-            )}
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">{t.label}</span>
-              <Icon className={cn("size-4 text-muted-foreground", t.tone === "danger" && "text-destructive", t.tone === "warn" && "text-warning")} />
-            </div>
-            <p className={cn("mt-2 font-display text-3xl leading-none font-semibold tabular-nums", t.tone === "danger" && "text-destructive")}>{t.value}</p>
-            <p className="mt-1.5 flex items-center gap-1 text-xs text-muted-foreground">
-              {t.sub}
-              <ArrowRight className="size-3 opacity-0 transition-opacity group-hover:opacity-100" />
-            </p>
-          </Link>
-        );
-      })}
+    <section aria-label="Key numbers" className="space-y-2.5">
+      <div className={cn("grid grid-cols-2 gap-3", tiles.length > 4 ? "lg:grid-cols-3" : "lg:grid-cols-4")}>
+        {tiles.map((t) => (
+          <KpiTile key={t.label} {...t} />
+        ))}
+      </div>
+      {own && mine ? (
+        <Link href="/app/queues?tab=mine" className="group inline-flex items-center gap-1.5 rounded px-1 text-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring">
+          You hold {own.cases} {plural(own.cases, "case")} and {own.checks} {plural(own.checks, "check")} yourself
+          {own.dueToday ? `, ${own.dueToday} due today` : ""}
+          <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" aria-hidden />
+        </Link>
+      ) : null}
+    </section>
+  );
+}
+
+/** For people working through a queue: the few things to open next, soonest deadline first. */
+async function NextUp() {
+  const viewer = await getStaffViewer();
+  const focus = focusFor(viewer);
+  if (focus !== "qc" && focus !== "data_entry" && focus !== "officer") return null;
+  const tab = focus === "qc" ? "pre_qc" : focus === "data_entry" ? "data_entry" : "mine";
+  const cases = await queueCases(viewer, tab);
+  const next = [...cases].sort((a, b) => (a.dueAt ?? "9").localeCompare(b.dueAt ?? "9")).slice(0, 5);
+  return (
+    <section aria-label="Next up" className="space-y-2.5">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-base font-semibold tracking-tight">Next up</h2>
+        <Link href={`/app/queues?tab=${tab}`} className="group inline-flex items-center gap-1 text-sm font-medium text-primary dark:text-brand-sky">
+          See all <ArrowUpRight className="size-3.5 transition-transform group-hover:translate-x-0.5 group-hover:-translate-y-0.5" />
+        </Link>
+      </div>
+      <QueueList items={next} empty="Nothing is waiting for you right now." hideOwner={tab === "mine"} />
     </section>
   );
 }
@@ -435,7 +582,7 @@ async function Pipeline() {
       </CardHeader>
       <CardContent>
         {total === 0 ? (
-          <p className="rounded-xl border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">No active cases yet.</p>
+          <p className="px-1 py-6 text-center text-sm text-muted-foreground">No active cases yet. New requests appear here as soon as they arrive.</p>
         ) : (
           <ul className="space-y-2.5">
             {ACTIVE_STAGES.map((stage) => {
@@ -444,11 +591,11 @@ async function Pipeline() {
                 <li key={stage}>
                   <Link href={`/app/cases?stage=${stage}`} className="group grid grid-cols-[minmax(0,10.5rem)_1fr_2.5rem] items-center gap-3 text-sm">
                     <span className="flex items-center gap-2 truncate text-muted-foreground group-hover:text-foreground">
-                      <span aria-hidden className={cn("size-2 shrink-0 rounded-full", TONE_CLASSES[STAGE_TONES[stage]].dot)} />
+                      <span className="w-3 shrink-0 text-right text-xs tabular-nums opacity-60">{stageStep(stage)}</span>
                       {STAGE_LABELS[stage]}
                     </span>
                     <span className="h-2 overflow-hidden rounded-full bg-muted">
-                      <span className="block h-full rounded-full bg-[linear-gradient(90deg,#0c5a9a,#0098f3)] transition-all" style={{ width: `${n ? Math.max(4, (n / max) * 100) : 0}%` }} />
+                      <span className="block h-full rounded-full transition-all" style={{ width: `${n ? Math.max(4, (n / max) * 100) : 0}%`, background: stageColor(stage) }} />
                     </span>
                     <span className="text-right font-medium tabular-nums">{n}</span>
                   </Link>
@@ -466,10 +613,10 @@ async function NeedsAttention() {
   const viewer = await getStaffViewer();
   if (!can(viewer, "cases.assign") && !can(viewer, "cases.stage.change")) return null;
   const a = await needsAttention();
+  const manager = focusFor(viewer) === "manager";
+  // The tiles at the top already count unassigned and overdue work.
   const rows: { label: string; text: string; value: number; href: string; icon: LucideIcon }[] = [
-    { label: "Manager queue", text: "Cases nobody owns", value: a.unassigned, href: "/app/queues?tab=unassigned", icon: Inbox },
-    { label: "Returned by QC", text: "Waiting for corrections", value: a.returned, href: "/app/queues?tab=returned", icon: RotateCcw },
-    { label: "Overdue", text: "Past their due date", value: a.overdue, href: "/app/queues?tab=overdue", icon: AlarmClock },
+    ...(manager ? [{ label: "Returned by QC", text: "Waiting for corrections", value: a.returned, href: "/app/queues?tab=returned", icon: RotateCcw }] : []),
     { label: "On hold", text: "Paused at the client's request", value: a.onHold, href: "/app/cases?stage=on_hold", icon: PauseCircle },
   ];
   const all = rows.reduce((x, r) => x + r.value, 0);
@@ -483,7 +630,7 @@ async function NeedsAttention() {
             {all ? `${all} to look at` : "All clear"}
           </span>
         </div>
-        <CardDescription>Work that is stuck, late or waiting for a manager.</CardDescription>
+        <CardDescription>Work that has stopped and needs someone to move it.</CardDescription>
       </CardHeader>
       <CardContent className="-mx-2 px-3">
         <ul className="space-y-0.5">
@@ -516,8 +663,6 @@ async function Pushes({ searchParams }: Pick<PageProps<"/app">, "searchParams">)
   if (!nudges.length) return null;
   return <NudgeBanner nudges={nudges} highlight={typeof params.nudge === "string" ? params.nudge : null} />;
 }
-
-const DOES_CASEWORK = ["checks.verify", "checks.data_entry", "qc.pre", "qc.post"] as const;
 
 async function MyScorecard() {
   const viewer = await getStaffViewer();
@@ -572,8 +717,11 @@ async function MyScorecard() {
           <CardTitle>My scorecard</CardTitle>
           <span className="text-xs text-muted-foreground">Last 7 days</span>
         </div>
-        <CardDescription className="flex items-center gap-1">
-          <TrendIcon trend={own.trend} /> {own.trend === "up" ? "Picking up" : own.trend === "down" ? "Slower than last week" : "Steady"}
+        <CardDescription className="flex items-center justify-between gap-3">
+          <span className="flex items-center gap-1">
+            <TrendIcon trend={own.trend} /> {own.trend === "up" ? "Picking up" : own.trend === "down" ? "Slower than last week" : "Steady"}
+          </span>
+          <Sparkline values={own.series} label="Your checks per day" width={72} />
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

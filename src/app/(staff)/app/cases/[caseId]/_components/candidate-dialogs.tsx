@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import { DateField } from "@/components/forms/date-field";
 
 export type ContactAvailability = { email: string | null; phone: string | null; preferredLanguage: "en" | "si" | "ta" };
 export type AskCheck = { id: string; label: string; fields: { key: string; label: string; type: string; help?: string }[] };
@@ -455,7 +456,7 @@ function AskForm({
         )}
         <div className="space-y-1.5">
           <Label htmlFor="ask-due">Needed by (optional)</Label>
-          <Input id="ask-due" type="date" className="w-full sm:w-48" value={dueAt} onChange={(e) => setDueAt(e.target.value)} />
+          <DateField id="ask-due" className="w-full sm:w-48" value={dueAt} onChange={(e) => setDueAt(e.target.value)} />
         </div>
       </fieldset>
       <DialogFooter>

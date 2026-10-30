@@ -1,5 +1,6 @@
 import { Suspense } from "react";
 import { AppFrame } from "@/components/layout/app-frame";
+import { AREA_LABELS } from "@/components/layout/nav";
 import { SidebarNav } from "@/components/layout/sidebar-nav";
 import { UserMenu } from "@/components/layout/user-menu";
 import { CommandPalette } from "@/components/command/command-palette";
@@ -9,6 +10,7 @@ import { getStaffViewer } from "@/lib/server/viewer";
 import { latestNotifications } from "@/lib/server/admin/notifications";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import { AssistantPanel } from "@/components/assistant/assistant-panel";
+import { AssistantTrigger } from "@/components/assistant/assistant-trigger";
 import { can } from "@/domain/permissions";
 import { sttConfigured } from "@/lib/stt/provider";
 
@@ -16,7 +18,11 @@ export default function StaffLayout({ children }: LayoutProps<"/app">) {
   return (
     <AppFrame
       homeHref="/app"
-      areaLabel="Operations"
+      areaLabel={
+        <Suspense fallback="Operations">
+          <StaffArea />
+        </Suspense>
+      }
       nav={
         <Suspense fallback={<NavSkeleton />}>
           <StaffNav />
@@ -28,9 +34,14 @@ export default function StaffLayout({ children }: LayoutProps<"/app">) {
         </Suspense>
       }
       headerEnd={
-        <Suspense fallback={<div className="size-8" />}>
-          <StaffNotifications />
-        </Suspense>
+        <>
+          <Suspense fallback={null}>
+            <StaffAssistantTrigger />
+          </Suspense>
+          <Suspense fallback={<div className="size-7" />}>
+            <StaffNotifications />
+          </Suspense>
+        </>
       }
       overlays={
         <>
@@ -46,6 +57,11 @@ export default function StaffLayout({ children }: LayoutProps<"/app">) {
       {children}
     </AppFrame>
   );
+}
+
+async function StaffArea() {
+  const viewer = await getStaffViewer();
+  return AREA_LABELS[viewer.roleKey] ?? "Operations";
 }
 
 async function StaffNav() {
@@ -70,6 +86,11 @@ async function StaffAssistant() {
   return <AssistantPanel isSuperAdmin={isSuperAdmin} canRecord={isSuperAdmin && sttConfigured()} />;
 }
 
+async function StaffAssistantTrigger() {
+  const viewer = await getStaffViewer();
+  return can(viewer, "ai.assistant") ? <AssistantTrigger /> : null;
+}
+
 async function StaffNotifications() {
   const viewer = await getStaffViewer();
   const { items, unread } = await latestNotifications(20);
@@ -78,7 +99,7 @@ async function StaffNotifications() {
 
 async function StaffUser() {
   const viewer = await getStaffViewer();
-  return <UserMenu viewer={{ fullName: viewer.fullName, email: viewer.email, roleName: viewer.roleName, aal: viewer.aal }} />;
+  return <UserMenu viewer={{ userId: viewer.userId, fullName: viewer.fullName, email: viewer.email, roleName: viewer.roleName, aal: viewer.aal }} />;
 }
 
 function NavSkeleton() {

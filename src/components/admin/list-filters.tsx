@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Search, X } from "lucide-react";
+import { FilterChips, type FilterChip } from "@/components/admin/filter-chips";
+import { DateField } from "@/components/forms/date-field";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
@@ -32,8 +34,28 @@ export function ListFilters({ placeholder, selects = [], dates = [], className }
 
   useEffect(() => () => clearTimeout(timer.current), []);
 
+  const without = (name: string) => {
+    const sp = new URLSearchParams(params.toString());
+    sp.delete(name);
+    sp.delete("page");
+    const qs = sp.toString();
+    return qs ? `${pathname}?${qs}` : pathname;
+  };
+  const chips: FilterChip[] = [
+    ...selects.flatMap((s) => {
+      const value = params.get(s.name);
+      const option = s.options.find((o) => o.value === value);
+      return option ? [{ key: s.name, label: option.label, href: without(s.name) }] : [];
+    }),
+    ...dates.flatMap((d) => {
+      const value = params.get(d.name);
+      return value ? [{ key: d.name, label: `${d.label} ${value}`, href: without(d.name) }] : [];
+    }),
+  ];
+
   return (
-    <div className={cn("flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center", className)}>
+    <div className={cn("space-y-2", className)}>
+    <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
       {placeholder ? (
       <div className="relative min-w-0 flex-1 sm:max-w-sm">
         <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -83,15 +105,18 @@ export function ListFilters({ placeholder, selects = [], dates = [], className }
       ))}
       {dates.map((d) => (
         <label key={d.name} className="flex items-center gap-2 text-xs text-muted-foreground">
-          {d.label}
-          <Input
-            type="date"
-            className="h-9 w-full sm:w-40"
+          <span className="shrink-0">{d.label}</span>
+          <DateField
+            key={params.get(d.name) ?? ""}
+            wrapperClassName="w-full sm:w-40"
+            className="h-9"
             defaultValue={params.get(d.name) ?? ""}
             onChange={(e) => push({ [d.name]: e.target.value || null })}
           />
         </label>
       ))}
+    </div>
+    <FilterChips chips={chips} clearHref={pathname} />
     </div>
   );
 }

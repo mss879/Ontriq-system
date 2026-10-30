@@ -1,12 +1,7 @@
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
-const TONES = [
-  "bg-[linear-gradient(135deg,#f78f1e,#f75834)]",
-  "bg-[linear-gradient(135deg,#0c5a9a,#0098f3)]",
-  "bg-[linear-gradient(135deg,#0a1a2f,#0c5a9a)]",
-  "bg-[linear-gradient(135deg,#f75834,#0c5a9a)]",
-];
+const TONES = ["bg-avatar-1", "bg-avatar-2", "bg-avatar-3", "bg-avatar-4"];
 
 export function personTone(id: string) {
   let h = 0;

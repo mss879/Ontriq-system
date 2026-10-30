@@ -434,6 +434,13 @@ export const getTimeline = cache(async (caseId: string, limit = 100): Promise<Ti
   }));
 });
 
+/** When the case last reached each stage, for the progress rail. */
+export const getStageDates = cache(async (caseId: string): Promise<Partial<Record<Stage, string>>> => {
+  const supabase = await createRequestClient();
+  const { data } = await supabase.from("stage_history").select("to_stage, at").eq("case_id", caseId).order("at", { ascending: true });
+  return Object.fromEntries((data ?? []).map((h) => [h.to_stage, h.at]));
+});
+
 export type QcReview = { id: string; kind: "pre" | "post"; decision: "approved" | "returned"; remarks: string | null; checklist: { item: string; ok: boolean }[]; returnedCheckIds: string[]; reviewer: Person | null; at: string };
 
 export const getQcReviews = cache(async (caseId: string): Promise<QcReview[]> => {

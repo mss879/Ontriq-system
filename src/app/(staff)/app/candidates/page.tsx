@@ -7,6 +7,7 @@ import { Page, PageHeader, SectionSkeleton } from "@/components/layout/page";
 import { ListFilters } from "@/components/admin/list-filters";
 import { one, pageParam, Pagination } from "@/components/admin/pagination";
 import { Surface, TH } from "@/components/admin/surface";
+import { DataTable, HEAD_ROW, ListCard, ROW, ROW_LINK } from "@/components/layout/data-table";
 import { PersonAvatar } from "@/components/cases/person";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -59,15 +60,32 @@ async function CandidateList({ searchParams }: Pick<PageProps<"/app/candidates">
   }
 
   return (
-    <Surface>
-      <div className="flex items-center justify-between border-b px-5 py-3.5">
-        <p className="text-sm font-semibold">
-          {total} {total === 1 ? "candidate" : "candidates"}
-        </p>
-      </div>
+    <DataTable
+      header={
+        <div className="flex items-center justify-between border-b px-5 py-3.5">
+          <p className="text-sm font-semibold">
+            {total} {total === 1 ? "candidate" : "candidates"}
+          </p>
+        </div>
+      }
+      footer={<Pagination page={page} pageSize={CANDIDATE_PAGE_SIZE} total={total} params={{ q }} basePath="/app/candidates" />}
+      cards={items.map((c) => (
+        <ListCard
+          key={c.id}
+          href={`/app/candidates/${c.id}`}
+          title={c.fullName}
+          subtitle={[c.nic, c.district].filter(Boolean).join(" · ") || "No NIC yet"}
+          aside={
+            <span className="text-muted-foreground tabular-nums">
+              {c.caseCount} {c.caseCount === 1 ? "case" : "cases"}
+            </span>
+          }
+        />
+      ))}
+    >
       <Table>
         <TableHeader>
-          <TableRow className="bg-muted/40 hover:bg-muted/40">
+          <TableRow className={HEAD_ROW}>
             <TableHead className={`${TH} pl-5`}>Candidate</TableHead>
             <TableHead className={TH}>NIC</TableHead>
             <TableHead className={`${TH} hidden md:table-cell`}>Contact</TableHead>
@@ -77,9 +95,9 @@ async function CandidateList({ searchParams }: Pick<PageProps<"/app/candidates">
         </TableHeader>
         <TableBody>
           {items.map((c) => (
-            <TableRow key={c.id} className="group">
+            <TableRow key={c.id} className={`group ${ROW}`}>
               <TableCell className="pl-5">
-                <Link href={`/app/candidates/${c.id}`} className="flex min-w-0 items-center gap-3">
+                <Link href={`/app/candidates/${c.id}`} className={`flex min-w-0 items-center gap-3 ${ROW_LINK}`}>
                   <PersonAvatar id={c.id} name={c.fullName} />
                   <span className="min-w-0">
                     <span className="block truncate font-medium group-hover:underline">{c.fullName}</span>
@@ -98,7 +116,6 @@ async function CandidateList({ searchParams }: Pick<PageProps<"/app/candidates">
           ))}
         </TableBody>
       </Table>
-      <Pagination page={page} pageSize={CANDIDATE_PAGE_SIZE} total={total} params={{ q }} basePath="/app/candidates" />
-    </Surface>
+    </DataTable>
   );
 }

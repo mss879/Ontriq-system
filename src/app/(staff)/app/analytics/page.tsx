@@ -1,8 +1,8 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
+import { UnderlineTabs } from "@/components/layout/tabs";
 import { Page, PageHeader, SectionSkeleton } from "@/components/layout/page";
 import { KpiSkeleton } from "@/components/charts/kpi";
 import { getStaffViewer } from "@/lib/server/viewer";
@@ -10,7 +10,6 @@ import { analyticsClients } from "@/lib/server/analytics/queries";
 import { ANALYTICS_TABS, analyticsAccess, pickTab, type AnalyticsTab } from "@/domain/analytics/access";
 import { colomboToday, parsePeriod, periodQuery } from "@/domain/analytics/period";
 import type { AnalyticsScope } from "./section";
-import { cn } from "@/lib/utils";
 import { AnalyticsFilters } from "./analytics-filters";
 import { OperationsTab } from "./operations";
 import { RevenueTab } from "./revenue";
@@ -37,7 +36,7 @@ function scopeOf(sp: SP): AnalyticsScope {
 export default function AnalyticsPage({ searchParams }: PageProps<"/app/analytics">) {
   return (
     <Page className="max-w-7xl">
-      <PageHeader eyebrow="Insights" title="Analytics" description={DESCRIPTION} />
+      <PageHeader eyebrow="Directory" title="Analytics" description={DESCRIPTION} />
       <Suspense fallback={<div className="h-[5.5rem]" aria-hidden />}>
         <Toolbar searchParams={searchParams} />
       </Suspense>
@@ -62,27 +61,17 @@ async function Toolbar({ searchParams }: Pick<PageProps<"/app/analytics">, "sear
   exportQuery.set("to", scope.period.to);
   return (
     <div className="space-y-4">
-      <nav aria-label="Analytics sections" className="flex gap-1 overflow-x-auto border-b [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {ANALYTICS_TABS.filter((t) => access[t.key]).map((t) => {
+      <UnderlineTabs
+        label="Analytics sections"
+        active={tab}
+        className="border-b"
+        items={ANALYTICS_TABS.filter((t) => access[t.key]).map((t) => {
           const q = new URLSearchParams(scope.query);
           if (t.key !== "operations") q.set("tab", t.key);
           if (t.key === "ai") q.delete("client");
-          const href = q.toString() ? `/app/analytics?${q}` : "/app/analytics";
-          return (
-            <Link
-              key={t.key}
-              href={href}
-              aria-current={t.key === tab ? "page" : undefined}
-              className={cn(
-                "relative shrink-0 px-3 pt-1 pb-2.5 text-sm font-medium whitespace-nowrap text-muted-foreground transition-colors hover:text-foreground",
-                t.key === tab && "text-foreground after:absolute after:inset-x-3 after:-bottom-px after:h-[2px] after:rounded-full after:bg-brand-orange",
-              )}
-            >
-              {t.label}
-            </Link>
-          );
+          return { key: t.key, label: t.label, href: q.toString() ? `/app/analytics?${q}` : "/app/analytics" };
         })}
-      </nav>
+      />
       <AnalyticsFilters
         preset={scope.period.preset}
         from={scope.period.from}

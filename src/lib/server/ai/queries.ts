@@ -98,6 +98,10 @@ export type DocumentAi = {
   qualitySuggestionId: string | null;
   tamperSuggestionId: string | null;
   candidateMessage: string | null;
+  /** The file's text in English, when it was written in something else. */
+  translation: string | null;
+  /** Why the AI couldn't read the file, when it couldn't. */
+  notRead: string | null;
 };
 
 /** What the classifier made of each file (document_ai), with the pending quality and tamper flags. */
@@ -124,6 +128,8 @@ export const getDocumentAi = cache(async (caseId: string, documentIds: string[])
       qualitySuggestionId: flags.quality?.id ?? null,
       tamperSuggestionId: flags.tamper?.id ?? null,
       candidateMessage: typeof q.message === "string" ? q.message : null,
+      translation: typeof c.translation_en === "string" ? c.translation_en : null,
+      notRead: typeof c.not_read === "string" ? c.not_read : null,
     };
   }
   // Flags can exist before document_ai does (or without it, in seeded data).
@@ -141,6 +147,8 @@ export const getDocumentAi = cache(async (caseId: string, documentIds: string[])
       qualitySuggestionId: flags.quality?.id ?? null,
       tamperSuggestionId: flags.tamper?.id ?? null,
       candidateMessage: typeof q.message === "string" ? q.message : null,
+      translation: null,
+      notRead: null,
     };
   }
   return out;

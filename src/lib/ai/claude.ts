@@ -121,7 +121,7 @@ export async function runStructured<S extends z.ZodType>(
   admin: ServiceClient,
   capabilityKey: string,
   ctx: AiContext,
-  input: { system: string; content: Anthropic.ContentBlockParam[]; schema: S },
+  input: { system: string; content: Anthropic.ContentBlockParam[]; schema: S; minTokens?: number },
 ): Promise<AiSuccess<z.infer<S>> | AiFailure> {
   if (!isAiConfigured()) return { ok: false, reason: "not_configured", message: "AI is not set up (ANTHROPIC_API_KEY)." };
   const cap = await capability(admin, capabilityKey);
@@ -134,7 +134,7 @@ export async function runStructured<S extends z.ZodType>(
   try {
     const stream = client.messages.stream({
       model: cap.model,
-      max_tokens: cap.max_tokens,
+      max_tokens: Math.max(cap.max_tokens, input.minTokens ?? 0),
       system: [{ type: "text", text: input.system, cache_control: { type: "ephemeral" } }],
       messages: [{ role: "user", content: input.content }],
       output_config: { effort: cap.effort, format: zodOutputFormat(input.schema) },

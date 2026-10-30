@@ -4,6 +4,7 @@ import { Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useNow } from "@/hooks/use-now";
 import { slaStatus, timeLeft } from "@/domain/sla-core";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { TONE_CLASSES } from "./badges";
 import { formatShortDate } from "@/lib/format";
 
@@ -25,10 +26,15 @@ export function SlaBadge({ dueAt, startedAt, done, className, compact }: { dueAt
   if (status === "done") return null;
   const tone = status === "overdue" ? TONE_CLASSES.danger : status === "at_risk" ? TONE_CLASSES.warning : TONE_CLASSES.neutral;
   return (
-    <span className={cn("inline-flex h-6 items-center gap-1 rounded-full px-2 text-xs font-medium whitespace-nowrap tabular-nums", tone.chip, className)} title={`Due ${due.toLocaleString("en-GB", { timeZone: "Asia/Colombo" })}`}>
-      <Clock className="size-3" aria-hidden />
-      {compact ? timeLeft(due, new Date(now)).replace(" left", "") : timeLeft(due, new Date(now))}
-    </span>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className={cn("relative z-[1] inline-flex h-6 items-center gap-1 rounded-full px-2 text-xs font-medium whitespace-nowrap tabular-nums", tone.chip, className)}>
+          <Clock className="size-3" aria-hidden />
+          {compact ? timeLeft(due, new Date(now)).replace(" left", "") : timeLeft(due, new Date(now))}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent>Due {due.toLocaleString("en-GB", { timeZone: "Asia/Colombo", dateStyle: "medium", timeStyle: "short" })}</TooltipContent>
+    </Tooltip>
   );
 }
 

@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { FieldGroup } from "@/components/ui/field";
 import { Spinner } from "@/components/ui/spinner";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 type Draft = { id?: string; name: string; title: string; email: string; phone: string; isPrimary: boolean; receivesReports: boolean; receivesInvoices: boolean };
 const blank: Draft = { name: "", title: "", email: "", phone: "", isPrimary: false, receivesReports: true, receivesInvoices: false };
@@ -22,6 +23,7 @@ const blank: Draft = { name: "", title: "", email: "", phone: "", isPrimary: fal
 export function ContactsCard({ clientId, contacts, canEdit }: { clientId: string; contacts: ClientContact[]; canEdit: boolean }) {
   const [editing, setEditing] = useState<Draft | null>(null);
   const [pending, start] = useTransition();
+  const [removing, setRemoving] = useState<ClientContact | null>(null);
 
   const remove = (c: ClientContact) =>
     start(async () => {
@@ -98,7 +100,7 @@ export function ContactsCard({ clientId, contacts, canEdit }: { clientId: string
                     >
                       <Pencil /> Edit
                     </DropdownMenuItem>
-                    <DropdownMenuItem variant="destructive" onSelect={() => remove(c)}>
+                    <DropdownMenuItem variant="destructive" onSelect={() => setRemoving(c)}>
                       <Trash2 /> Remove
                     </DropdownMenuItem>
                   </DropdownMenuContent>
@@ -111,6 +113,13 @@ export function ContactsCard({ clientId, contacts, canEdit }: { clientId: string
       <Dialog open={Boolean(editing)} onOpenChange={(open) => !open && setEditing(null)}>
         <DialogContent className="sm:max-w-lg">{editing ? <ContactForm key={editing.id ?? "new"} clientId={clientId} draft={editing} onDone={() => setEditing(null)} /> : null}</DialogContent>
       </Dialog>
+      <ConfirmDialog
+        open={Boolean(removing)}
+        onOpenChange={(open) => !open && setRemoving(null)}
+        title={`Remove ${removing?.name ?? "this contact"}?`}
+        description="They stop receiving reports and invoices from Ontriq."
+        onConfirm={() => removing && remove(removing)}
+      />
     </Surface>
   );
 }

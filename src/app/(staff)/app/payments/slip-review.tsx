@@ -15,6 +15,7 @@ import { formatBytes, formatDateTime, formatPlainDate } from "@/lib/format";
 import { formatMoney } from "@/domain/pricing/money";
 import type { SlipRow } from "@/lib/server/billing/queries";
 import { matchSlip, rejectSlip } from "./actions";
+import { DateField } from "@/components/forms/date-field";
 
 type OpenInvoice = { id: string; client_id: string; number: string | null; balance: number; currency: string; due_date: string | null };
 const today = () => new Date(Date.now() + 5.5 * 3600_000).toISOString().slice(0, 10);
@@ -158,7 +159,7 @@ function MatchDialog({ slip, options }: { slip: SlipRow; options: OpenInvoice[] 
             </label>
             <label className="flex flex-col gap-1.5 text-sm font-medium">
               Paid on
-              <Input type="date" value={paidOn} max={today()} onChange={(e) => setPaidOn(e.target.value)} />
+              <DateField value={paidOn} max={today()} onChange={(e) => setPaidOn(e.target.value)} />
             </label>
           </div>
           <div className="grid gap-3 sm:grid-cols-2">

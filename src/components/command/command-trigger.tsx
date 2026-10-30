@@ -10,11 +10,12 @@ export function CommandTrigger() {
     <button
       type="button"
       onClick={() => setOpen(true)}
-      className="group flex h-9 w-full max-w-sm items-center gap-2.5 rounded-xl border bg-muted/40 px-3 text-sm text-muted-foreground transition-colors hover:border-foreground/15 hover:bg-muted/70 hover:text-foreground md:w-80"
+      aria-label="Search or jump to"
+      className="group flex size-7 items-center justify-center gap-2.5 rounded-lg text-sm text-muted-foreground transition-colors outline-none hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 md:h-8 md:w-56 md:justify-start md:rounded-xl md:border md:bg-muted/40 md:px-3 md:hover:border-foreground/15 md:hover:bg-muted/70 lg:w-64"
     >
-      <Search className="size-4 transition-colors group-hover:text-brand-orange" />
-      <span className="flex-1 truncate text-left">Search or jump to…</span>
-      <Kbd className="hidden sm:inline-flex">⌘K</Kbd>
+      <Search className="size-4 shrink-0 transition-colors group-hover:text-brand-orange" />
+      <span className="hidden flex-1 truncate text-left md:inline">Search or jump to…</span>
+      <Kbd className="hidden md:inline-flex">⌘K</Kbd>
     </button>
   );
 }

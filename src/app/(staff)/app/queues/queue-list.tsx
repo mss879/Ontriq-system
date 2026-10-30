@@ -2,15 +2,17 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { ArrowRight, Inbox, RotateCw, UserCheck } from "lucide-react";
+import { ArrowRight, RotateCw, UserCheck } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
-import { CheckStatePill, ChecksProgress, PriorityBadge, ResultBadge, StagePill, statusLabel } from "@/components/cases/badges";
+import { CheckStatePill, ChecksProgress, PriorityBadge, ResultBadge, shownResult, StagePill, statusNote } from "@/components/cases/badges";
 import { PersonChip } from "@/components/cases/person";
 import { SlaBadge } from "@/components/cases/sla-badge";
+import { ROW_LINK } from "@/components/layout/data-table";
+import { QueueEmpty } from "./queue-empty";
 import { formatShortDate } from "@/lib/format";
 import type { CaseListItem } from "@/lib/server/cases/queries";
 import type { MyCheck } from "@/lib/server/cases/list-queries";
@@ -18,23 +20,17 @@ import { assignCases, autoAssignAgain } from "../cases/actions";
 
 type StaffPick = { id: string; name: string; roleName: string };
 
-function EmptyRow({ text }: { text: string }) {
-  return (
-    <div className="flex items-center gap-3 rounded-2xl border border-dashed bg-card/60 px-5 py-8 text-sm text-muted-foreground">
-      <Inbox className="size-5 shrink-0" />
-      {text}
-    </div>
-  );
-}
-
 /** Compact case rows: everything needed to pick the next thing to do. */
-export function QueueList({ items, empty, assign }: { items: CaseListItem[]; empty: string; assign?: { staff: StaffPick[] } }) {
-  if (!items.length) return <EmptyRow text={empty} />;
+export function QueueList({ items, empty, assign, hideOwner }: { items: CaseListItem[]; empty: string; assign?: { staff: StaffPick[] }; hideOwner?: boolean }) {
+  if (!items.length) return <QueueEmpty text={empty} />;
   return (
     <ul className="divide-y overflow-hidden rounded-2xl bg-card shadow-soft ring-1 ring-foreground/[0.07]">
-      {items.map((c) => (
-        <li key={c.id} className={cn("flex flex-col gap-3 px-5 py-3.5", assign ? "xl:flex-row xl:items-center xl:gap-5" : "md:flex-row md:items-center md:gap-5")}>
-          <Link href={`/app/cases/${c.id}`} className="group min-w-0 flex-1 md:min-w-56">
+      {items.map((c) => {
+        const result = shownResult(c);
+        const note = statusNote(c.statusKey);
+        return (
+        <li key={c.id} className={cn("relative flex flex-col gap-3 px-5 py-3.5 transition-colors hover:bg-muted/40", assign ? "xl:flex-row xl:items-center xl:gap-5" : "md:flex-row md:items-center md:gap-5")}>
+          <Link href={`/app/cases/${c.id}`} className={cn("group min-w-0 flex-1 md:min-w-56", !assign && ROW_LINK)}>
             <span className="flex flex-wrap items-center gap-2">
               <span className="font-mono text-[13px] font-semibold text-primary group-hover:underline dark:text-brand-sky">{c.reference}</span>
               <PriorityBadge priority={c.priority} className="h-5 px-2 text-[11px]" />
@@ -46,14 +42,15 @@ export function QueueList({ items, empty, assign }: { items: CaseListItem[]; emp
           </Link>
           <div className="flex flex-wrap items-center gap-2 md:justify-end">
             <StagePill stage={c.stage} onHold={c.onHold} />
-            <span className="hidden text-xs text-muted-foreground lg:inline">{statusLabel(c.statusKey)}</span>
+            {note ? <span className="hidden text-xs text-muted-foreground lg:inline">{note}</span> : null}
             <ChecksProgress done={c.checksDone} total={c.checksTotal} />
-            <ResultBadge result={c.proposedResult} />
+            {result ? <ResultBadge result={result} /> : null}
             <SlaBadge dueAt={c.dueAt} startedAt={c.receivedAt} compact />
-            {assign ? <AssignControl caseId={c.id} staff={assign.staff} /> : <PersonChip person={c.assignee} className="max-w-40" />}
+            {assign ? <AssignControl caseId={c.id} staff={assign.staff} /> : hideOwner ? null : <PersonChip person={c.assignee} className="max-w-40" />}
           </div>
         </li>
-      ))}
+        );
+      })}
     </ul>
   );
 }
@@ -112,7 +109,7 @@ function AssignControl({ caseId, staff }: { caseId: string; staff: StaffPick[] }
 }
 
 export function MyChecks({ checks, empty }: { checks: MyCheck[]; empty: string }) {
-  if (!checks.length) return <EmptyRow text={empty} />;
+  if (!checks.length) return <QueueEmpty text={empty} />;
   return (
     <ul className="divide-y overflow-hidden rounded-2xl bg-card shadow-soft ring-1 ring-foreground/[0.07]">
       {checks.map((k) => (

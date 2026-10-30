@@ -7,6 +7,7 @@ import { Page, PageHeader, SectionSkeleton } from "@/components/layout/page";
 import { ListFilters } from "@/components/admin/list-filters";
 import { one } from "@/components/admin/pagination";
 import { Surface, TH } from "@/components/admin/surface";
+import { DataTable, HEAD_ROW, ListCard, ROW, ROW_LINK } from "@/components/layout/data-table";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { QuoteStatusChip } from "@/components/quotes/quote-status";
@@ -78,20 +79,35 @@ async function QuoteList({ searchParams }: Pick<PageProps<"/app/quotes">, "searc
 
   const open = rows.filter((r) => r.status === "sent" || r.status === "viewed");
   return (
-    <Surface>
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b px-5 py-3.5">
-        <p className="text-sm font-semibold">
-          {rows.length} {rows.length === 1 ? "quotation" : "quotations"}
-        </p>
-        {open.length ? (
-          <p className="text-xs text-muted-foreground">
-            {open.length} waiting for the client · {formatMoney(open.reduce((a, r) => a + r.total, 0))}
+    <DataTable
+      header={
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b px-5 py-3.5">
+          <p className="text-sm font-semibold">
+            {rows.length} {rows.length === 1 ? "quotation" : "quotations"}
           </p>
-        ) : null}
-      </div>
+          {open.length ? (
+            <p className="text-xs text-muted-foreground">
+              {open.length} waiting for the client · {formatMoney(open.reduce((a, r) => a + r.total, 0))}
+            </p>
+          ) : null}
+        </div>
+      }
+      cards={rows.map((r) => (
+        <ListCard
+          key={r.id}
+          href={`/app/quotes/${r.id}`}
+          title={r.number ? `${r.number}${r.version > 1 ? ` v${r.version}` : ""}` : "Draft"}
+          subtitle={r.client?.name}
+          aside={<span className="font-medium tabular-nums">{formatMoney(r.total, r.currency)}</span>}
+        >
+          <QuoteStatusChip status={r.status} />
+          <span className="text-xs text-muted-foreground">Valid until {formatPlainDate(r.valid_until)}</span>
+        </ListCard>
+      ))}
+    >
       <Table>
         <TableHeader>
-          <TableRow className="bg-muted/40 hover:bg-muted/40">
+          <TableRow className={HEAD_ROW}>
             <TableHead className={`${TH} pl-5`}>Quotation</TableHead>
             <TableHead className={`${TH} hidden md:table-cell`}>Client</TableHead>
             <TableHead className={TH}>Status</TableHead>
@@ -101,9 +117,9 @@ async function QuoteList({ searchParams }: Pick<PageProps<"/app/quotes">, "searc
         </TableHeader>
         <TableBody>
           {rows.map((r) => (
-            <TableRow key={r.id} className="group">
+            <TableRow key={r.id} className={`group ${ROW}`}>
               <TableCell className="max-w-72 pl-5">
-                <Link href={`/app/quotes/${r.id}`} className="block min-w-0 outline-none">
+                <Link href={`/app/quotes/${r.id}`} className={`block min-w-0 ${ROW_LINK}`}>
                   <span className="block truncate font-medium group-hover:underline">
                     {r.number ? `${r.number}${r.version > 1 ? ` v${r.version}` : ""}` : "Draft"}
                   </span>
@@ -126,6 +142,6 @@ async function QuoteList({ searchParams }: Pick<PageProps<"/app/quotes">, "searc
           ))}
         </TableBody>
       </Table>
-    </Surface>
+    </DataTable>
   );
 }

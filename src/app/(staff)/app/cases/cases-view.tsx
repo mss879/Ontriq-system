@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, FolderSearch, FolderPlus } from "lucide-react";
+import { FolderSearch, FolderPlus } from "lucide-react";
+import { Pagination } from "@/components/admin/pagination";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import type { CaseFilters, CaseListItem } from "@/lib/server/cases/queries";
@@ -10,7 +11,7 @@ import { CasesFilters } from "./filters";
 import { SavedViews } from "./saved-views";
 import { CasesTable, type StaffPick } from "./cases-table";
 import { CasesBoard } from "./board";
-import { casesHref, hasFilters } from "./url";
+import { hasFilters } from "./url";
 
 export function CasesView({
   view,
@@ -42,8 +43,6 @@ export function CasesView({
 }) {
   const filtered = hasFilters(query);
   const page = filters.page ?? 1;
-  const from = total === 0 ? 0 : (page - 1) * pageSize + 1;
-  const to = Math.min(total, page * pageSize);
 
   return (
     <div className="space-y-4">
@@ -67,7 +66,7 @@ export function CasesView({
                 <Link href={view === "board" ? "/app/cases?view=board" : "/app/cases"}>Clear filters</Link>
               </Button>
             ) : canCreate ? (
-              <Button asChild variant="brand">
+              <Button asChild>
                 <Link href="/app/cases/new">Create the first case</Link>
               </Button>
             ) : null}
@@ -78,25 +77,13 @@ export function CasesView({
       ) : (
         <>
           <CasesTable items={items} staff={staff} canAssign={canAssign} />
-          <div className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
-            <p className="tabular-nums">
-              {from}–{to} of {total} {total === 1 ? "case" : "cases"}
+          {total > pageSize ? (
+            <Pagination page={page} pageSize={pageSize} total={total} params={Object.fromEntries(new URLSearchParams(query))} basePath="/app/cases" />
+          ) : (
+            <p className="text-sm text-muted-foreground tabular-nums">
+              {total} {total === 1 ? "case" : "cases"}
             </p>
-            {total > pageSize ? (
-              <div className="flex items-center gap-1">
-                <Button asChild variant="outline" size="sm" className="h-8" aria-disabled={page <= 1}>
-                  <Link href={casesHref(query, { page: page > 2 ? String(page - 1) : null })} className={page <= 1 ? "pointer-events-none opacity-50" : undefined} aria-label="Previous page">
-                    <ChevronLeft /> Previous
-                  </Link>
-                </Button>
-                <Button asChild variant="outline" size="sm" className="h-8" aria-disabled={to >= total}>
-                  <Link href={casesHref(query, { page: String(page + 1) })} className={to >= total ? "pointer-events-none opacity-50" : undefined} aria-label="Next page">
-                    Next <ChevronRight />
-                  </Link>
-                </Button>
-              </div>
-            ) : null}
-          </div>
+          )}
         </>
       )}
     </div>

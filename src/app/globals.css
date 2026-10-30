@@ -16,6 +16,10 @@
  * Type: Inter for UI text, Stack Sans Notch for display headings.
  * Semantic colours (success / warning / info / destructive) carry the
  * Green / Amber / Red verification outcomes and stay separate from the brand.
+ * Colour means health (on track, at risk, late, result). A case's position in
+ * the flow is shown by its step number and the --stage-* ramp.
+ * Hex stays only in the logo artwork, the PDF-twin document preview, the
+ * signature canvas, the global error page and the brand gradients below.
  */
 @theme inline {
   --color-background: var(--background);
@@ -58,12 +62,15 @@
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
   --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
   --color-brand: var(--brand);
   --color-brand-foreground: var(--brand-foreground);
   --color-brand-orange: var(--brand-orange);
   --color-brand-orange-ink: var(--brand-orange-ink);
   --color-brand-blue: var(--brand-blue);
   --color-brand-sky: var(--brand-sky);
+  --color-brand-peach: var(--brand-peach);
+  --color-on-dark-success: var(--on-dark-success);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -96,11 +103,12 @@
   --border: oklch(0.918 0.007 252);
   --input: oklch(0.89 0.009 252);
   --ring: oklch(0.6 0.15 248);
-  --success: oklch(0.56 0.13 156);
+  --success: oklch(0.52 0.13 156);
   --success-foreground: oklch(0.99 0 0);
   --warning: oklch(0.75 0.155 70);
   --warning-foreground: oklch(0.27 0.06 60);
   --info: oklch(0.58 0.15 246);
+  --info-foreground: oklch(0.42 0.12 246);
   /* Navy #0A1A2F: dark brand surfaces */
   --brand: oklch(0.216 0.047 256);
   --brand-foreground: oklch(0.99 0.003 250);
@@ -110,6 +118,19 @@
   --brand-blue: oklch(0.46 0.125 250.2);
   --brand-sky: oklch(0.66 0.171 246.3);
   --logo-blue: #0c5a9a;
+  /* Accents for navy surfaces, which stay navy in both themes. */
+  --brand-peach: oklch(0.84 0.09 48);
+  --on-dark-success: oklch(0.8 0.15 156);
+  /* The nine working stages, pale to deep, ending green when released. */
+  --stage-1: oklch(0.82 0.06 245);
+  --stage-2: oklch(0.76 0.08 245);
+  --stage-3: oklch(0.7 0.1 246);
+  --stage-4: oklch(0.64 0.115 247);
+  --stage-5: oklch(0.58 0.125 248);
+  --stage-6: oklch(0.52 0.125 249);
+  --stage-7: oklch(0.46 0.125 250);
+  --stage-8: oklch(0.4 0.11 251);
+  --stage-9: oklch(0.52 0.13 156);
   --chart-1: oklch(0.46 0.125 250.2);
   --chart-2: oklch(0.669 0.201 34.2);
   --chart-3: oklch(0.66 0.171 246.3);
@@ -151,6 +172,7 @@
   --warning: oklch(0.8 0.14 75);
   --warning-foreground: oklch(0.22 0.05 60);
   --info: oklch(0.72 0.14 244);
+  --info-foreground: oklch(0.8 0.11 244);
   --brand: oklch(0.13 0.03 258);
   --brand-foreground: oklch(0.99 0.003 250);
   --brand-orange: oklch(0.7 0.19 38);
@@ -158,6 +180,15 @@
   --brand-blue: oklch(0.62 0.15 249);
   --brand-sky: oklch(0.7 0.155 246);
   --logo-blue: #3d8fdb;
+  --stage-1: oklch(0.4 0.07 248);
+  --stage-2: oklch(0.46 0.08 248);
+  --stage-3: oklch(0.52 0.1 247);
+  --stage-4: oklch(0.58 0.115 247);
+  --stage-5: oklch(0.64 0.13 246);
+  --stage-6: oklch(0.7 0.14 246);
+  --stage-7: oklch(0.76 0.13 245);
+  --stage-8: oklch(0.82 0.11 244);
+  --stage-9: oklch(0.72 0.15 156);
   --chart-1: oklch(0.7 0.155 246);
   --chart-2: oklch(0.7 0.19 38);
   --chart-3: oklch(0.62 0.15 249);
@@ -187,6 +218,15 @@
   }
   ::selection {
     background: color-mix(in oklch, var(--brand-orange) 24%, transparent);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    ::before,
+    ::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 }
 
@@ -227,6 +267,23 @@
   .dark .text-brand-gradient {
     background-image: linear-gradient(100deg, #ff9b4a, #f9744f 40%, #3aa7f5 85%);
   }
+  /* Person avatars: one of four brand gradients, picked from the person's id. */
+  .bg-avatar-1 {
+    background-image: linear-gradient(135deg, #f78f1e, #f75834);
+  }
+  .bg-avatar-2 {
+    background-image: linear-gradient(135deg, #0c5a9a, #0098f3);
+  }
+  .bg-avatar-3 {
+    background-image: linear-gradient(135deg, #0a1a2f, #0c5a9a);
+  }
+  .bg-avatar-4 {
+    background-image: linear-gradient(135deg, #f75834, #0c5a9a);
+  }
+  /* Ranked and progress bars. */
+  .bg-brand-bar {
+    background-image: linear-gradient(90deg, var(--brand-blue), var(--brand-sky));
+  }
   .shadow-soft {
     box-shadow: var(--shadow-soft);
   }
@@ -257,8 +314,3 @@
   animation: ontriq-rise 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .animate-rise {
-    animation: none;
-  }
-}

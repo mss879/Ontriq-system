@@ -26,7 +26,7 @@ export function PackageBuilderButton({ priceList, editing, needsApproval }: { pr
           <Pencil /> Edit
         </Button>
       ) : (
-        <Button variant="brand" size="lg" className="h-9 px-3.5" onClick={() => setOpen(true)}>
+        <Button size="lg" className="h-9 px-3.5" onClick={() => setOpen(true)}>
           <Plus /> Build a package
         </Button>
       )}
@@ -83,7 +83,7 @@ function Builder({ priceList, editing, needsApproval, onDone }: { priceList: Por
         </Field>
         <Field data-invalid={errors.checkTypeIds ? true : undefined}>
           <FieldLabel>Checks</FieldLabel>
-          <ul className="max-h-72 space-y-1.5 overflow-y-auto pr-1">
+          <ul className="-m-1 max-h-72 space-y-1.5 overflow-y-auto p-1">
             {priceList.map((p) => {
               const on = picked.includes(p.check_type_id);
               return (
@@ -119,7 +119,7 @@ function Builder({ priceList, editing, needsApproval, onDone }: { priceList: Por
         <p className="text-sm text-muted-foreground">
           {picked.length} {picked.length === 1 ? "check" : "checks"} · <span className="font-semibold text-foreground">{total > 0 ? formatMoney(total, currency) : "Price on quote"}</span>
         </p>
-        <Button variant="brand" onClick={save} disabled={pending}>
+        <Button onClick={save} disabled={pending}>
           {pending ? <Spinner /> : <Check />} {editing ? "Save changes" : "Create package"}
         </Button>
       </DialogFooter>

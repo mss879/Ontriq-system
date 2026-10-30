@@ -38,7 +38,7 @@ export function MemoriesCard({ initial }: { initial: Memory[] }) {
             <li key={m.id} className="flex items-start gap-1.5 rounded-lg bg-muted/50 px-2 py-1.5 text-xs">
               <span className="min-w-0 flex-1 break-words">
                 {m.content}
-                {m.status === "pending" && <span className="ml-1 rounded bg-amber-500/15 px-1 text-[10px] font-medium text-amber-700 dark:text-amber-400">Pending</span>}
+                {m.status === "pending" && <span className="ml-1 rounded bg-warning/15 px-1 text-[10px] font-medium text-warning-foreground dark:text-warning">Pending</span>}
               </span>
               {m.status === "pending" && (
                 <Button size="icon-xs" variant="ghost" disabled={pending} aria-label="Keep this memory" onClick={() => decide(m, "approved")}>

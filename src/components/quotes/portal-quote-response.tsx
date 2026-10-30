@@ -18,7 +18,7 @@ export function PortalQuoteResponse({ quoteId, number, clientName, total, open: 
     <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
       {canAnswer ? (
         <>
-          <Button variant="brand" size="lg" className="h-10 px-4" onClick={() => setMode("accept")}>
+          <Button size="lg" className="h-10 px-4" onClick={() => setMode("accept")}>
             <CheckCircle2 /> Accept quotation
           </Button>
           <Button variant="outline" size="lg" className="h-10" onClick={() => setMode("decline")}>
@@ -76,7 +76,7 @@ function AcceptForm({ quoteId, number, clientName, total, onDone }: { quoteId: s
         <Button variant="ghost" onClick={onDone} disabled={pending}>
           Cancel
         </Button>
-        <Button variant="brand" onClick={submit} disabled={pending || name.trim().length < 3 || !agree}>
+        <Button onClick={submit} disabled={pending || name.trim().length < 3 || !agree}>
           {pending ? <Spinner /> : <CheckCircle2 />} Accept
         </Button>
       </DialogFooter>
@@ -106,7 +106,7 @@ function NoteForm({ quoteId, action, onDone }: { quoteId: string; action: "decli
         <Button variant="ghost" onClick={onDone} disabled={pending}>
           Cancel
         </Button>
-        <Button variant={action === "decline" ? "destructive" : "brand"} onClick={submit} disabled={pending || text.trim().length < 3}>
+        <Button variant={action === "decline" ? "destructive" : "default"} onClick={submit} disabled={pending || text.trim().length < 3}>
           {pending ? <Spinner /> : action === "decline" ? <XCircle /> : <MessageCircleQuestion />} {action === "decline" ? "Decline" : "Send question"}
         </Button>
       </DialogFooter>

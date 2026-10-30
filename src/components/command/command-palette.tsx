@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
-import { Briefcase, CornerDownLeft, FilePlus2, FolderOpen, LogOut, Monitor, Moon, Sun, UserPlus, UserRound } from "lucide-react";
+import { Briefcase, CornerDownLeft, FilePlus2, FolderOpen, LogOut, Moon, Sun, UserPlus, UserRound } from "lucide-react";
 import { Spinner } from "@/components/ui/spinner";
 import { LogoMark } from "@/components/brand/logo";
 import { Kbd } from "@/components/ui/kbd";
@@ -147,9 +147,6 @@ export function CommandPalette({ viewer }: { viewer: { permissions: string[]; ro
           </CommandItem>
           <CommandItem value="Dark theme" keywords={["appearance", "night"]} onSelect={() => run(() => setTheme("dark"))}>
             <Moon /> Dark theme
-          </CommandItem>
-          <CommandItem value="System theme" keywords={["appearance", "auto"]} onSelect={() => run(() => setTheme("system"))}>
-            <Monitor /> System theme
           </CommandItem>
           <CommandItem
             value="Sign out"

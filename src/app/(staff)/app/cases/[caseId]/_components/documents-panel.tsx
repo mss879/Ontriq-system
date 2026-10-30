@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ReasonDialog } from "./reason-dialog";
 import { UploadDialog, type UploadTarget } from "./uploader";
 import type { Tone } from "@/domain/workflow/stages";
@@ -47,6 +48,7 @@ export function DocumentsPanel({
   documents,
   categories,
   checks,
+  fixedCategories = [],
   perms,
   closed,
   ai,
@@ -59,6 +61,8 @@ export function DocumentsPanel({
   documents: CaseDocument[];
   categories: { key: string; name: string; guide: string }[];
   checks: { id: string; label: string }[];
+  /** Categories that go in the report on their own (the Global Sanction report). */
+  fixedCategories?: string[];
   perms: DocPerms;
   closed: boolean;
   /** What the AI classifier made of each file, by document id. */
@@ -129,6 +133,9 @@ export function DocumentsPanel({
 
       <div>
         <p className="mb-1.5 text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">Files</p>
+        {docs.length && perms.visibility ? (
+          <p className="mb-2 text-xs text-muted-foreground">Clients open a file in their portal only when it says “Client can see”. “In the report” files reach them inside the released PDF.</p>
+        ) : null}
         {docs.length ? (
           <ul className="divide-y rounded-xl border">
             {docs.map((d) => (
@@ -137,6 +144,7 @@ export function DocumentsPanel({
                 d={d}
                 categoryName={catName(d.category)}
                 checkName={d.caseCheckId ? checkLabel(d.caseCheckId) : null}
+                fixed={fixedCategories.includes(d.category)}
                 perms={perms}
                 closed={closed}
                 onNewVersion={() => setUpload({ category: d.category, checkId: d.caseCheckId, parentId: d.id, parentName: d.filename })}
@@ -251,6 +259,7 @@ function FileRow({
   d,
   categoryName,
   checkName,
+  fixed,
   perms,
   closed,
   onNewVersion,
@@ -261,6 +270,7 @@ function FileRow({
   d: CaseDocument;
   categoryName: string;
   checkName: string | null;
+  fixed: boolean;
   perms: DocPerms;
   closed: boolean;
   onNewVersion: () => void;
@@ -270,6 +280,7 @@ function FileRow({
 }) {
   const [pending, start] = useTransition();
   const [rejecting, setRejecting] = useState(false);
+  const [sharing, setSharing] = useState(false);
   const status = DOC_STATUS[d.status];
   const superseded = d.status === "superseded";
   const isPdf = d.mime === "application/pdf";
@@ -280,12 +291,14 @@ function FileRow({
       if (r.ok) toast.success("Accepted");
       else toast.error(r.error);
     });
-  const changeVisibility = (v: string) =>
+  const applyVisibility = (v: string) =>
     start(async () => {
       const r = await setDocumentVisibility(d.id, v as CaseDocument["visibility"]);
       if (r.ok) toast.success(`Now: ${VISIBILITY_LABEL[v as CaseDocument["visibility"]]}`);
       else toast.error(r.error);
     });
+  // Sensitive evidence never reaches a client by accident.
+  const changeVisibility = (v: string) => (v === "client" && d.sensitive ? setSharing(true) : applyVisibility(v));
 
   return (
     <li className={cn("flex flex-wrap items-center gap-x-3 gap-y-2 px-3.5 py-3", superseded && "opacity-60")}>
@@ -313,7 +326,9 @@ function FileRow({
         ) : null}
         {ai ? <DocumentAiChip ai={ai} typeName={typeName} canDismiss={canDismissAi} /> : null}
         <ToneChip tone={status.tone}>{status.label}</ToneChip>
-        {perms.visibility && !superseded && !closed ? (
+        {fixed && !superseded ? (
+          <span className="text-xs text-muted-foreground">Always in the report</span>
+        ) : perms.visibility && !superseded && !closed ? (
           <Select value={d.visibility} onValueChange={changeVisibility} disabled={pending}>
             <SelectTrigger size="sm" className="h-7 w-[8.5rem] text-xs" aria-label={`Who can see ${d.filename}`}>
               <SelectValue />
@@ -395,6 +410,14 @@ function FileRow({
         destructive
         success="File rejected"
         onSubmit={(reason) => reviewDocument(d.id, false, reason)}
+      />
+      <ConfirmDialog
+        open={sharing}
+        onOpenChange={setSharing}
+        title="Share this sensitive file with the client?"
+        description="The client can open it in their portal straight away, before the report is approved. To send it with the report instead, choose “In the report”."
+        confirmLabel="Share it"
+        onConfirm={() => applyVisibility("client")}
       />
     </li>
   );
