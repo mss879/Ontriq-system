@@ -56,14 +56,14 @@ update public.case_checks set assigned_to = 'a3400000-0000-4000-8000-00000000000
 -- Money: one invoice 35 days late with a part payment, one paid this week.
 insert into public.invoices (id, org_id, client_id, number, status, currency, issue_date, due_date, total, amount_paid, balance) values
   ('a3400000-0000-4000-8000-0000000000e1', '00000000-0000-4000-8000-000000000001', 'a3400000-0000-4000-8000-0000000000c1', 'TEST34-1', 'partially_paid', 'LKR',
-   current_date - 40, current_date - 35, 10000, 4000, 6000),
+   (now() at time zone 'Asia/Colombo')::date - 40, (now() at time zone 'Asia/Colombo')::date - 35, 10000, 4000, 6000),
   ('a3400000-0000-4000-8000-0000000000e2', '00000000-0000-4000-8000-000000000001', 'a3400000-0000-4000-8000-0000000000c1', 'TEST34-2', 'paid', 'LKR',
-   current_date - 5, current_date + 25, 5000, 5000, 0),
+   (now() at time zone 'Asia/Colombo')::date - 5, (now() at time zone 'Asia/Colombo')::date + 25, 5000, 5000, 0),
   ('a3400000-0000-4000-8000-0000000000e3', '00000000-0000-4000-8000-000000000001', 'a3400000-0000-4000-8000-0000000000c1', null, 'draft', 'LKR',
-   current_date - 1, current_date + 29, 99999, 0, 99999);
+   (now() at time zone 'Asia/Colombo')::date - 1, (now() at time zone 'Asia/Colombo')::date + 29, 99999, 0, 99999);
 insert into public.payments (org_id, client_id, invoice_id, amount, method, paid_on) values
-  ('00000000-0000-4000-8000-000000000001', 'a3400000-0000-4000-8000-0000000000c1', 'a3400000-0000-4000-8000-0000000000e1', 4000, 'bank_transfer', current_date - 20),
-  ('00000000-0000-4000-8000-000000000001', 'a3400000-0000-4000-8000-0000000000c1', 'a3400000-0000-4000-8000-0000000000e2', 5000, 'cheque', current_date - 2);
+  ('00000000-0000-4000-8000-000000000001', 'a3400000-0000-4000-8000-0000000000c1', 'a3400000-0000-4000-8000-0000000000e1', 4000, 'bank_transfer', (now() at time zone 'Asia/Colombo')::date - 20),
+  ('00000000-0000-4000-8000-000000000001', 'a3400000-0000-4000-8000-0000000000c1', 'a3400000-0000-4000-8000-0000000000e2', 5000, 'cheque', (now() at time zone 'Asia/Colombo')::date - 2);
 insert into public.credit_notes (org_id, client_id, invoice_id, number, amount, reason) values
   ('00000000-0000-4000-8000-000000000001', 'a3400000-0000-4000-8000-0000000000c1', 'a3400000-0000-4000-8000-0000000000e1', 'TCN34-1', 250, 'Duplicate check');
 
@@ -79,17 +79,17 @@ set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"a3400000-0000-4000-8000-000000000003","role":"authenticated","aal":"aal2"}', true);
 do $$ begin
   begin
-    perform public.analytics_operations(current_date - 30, current_date);
+    perform public.analytics_operations((now() at time zone 'Asia/Colombo')::date - 30, (now() at time zone 'Asia/Colombo')::date);
     raise exception 'TEST FAILED: a verifier read operations analytics';
   exception when insufficient_privilege then null;
   end;
   begin
-    perform public.analytics_revenue(current_date - 30, current_date);
+    perform public.analytics_revenue((now() at time zone 'Asia/Colombo')::date - 30, (now() at time zone 'Asia/Colombo')::date);
     raise exception 'TEST FAILED: a verifier read revenue';
   exception when insufficient_privilege then null;
   end;
   begin
-    perform public.analytics_ai(current_date - 30, current_date);
+    perform public.analytics_ai((now() at time zone 'Asia/Colombo')::date - 30, (now() at time zone 'Asia/Colombo')::date);
     raise exception 'TEST FAILED: a verifier read AI cost';
   exception when insufficient_privilege then null;
   end;
@@ -97,12 +97,12 @@ end $$;
 select set_config('request.jwt.claims', '{"sub":"a3400000-0000-4000-8000-000000000004","role":"authenticated","aal":"aal1"}', true);
 do $$ begin
   begin
-    perform public.analytics_operations(current_date - 30, current_date);
+    perform public.analytics_operations((now() at time zone 'Asia/Colombo')::date - 30, (now() at time zone 'Asia/Colombo')::date);
     raise exception 'TEST FAILED: a client read operations analytics';
   exception when insufficient_privilege then null;
   end;
   begin
-    perform public.analytics_revenue(current_date - 30, current_date, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+    perform public.analytics_revenue((now() at time zone 'Asia/Colombo')::date - 30, (now() at time zone 'Asia/Colombo')::date, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
     raise exception 'TEST FAILED: a client read revenue';
   exception when insufficient_privilege then null;
   end;
@@ -114,16 +114,16 @@ do $$
 declare o jsonb; s jsonb;
 begin
   begin
-    perform public.analytics_operations(current_date, current_date - 1);
+    perform public.analytics_operations((now() at time zone 'Asia/Colombo')::date, (now() at time zone 'Asia/Colombo')::date - 1);
     raise exception 'TEST FAILED: a backwards period was accepted';
   exception when sqlstate '22023' then null;
   end;
   begin
-    perform public.analytics_operations(current_date - 2000, current_date);
+    perform public.analytics_operations((now() at time zone 'Asia/Colombo')::date - 2000, (now() at time zone 'Asia/Colombo')::date);
     raise exception 'TEST FAILED: a five-year period was accepted';
   exception when sqlstate '22023' then null;
   end;
-  o := public.analytics_operations(current_date - 30, current_date, 'a3400000-0000-4000-8000-0000000000c1');
+  o := public.analytics_operations((now() at time zone 'Asia/Colombo')::date - 30, (now() at time zone 'Asia/Colombo')::date, 'a3400000-0000-4000-8000-0000000000c1');
   s := o -> 'summary';
   assert (s ->> 'received')::int = 2 and (s ->> 'released')::int = 1, 'volumes ' || s::text;
   assert (s ->> 'open_now')::int = 1 and (s ->> 'overdue_now')::int = 1, 'open and overdue ' || s::text;
@@ -142,7 +142,7 @@ begin
            where x ->> 'user_id' = 'a3400000-0000-4000-8000-000000000003'), 'officer numbers ' || (o -> 'officers')::text;
   assert o -> 'top_clients' @> '[{"name":"Analytics Test Co","received":2,"released":1,"open":1}]', 'top clients ' || (o -> 'top_clients')::text;
   -- Without the client filter the test client is one of several.
-  assert (public.analytics_operations(current_date - 30, current_date) -> 'summary' ->> 'received')::int >= 2, 'org-wide volumes';
+  assert (public.analytics_operations((now() at time zone 'Asia/Colombo')::date - 30, (now() at time zone 'Asia/Colombo')::date) -> 'summary' ->> 'received')::int >= 2, 'org-wide volumes';
 end $$;
 
 -- ================================================================= revenue (finance: the admin)
@@ -150,7 +150,7 @@ select set_config('request.jwt.claims', '{"sub":"a3400000-0000-4000-8000-0000000
 do $$
 declare r jsonb; s jsonb;
 begin
-  r := public.analytics_revenue(current_date - 60, current_date, 'a3400000-0000-4000-8000-0000000000c1');
+  r := public.analytics_revenue((now() at time zone 'Asia/Colombo')::date - 60, (now() at time zone 'Asia/Colombo')::date, 'a3400000-0000-4000-8000-0000000000c1');
   s := r -> 'summary';
   assert r ->> 'currency' = 'LKR', 'currency';
   assert (s ->> 'invoiced')::numeric = 15000 and (s ->> 'invoice_count')::int = 2, 'drafts must not count as invoiced: ' || s::text;
@@ -160,18 +160,18 @@ begin
   assert (select sum((x ->> 'invoiced')::numeric) from jsonb_array_elements(r -> 'monthly') x) = 15000, 'monthly invoiced';
   assert (select sum((x ->> 'collected')::numeric) from jsonb_array_elements(r -> 'monthly') x) = 9000, 'monthly collected';
   assert r -> 'top_outstanding' @> '[{"name":"Analytics Test Co","amount":6000}]', 'top outstanding';
-  r := public.analytics_revenue(current_date - 10, current_date, 'a3400000-0000-4000-8000-0000000000c1');
+  r := public.analytics_revenue((now() at time zone 'Asia/Colombo')::date - 10, (now() at time zone 'Asia/Colombo')::date, 'a3400000-0000-4000-8000-0000000000c1');
   assert (r -> 'summary' ->> 'invoiced')::numeric = 5000 and (r -> 'summary' ->> 'collected')::numeric = 5000, 'a shorter period ' || (r -> 'summary')::text;
 end $$;
 
 -- Finance (client relations) reads revenue; an operations manager, who has analytics.read but no billing, doesn't.
 select set_config('request.jwt.claims', '{"sub":"a3400000-0000-4000-8000-000000000005","role":"authenticated","aal":"aal2"}', true);
 do $$ begin
-  assert (public.analytics_revenue(current_date - 60, current_date, 'a3400000-0000-4000-8000-0000000000c1') -> 'summary' ->> 'outstanding')::numeric = 6000, 'client relations reads revenue';
+  assert (public.analytics_revenue((now() at time zone 'Asia/Colombo')::date - 60, (now() at time zone 'Asia/Colombo')::date, 'a3400000-0000-4000-8000-0000000000c1') -> 'summary' ->> 'outstanding')::numeric = 6000, 'client relations reads revenue';
 end $$;
 select set_config('request.jwt.claims', '{"sub":"a3400000-0000-4000-8000-000000000002","role":"authenticated","aal":"aal2"}', true);
 do $$ begin
-  perform public.analytics_revenue(current_date - 60, current_date);
+  perform public.analytics_revenue((now() at time zone 'Asia/Colombo')::date - 60, (now() at time zone 'Asia/Colombo')::date);
   raise exception 'TEST FAILED: an operations manager read revenue';
 exception when insufficient_privilege then null;
 end $$;
@@ -181,7 +181,7 @@ select set_config('request.jwt.claims', '{"sub":"a3400000-0000-4000-8000-0000000
 do $$
 declare a jsonb;
 begin
-  a := public.analytics_ai(current_date - 30, current_date);
+  a := public.analytics_ai((now() at time zone 'Asia/Colombo')::date - 30, (now() at time zone 'Asia/Colombo')::date);
   assert (a -> 'summary' ->> 'cost_usd')::numeric >= 0.25, 'AI cost ' || (a -> 'summary')::text;
   assert jsonb_array_length(a -> 'daily') = 31, 'one row per day';
   assert a -> 'by_capability' @> '[{"key":"case.postqc"}]' and a -> 'by_model' @> '[{"model":"claude-opus-5-5"}]', 'AI breakdowns';

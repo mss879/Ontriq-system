@@ -43,6 +43,7 @@ Each feature is one migration file.
 - [Evidence and data entry rules](0040-evidence-and-entry-rules.md) — `0040_evidence_and_entry_rules.sql`
 - [Client requirements](0041-client-requirements.md) — `0041_client_requirements.sql`
 - [Fixes from the independent re-audit](0042-review-fixes.md) — `0042_review_fixes.sql`
+- [Colombo dates](0043-colombo-dates.md) — `0043_colombo_dates.sql`
 
 ## Notes from Phase 0
 

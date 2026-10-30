@@ -23,7 +23,7 @@ cleanup() {
 trap cleanup EXIT
 
 LC_ALL=C LANG=C initdb -D "$PGDATA" -U postgres --auth=trust --no-instructions --encoding=UTF8 --locale=C >/dev/null
-LC_ALL=C LANG=C pg_ctl -D "$PGDATA" -o "-p $PORT -k $WORK -c listen_addresses=127.0.0.1" -l "$WORK/server.log" start -w >/dev/null
+LC_ALL=C LANG=C pg_ctl -D "$PGDATA" -o "-p $PORT -k $WORK -c listen_addresses=127.0.0.1 -c timezone=UTC" -l "$WORK/server.log" start -w >/dev/null
 psql "postgresql://postgres@127.0.0.1:${PORT}/postgres" -X -q -c "create database ontriq" >/dev/null
 
 echo "• shim"
