@@ -81,6 +81,24 @@ function KV({ rows }: { rows: { label: string; value: string }[] }) {
 
 function GroupTable({ label, columns, rows }: { label: string; columns: string[]; rows: string[][] }) {
   const w = `${100 / Math.max(columns.length, 1)}%`;
+  // Too many columns to read across a page: each row becomes its own block.
+  if (columns.length > 5) {
+    return (
+      <View style={{ marginTop: 8 }}>
+        <Text style={{ fontSize: 8.5, fontWeight: 600, color: C.ink, marginBottom: 4 }}>{label}</Text>
+        {rows.map((row, i) => (
+          <View key={i} wrap={false} style={{ marginBottom: 6, borderWidth: 0.75, borderColor: C.line, borderRadius: 4, flexDirection: "row", flexWrap: "wrap", padding: 3 }}>
+            {row.map((cell, j) => (
+              <View key={j} style={{ width: "50%", padding: 3 }}>
+                <Text style={{ fontSize: 7, fontWeight: 600, color: C.muted }}>{columns[j]}</Text>
+                <Text style={{ fontSize: 8.5, color: C.ink }}>{cell}</Text>
+              </View>
+            ))}
+          </View>
+        ))}
+      </View>
+    );
+  }
   return (
     <View style={{ marginTop: 8 }}>
       <Text style={{ fontSize: 8.5, fontWeight: 600, color: C.ink, marginBottom: 4 }}>{label}</Text>

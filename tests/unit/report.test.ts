@@ -65,6 +65,18 @@ describe("report compile", () => {
   });
 });
 
+describe("reports with pending checks", () => {
+  it("don't claim verification finished", () => {
+    const input = inputs();
+    for (const k of input.checks) k.state = "completed";
+    expect(compileReport(input).case.completed_on).not.toBeNull();
+    input.checks[0].state = "in_progress";
+    const r = compileReport(input);
+    expect(r.case.completed_on).toBeNull();
+    expect(r.summary.find((s) => s.label === input.checks[0].label)?.status_label).toBe("Pending");
+  });
+});
+
 describe("the fixed annexure", () => {
   const pdf = async (pages: number) => {
     const doc = await PDFDocument.create();
@@ -92,6 +104,7 @@ describe("the fixed annexure", () => {
   it("is embedded even when the evidence used up the page limit", async () => {
     const r = await assembleReport(await pdf(1), [annexure("evidence", "bulky.pdf", await pdf(MAX_ANNEXURE_PAGES + 1)), annexure("evidence", "late.pdf", await pdf(1)), annexure("fixed", "cfirst.pdf", await pdf(3))], opts);
     expect(r.skipped).toEqual(["late.pdf"]);
+    expect(r.partial).toEqual(["bulky.pdf"]);
   });
 
   it("is reported when the file can't be embedded, so the report can stop", async () => {

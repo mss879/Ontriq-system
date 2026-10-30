@@ -41,6 +41,8 @@ Each feature is one migration file.
 - [Security review fixes](0038-security-fixes.md) — `0038_security_fixes.sql`
 - [Reading documents into checks](0039-document-reading.md) — no migration
 - [Evidence and data entry rules](0040-evidence-and-entry-rules.md) — `0040_evidence_and_entry_rules.sql`
+- [Client requirements](0041-client-requirements.md) — `0041_client_requirements.sql`
+- [Fixes from the independent re-audit](0042-review-fixes.md) — `0042_review_fixes.sql`
 
 ## Notes from Phase 0
 

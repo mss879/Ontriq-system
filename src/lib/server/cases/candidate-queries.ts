@@ -162,8 +162,8 @@ export const getCandidatePanel = cache(async (caseId: string): Promise<Candidate
 });
 
 /** The guard in 0008 (cases_consent_guard): a link was issued and consent is not in yet. */
-export function consentMissing(panel: Pick<CandidatePanelData, "everIssued" | "consent">): boolean {
-  return panel.everIssued && !(panel.consent && (panel.consent.status === "submitted" || panel.consent.status === "accepted"));
+export function consentMissing(panel: Pick<CandidatePanelData, "everIssued" | "consent">, processType: string): boolean {
+  return (panel.everIssued || processType === "candidate_collected") && !(panel.consent && (panel.consent.status === "submitted" || panel.consent.status === "accepted"));
 }
 
 export type CandidateReply = {

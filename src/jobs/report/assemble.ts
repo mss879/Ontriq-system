@@ -9,7 +9,7 @@ import type { ReportAnnexure } from "../../domain/reports/compile-core";
 import { toJpeg } from "./convert-image";
 
 const A4 = { w: 595.28, h: 841.89 };
-export const MAX_ANNEXURE_PAGES = 60;
+export const MAX_ANNEXURE_PAGES = 300;
 export const MAX_ANNEXURE_BYTES = 150 * 1024 * 1024;
 
 /** Text the standard fonts can encode (Latin-1); other scripts fall back to "?". */

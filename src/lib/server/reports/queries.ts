@@ -91,6 +91,13 @@ export const getMissingAnnexures = cache(async (caseId: string): Promise<string[
   return data ?? [];
 });
 
+/** Finished checks whose required evidence was taken out of the report (0042). */
+export const getUnreportedEvidence = cache(async (caseId: string): Promise<string[]> => {
+  const supabase = await createRequestClient();
+  const { data } = await supabase.rpc("case_unreported_evidence", { p_case: caseId });
+  return data ?? [];
+});
+
 export type ReleaseRecipient = { id: string; name: string; email: string; roleName: string; readsCases: boolean };
 
 /** The client's active portal users, for the release dialog. */

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { BUILTIN_CHECK_TYPES, BUILTIN_PACKAGES, DOCUMENT_CATEGORIES } from "@/domain/check-types/builtin";
 import { checkTypeSchema, parseCheckTypeSchema, type CheckTypeSchema, type FieldDef } from "@/domain/check-types/schema";
-import { recordLabel, recordOptions } from "@/domain/check-types/records";
+import { recordLabel, recordMoves, recordOptions } from "@/domain/check-types/records";
 import { completion, modeAt, validateCheckValues } from "@/domain/check-types/validate";
 import type { Stage } from "@/domain/workflow/stages";
 
@@ -199,5 +199,20 @@ describe("check values", () => {
 
   it("measures completion of required fields", () => {
     expect(completion(byKey("nic").fields, { nic_number: "853400937V" })).toEqual({ filled: 1, required: 3 });
+  });
+});
+
+describe("records", () => {
+  const employment = byKey("employment").fields;
+  const row = (company: string) => ({ company });
+
+  it("follow their row when one above is removed", () => {
+    expect(recordMoves(employment, { employers: [row("Dialog"), row("SLT"), row("MAS")] }, { employers: [row("Dialog"), row("MAS")] })).toEqual({ "employers.1": null, "employers.2": "employers.1" });
+  });
+
+  it("stay put when nothing moved", () => {
+    const v = { employers: [row("Dialog"), row("SLT")] };
+    expect(recordMoves(employment, v, v)).toEqual({});
+    expect(recordMoves(employment, v, { employers: [row("Dialog"), row("SLT"), row("MAS")] })).toEqual({});
   });
 });

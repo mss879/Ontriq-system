@@ -110,6 +110,22 @@ export async function releaseReport(input: z.input<typeof releaseSchema>): Promi
   });
 }
 
+const backSchema = z.object({ caseId: uuid, reason: z.string().trim().min(1, "Say what needs more work.").max(2000), checks: z.array(uuid).max(50) });
+
+/** From the report stage back to verification: reopens the chosen checks, and any left pending. */
+export async function returnToVerification(input: z.input<typeof backSchema>): Promise<ActionResult> {
+  return guarded(async () => {
+    await staff();
+    const parsed = backSchema.safeParse(input);
+    if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Check the details.");
+    const supabase = await createClient();
+    const { error } = await supabase.rpc("return_to_verification", { p_case: parsed.data.caseId, p_reason: parsed.data.reason, p_checks: parsed.data.checks });
+    if (error) return fail(rpcErrorMessage(error));
+    refresh();
+    return { ok: true };
+  });
+}
+
 export async function reviseReport(caseId: string, reason: string): Promise<ActionResult> {
   return guarded(async () => {
     await staff();

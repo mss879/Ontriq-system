@@ -2478,6 +2478,7 @@ export type Database = {
           created_at: string;
           guide: string;
           id: string;
+          in_report: boolean;
           is_active: boolean;
           key: string;
           name: string;
@@ -2491,6 +2492,7 @@ export type Database = {
           created_at?: string;
           guide?: string;
           id?: string;
+          in_report?: boolean;
           is_active?: boolean;
           key: string;
           name: string;
@@ -2503,6 +2505,7 @@ export type Database = {
           created_at?: string;
           guide?: string;
           id?: string;
+          in_report?: boolean;
           is_active?: boolean;
           key?: string;
           name?: string;
@@ -5675,6 +5678,7 @@ export type Database = {
         Args: { p_case: string; p_event: string; p_reason?: string };
         Returns: Database["public"]["Enums"]["case_stage"];
       };
+      case_unreported_evidence: { Args: { p_case: string }; Returns: string[] };
       case_visible: { Args: { p_case: string }; Returns: boolean };
       check_entry_complete: { Args: { p_schema: Json; p_values: Json }; Returns: boolean };
       check_state_label: {
@@ -5964,6 +5968,7 @@ export type Database = {
       };
       portal_case_visible: { Args: { p_case: string }; Returns: boolean };
       portal_cases: { Args: { p?: Json }; Returns: Json };
+      portal_check_hidden: { Args: { p_client: string; p_type: string }; Returns: boolean };
       portal_client: { Args: { p_permission?: string }; Returns: string };
       portal_dashboard: { Args: Record<PropertyKey, never>; Returns: Json };
       portal_field_value: { Args: { p_field: Json; p_value: Json }; Returns: Json };
@@ -6015,6 +6020,7 @@ export type Database = {
         Args: { p_action: string; p_quote: string; p_text: string };
         Returns: undefined;
       };
+      portal_results_open: { Args: { p_case: string }; Returns: boolean };
       portal_scalar_value: { Args: { p_field: Json; p_value: Json }; Returns: Json };
       portal_stage_label: {
         Args: { p: Database["public"]["Enums"]["case_stage"] };
@@ -6126,6 +6132,7 @@ export type Database = {
       };
       reject_payment_slip: { Args: { p_reason: string; p_slip: string }; Returns: undefined };
       release_report: { Args: { p_case: string; p_recipients?: string[] }; Returns: string };
+      remap_check_records: { Args: { p_check: string; p_map: Json }; Returns: undefined };
       report_download: { Args: { p_ip?: string; p_version: string }; Returns: Json };
       report_open_to_caller: { Args: { p_version: string }; Returns: boolean };
       report_render_done: {
@@ -6203,6 +6210,10 @@ export type Database = {
       };
       retry_job: { Args: { p_id: string }; Returns: boolean };
       return_report: { Args: { p_case: string; p_reason: string }; Returns: undefined };
+      return_to_verification: {
+        Args: { p_case: string; p_checks?: string[]; p_reason: string };
+        Returns: undefined;
+      };
       review_candidate_request: {
         Args: { p_decision: string; p_note?: string; p_request: string };
         Returns: undefined;

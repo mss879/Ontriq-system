@@ -48,6 +48,7 @@ const categorySchema = z.object({
   name: z.string().trim().min(2, "Name the document type.").max(80),
   guide: z.string().trim().max(400),
   sensitive: z.boolean(),
+  in_report: z.boolean(),
   is_active: z.boolean(),
 });
 

@@ -930,7 +930,7 @@ async function main() {
     const checks = (await service.from("case_checks").select("id").eq("case_id", case1)).data?.length;
     const pending = (await service.from("case_check_requirements").select("id").eq("case_id", case1).eq("status", "pending")).data?.length;
     if (!/^ONT-\d{4}-\d{6}$/.test(reference)) return `reference ${reference}`;
-    return expectEq([checks, pending], [3, 3], "checks and required documents");
+    return expectEq([checks, pending], [3, 4], "checks and required documents, with the BGV form");
   });
 
   await check("The same person is matched by NIC whichever card they show", async () => {

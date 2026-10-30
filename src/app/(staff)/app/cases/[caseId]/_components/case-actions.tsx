@@ -266,6 +266,7 @@ function QcForm({
   const submit = () => {
     if (decision === "returned" && !remarks.trim()) return setError("Say what needs correcting.");
     if (kind === "post" && decision === "returned" && returnIds.length === 0) return setError("Choose the checks that need more work.");
+    if (kind === "pre" && decision === "returned" && !message.trim()) return setError("Say what you need sent or corrected.");
     start(async () => {
       const r = await recordQcReview(caseId, {
         kind,
@@ -360,7 +361,7 @@ function QcForm({
         {kind === "pre" && decision === "returned" ? (
           <div className="space-y-1.5">
             <label htmlFor="qc-message" className="text-sm font-medium">
-              Message to the {processType === "candidate_collected" ? "candidate" : "client"} <span className="font-normal text-muted-foreground">(optional)</span>
+              Message to the {processType === "candidate_collected" ? "candidate" : "client"}
             </label>
             <Textarea
               id="qc-message"

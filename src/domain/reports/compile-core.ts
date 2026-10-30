@@ -181,7 +181,8 @@ export function compileReport(input: ReportInputs): ReportSnapshot {
       key: k.key,
       label: k.label,
       status,
-      status_label: STATUS[status],
+      // A finished check with an amber result isn't simply "verified".
+      status_label: status === "verified" && (k.result_tone ?? option?.tone) === "amber" ? "Completed, see remarks" : STATUS[status],
       // Results appear only for checks that reached a result; incomplete checks are never shown as verified.
       result_label: done ? (option?.label ?? null) : null,
       result_tone: done ? (k.result_tone ?? option?.tone ?? null) : null,
@@ -231,7 +232,8 @@ export function compileReport(input: ReportInputs): ReportSnapshot {
       package: input.case.package_name,
       process: input.case.process_type === "candidate_collected" ? "Documents collected from the candidate by Ontriq" : "Documents supplied by the client",
       received_on: reportDate(input.case.received_at) ?? "",
-      completed_on: reportDate(input.case.completed_at),
+      // A report that went out with pending checks hasn't finished verification.
+      completed_on: reportChecks.some((k) => k.status === "incomplete") ? null : reportDate(input.case.completed_at),
     },
     candidate: { full_name: input.candidate.full_name, nic: input.candidate.nic, date_of_birth: reportDate(input.candidate.date_of_birth) },
     summary: reportChecks.map((c) => ({ label: c.label, status: c.status, status_label: c.status_label, result_label: c.result_label, result_tone: c.result_tone })),

@@ -3,11 +3,14 @@
 import { useState, useTransition } from "react";
 import { CheckCircle2, Download, ExternalLink, FilePlus2, FileText, PenLine, RotateCcw, Send, ShieldCheck, TriangleAlert, Undo2 } from "lucide-react";
 import { toast } from "sonner";
-import { generateReportDraft, returnReport, reviseReport, sendReportForApproval } from "../report-actions";
+import { generateReportDraft, returnReport, returnToVerification, reviseReport, sendReportForApproval } from "../report-actions";
 import { cn } from "@/lib/utils";
 import { formatBytes, formatDateTime } from "@/lib/format";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
+import { Textarea } from "@/components/ui/textarea";
 import { ResultBadge, ToneChip } from "@/components/cases/badges";
 import { RelativeTime } from "@/components/cases/sla-badge";
 import type { Stage, Tone } from "@/domain/workflow/stages";
@@ -40,6 +43,9 @@ export function ReportPanel({
   summary,
   recipients,
   missingAnnexures,
+  unreported,
+  closedChecks,
+  canReturn,
   perms,
   viewerId,
 }: {
@@ -52,6 +58,11 @@ export function ReportPanel({
   recipients: ReleaseRecipient[];
   /** Checks whose fixed annexure has no file yet. */
   missingAnnexures: string[];
+  /** Finished checks with no evidence in the report. */
+  unreported: string[];
+  /** Finished checks a person can send back to verification. */
+  closedChecks: { id: string; label: string }[];
+  canReturn: boolean;
   perms: ReportPerms;
   viewerId: string;
 }) {
@@ -59,7 +70,7 @@ export function ReportPanel({
   const busy = latest?.status === "queued" || latest?.status === "rendering";
   return (
     <div className="space-y-5">
-      <NextStep caseId={caseId} stage={stage} onHold={onHold} clientName={clientName} latest={latest} summary={summary} recipients={recipients} missingAnnexures={missingAnnexures} perms={perms} viewerId={viewerId} />
+      <NextStep caseId={caseId} stage={stage} onHold={onHold} clientName={clientName} latest={latest} summary={summary} recipients={recipients} missingAnnexures={missingAnnexures} unreported={unreported} closedChecks={closedChecks} canReturn={canReturn} perms={perms} viewerId={viewerId} />
       {versions.length ? (
         <div>
           <p className="mb-1.5 text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">Versions</p>
@@ -96,6 +107,9 @@ function NextStep({
   summary,
   recipients,
   missingAnnexures,
+  unreported,
+  closedChecks,
+  canReturn,
   perms,
   viewerId,
 }: {
@@ -108,11 +122,17 @@ function NextStep({
   recipients: ReleaseRecipient[];
   /** Checks whose fixed annexure has no file yet. */
   missingAnnexures: string[];
+  /** Finished checks with no evidence in the report. */
+  unreported: string[];
+  /** Finished checks a person can send back to verification. */
+  closedChecks: { id: string; label: string }[];
+  canReturn: boolean;
   perms: ReportPerms;
   viewerId: string;
 }) {
   const [pending, start] = useTransition();
   const [dialog, setDialog] = useState<"approve" | "release" | "return" | "revise" | null>(null);
+  const [goingBack, setGoingBack] = useState(false);
 
   const run = (fn: () => Promise<{ ok: true } | { ok: false; error: string }>, success: string) =>
     start(async () => {
@@ -266,6 +286,20 @@ function NextStep({
   return (
     <>
       {content}
+      {stage === "report" && unreported.length ? (
+        <p className="mt-3 flex items-start gap-2 text-sm text-warning-foreground dark:text-warning">
+          <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+          No evidence in the report for {unreported.join(", ")}. Check that its files aren&rsquo;t set to &ldquo;Internal only&rdquo;.
+        </p>
+      ) : null}
+      {stage === "report" && canReturn ? (
+        <div className="mt-3">
+          <Button variant="ghost" size="sm" disabled={pending} onClick={() => setGoingBack(true)}>
+            <Undo2 /> Back to verification
+          </Button>
+        </div>
+      ) : null}
+      <BackToVerification open={goingBack} onOpenChange={setGoingBack} caseId={caseId} checks={closedChecks} />
       {latest && dialog === "approve" ? (
         <ApproveDialog open onOpenChange={(o) => !o && setDialog(null)} caseId={caseId} draftId={latest.id} draftVersion={latest.version} summary={summary} />
       ) : null}
@@ -291,6 +325,69 @@ function NextStep({
         onSubmit={(text) => reviseReport(caseId, text)}
       />
     </>
+  );
+}
+
+/** The way back when something in the report turns out wrong, or a pending check can now be finished. */
+function BackToVerification({ open, onOpenChange, caseId, checks }: { open: boolean; onOpenChange: (o: boolean) => void; caseId: string; checks: { id: string; label: string }[] }) {
+  const [chosen, setChosen] = useState<string[]>([]);
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            start(async () => {
+              const r = await returnToVerification({ caseId, reason, checks: chosen });
+              if (r.ok) {
+                toast.success("Back in verification");
+                onOpenChange(false);
+                setChosen([]);
+                setReason("");
+                setError(null);
+              } else setError(r.error);
+            });
+          }}
+        >
+          <DialogHeader className="mb-4">
+            <DialogTitle>Back to verification</DialogTitle>
+            <DialogDescription>Reopens the checks you tick so their details and results can change. Checks still pending reopen by themselves. The case goes through Post-QC again.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {checks.length ? (
+              <fieldset className="space-y-2">
+                <legend className="mb-1 text-sm font-medium">Checks to reopen</legend>
+                {checks.map((k) => (
+                  <label key={k.id} className="flex items-center gap-2.5 text-sm">
+                    <Checkbox checked={chosen.includes(k.id)} onCheckedChange={(c) => setChosen((list) => (c === true ? [...list, k.id] : list.filter((x) => x !== k.id)))} />
+                    {k.label}
+                  </label>
+                ))}
+              </fieldset>
+            ) : null}
+            <div className="space-y-1.5">
+              <label htmlFor="back-reason" className="text-sm font-medium">
+                What needs more work
+              </label>
+              <Textarea id="back-reason" rows={3} value={reason} onChange={(e) => setReason(e.target.value)} maxLength={2000} />
+            </div>
+            {error ? (
+              <p role="alert" className="text-sm text-destructive">
+                {error}
+              </p>
+            ) : null}
+          </div>
+          <DialogFooter className="mt-5">
+            <Button type="submit" disabled={pending}>
+              {pending ? <Spinner /> : null} Send back
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

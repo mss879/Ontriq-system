@@ -15,7 +15,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { saveDocumentCategory, saveStatusLabels } from "./actions";
 
 type StatusRow = { key: string; internal_label: string; client_label: string; candidate_label: string };
-type Category = { id: string; key: string; name: string; guide: string; sensitive: boolean; is_active: boolean };
+type Category = { id: string; key: string; name: string; guide: string; sensitive: boolean; in_report: boolean; is_active: boolean };
 
 /** Spec 6.2: "The exact statuses may be configured according to our workflow." */
 export function StatusWording({ rows }: { rows: StatusRow[] }) {
@@ -66,7 +66,7 @@ export function DocumentTypes({ rows }: { rows: Category[] }) {
         title="Document types"
         description="The kinds of document a check can ask for. New types appear under each check type's documents."
         aside={
-          <Button variant="outline" size="sm" onClick={() => setEditing({ name: "", guide: "", sensitive: false, is_active: true })}>
+          <Button variant="outline" size="sm" onClick={() => setEditing({ name: "", guide: "", sensitive: false, in_report: true, is_active: true })}>
             <Plus /> New type
           </Button>
         }
@@ -78,6 +78,7 @@ export function DocumentTypes({ rows }: { rows: Category[] }) {
               <p className="flex flex-wrap items-center gap-2 text-sm font-medium">
                 {c.name}
                 {c.sensitive ? <Lock className="size-3 text-muted-foreground" aria-label="Sensitive evidence" /> : null}
+                {c.in_report ? <ToneChip tone="info" dot={false}>In the report</ToneChip> : null}
                 {!c.is_active ? <ToneChip tone="neutral">Turned off</ToneChip> : null}
               </p>
               {c.guide ? <p className="text-xs text-muted-foreground">{c.guide}</p> : null}
@@ -99,6 +100,7 @@ function CategoryForm({ initial, onDone }: { initial: Partial<Category>; onDone:
   const [name, setName] = useState(initial.name ?? "");
   const [guide, setGuide] = useState(initial.guide ?? "");
   const [sensitive, setSensitive] = useState(initial.sensitive ?? false);
+  const [inReport, setInReport] = useState(initial.in_report ?? false);
   const [active, setActive] = useState(initial.is_active ?? true);
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
@@ -107,7 +109,7 @@ function CategoryForm({ initial, onDone }: { initial: Partial<Category>; onDone:
       onSubmit={(e) => {
         e.preventDefault();
         start(async () => {
-          const r = await saveDocumentCategory({ id: initial.id, name, guide, sensitive, is_active: active });
+          const r = await saveDocumentCategory({ id: initial.id, name, guide, sensitive, in_report: inReport, is_active: active });
           if (r.ok) {
             toast.success("Document type saved");
             onDone();
@@ -134,6 +136,13 @@ function CategoryForm({ initial, onDone }: { initial: Partial<Category>; onDone:
             <span className="block text-xs text-muted-foreground">Only staff with &ldquo;View sensitive evidence&rdquo; can open these files.</span>
           </span>
           <Switch checked={sensitive} onCheckedChange={setSensitive} />
+        </label>
+        <label className="flex items-center justify-between gap-3 text-sm">
+          <span>
+            <span className="block font-medium">Goes in the report</span>
+            <span className="block text-xs text-muted-foreground">New files of this type are annexed to the final report unless someone sets them to Internal only.</span>
+          </span>
+          <Switch checked={inReport} onCheckedChange={setInReport} />
         </label>
         {initial.id ? (
           <label className="flex items-center justify-between gap-3 text-sm">

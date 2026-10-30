@@ -152,7 +152,7 @@ export function StatusPanel({
         open={waiving}
         onOpenChange={setWaiving}
         title="Waive this check"
-        description="The check won't count towards the result. The reason is kept in the audit trail."
+        description="The check won't count towards the result. The report shows it as Not required, with your reason."
         placeholder="e.g. The client removed this check from the request."
         confirmLabel="Waive check"
         success="Check waived"

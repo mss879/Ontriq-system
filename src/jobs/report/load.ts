@@ -35,12 +35,15 @@ export async function loadReportInputs(admin: ServiceClient, caseId: string): Pr
   const fixed = fixedAnnexureCategories(parsed.map(({ k, schema }) => ({ state: k.state, schema })));
   const annexed = admin
     .from("documents")
-    .select("id, case_check_id, category, filename, mime, sha256, created_at, storage_bucket, storage_path, record_key")
+    .select("id, case_check_id, category, filename, mime, sha256, created_at, storage_bucket, storage_path, record_key, visibility")
     .eq("case_id", caseId)
     .in("status", ["uploaded", "accepted"]);
-  const { data: docs } = await (fixed.length ? annexed.or(`visibility.eq.report,category.in.(${fixed.join(",")})`) : annexed.eq("visibility", "report"));
-  const { data: cats } = await admin.from("document_categories").select("key, name").eq("org_id", c.org_id);
+  const { data: found } = await (fixed.length ? annexed.or(`visibility.in.(report,client),category.in.(${fixed.join(",")})`) : annexed.in("visibility", ["report", "client"]));
+  const { data: cats } = await admin.from("document_categories").select("key, name, in_report").eq("org_id", c.org_id);
   const catName = new Map((cats ?? []).map((x) => [x.key, x.name]));
+  // A file shared with the client stays in the report if it is evidence. A CV the client sent is not.
+  const evidence = new Set((cats ?? []).filter((x) => x.in_report).map((x) => x.key));
+  const docs = (found ?? []).filter((d) => d.visibility === "report" || evidence.has(d.category) || fixed.includes(d.category));
 
   const { data: qc } = await admin.from("qc_reviews").select("kind, reviewer_id, created_at").eq("case_id", caseId).eq("decision", "approved");
   const reviewerIds = [...new Set((qc ?? []).map((q) => q.reviewer_id).filter(Boolean) as string[])];
@@ -82,7 +85,7 @@ export async function loadReportInputs(admin: ServiceClient, caseId: string): Pr
       completed_at: k.completed_at,
       schema: { fields: schema.fields, result: schema.result, fixed_annexure: schema.fixed_annexure },
     })),
-    documents: (docs ?? []).map((d) => ({
+    documents: docs.map((d) => ({
       id: d.id,
       case_check_id: d.case_check_id,
       category: d.category,
@@ -95,7 +98,7 @@ export async function loadReportInputs(admin: ServiceClient, caseId: string): Pr
     })),
     qc: (qc ?? []).map((q) => ({ kind: q.kind as "pre" | "post", reviewer: q.reviewer_id ? (nameOf.get(q.reviewer_id) ?? "Ontriq QC") : "Ontriq QC", created_at: q.created_at })),
   };
-  const sources = (docs ?? []).map((d) => ({ document_id: d.id, bucket: d.storage_bucket, path: d.storage_path, mime: d.mime }));
+  const sources = docs.map((d) => ({ document_id: d.id, bucket: d.storage_bucket, path: d.storage_path, mime: d.mime }));
   return { inputs, sources, orgId: c.org_id };
 }
 

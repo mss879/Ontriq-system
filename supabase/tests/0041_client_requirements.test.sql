@@ -89,7 +89,7 @@ begin
   values ('00000000-0000-4000-8000-000000000001', c, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', 'cv', 'cv.pdf', 'application/pdf', 'x/cv.pdf', 'uploaded', 'client');
   assert (select status_key from public.cases where id = c) = 'document_review', 'a file waiting for review means Document Review in Progress';
   update public.documents set status = 'accepted' where case_id = c;
-  assert (select status_key from public.cases where id = c) = 'documents_pending', 'reviewed files leave Document Review';
+  assert (select status_key from public.cases where id = c) = 'document_review', 'reviewed files still wait for Pre-QC';
 
   update public.cases set stage = 'verification', status_key = 'verification_in_progress' where id = c;
   update public.case_checks set state = 'pending_info' where id = current_setting('t.alevel')::uuid;

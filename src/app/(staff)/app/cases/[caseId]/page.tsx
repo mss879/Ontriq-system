@@ -28,7 +28,7 @@ import { AssignmentCard } from "./_components/assignment-card";
 import { CandidateCard, DetailsCard } from "./_components/info-cards";
 import { CandidatePanel } from "./_components/candidate-panel";
 import { ReportPanel } from "./_components/report-panel";
-import { getMissingAnnexures, getReleaseRecipients, getReportVersions } from "@/lib/server/reports/queries";
+import { getMissingAnnexures, getReleaseRecipients, getReportVersions, getUnreportedEvidence } from "@/lib/server/reports/queries";
 import { getCheckTypeOptions, getClientQuestions, getContactLog } from "@/lib/server/cases/detail-queries";
 import { AddCheck } from "./_components/add-check";
 import { ClientQuestions } from "./_components/client-questions";
@@ -174,7 +174,7 @@ async function Header({ params }: Params) {
       checks: checks.map((k) => ({ state: k.state, entryReady: k.valuesValid || validateCheckValues(k.schema.fields, k.values, "entry").ok })),
       annexuresMissing: c.stage === "verification" ? await getMissingAnnexures(caseId) : [],
       isOwner: c.assignee?.id === viewer.userId,
-      consentMissing: consentMissing(candidate),
+      consentMissing: consentMissing(candidate, c.processType),
     },
     (p) => can(viewer, p as Permission),
   );
@@ -336,7 +336,11 @@ async function Report({ params }: Params) {
   const { versions, draftSummary } = await getReportVersions(caseId);
   const atReport = c.stage === "report" || c.stage === "approval" || c.stage === "released";
   if (!atReport && !versions.length) return null;
-  const missingAnnexures = c.stage === "report" ? await getMissingAnnexures(caseId) : [];
+  const [missingAnnexures, unreported, checks] = await Promise.all([
+    c.stage === "report" ? getMissingAnnexures(caseId) : [],
+    c.stage === "report" ? getUnreportedEvidence(caseId) : [],
+    getCaseChecks(caseId),
+  ]);
   const canRelease = can(viewer, "reports.release");
   const recipients = canRelease && c.stage === "approval" ? await getReleaseRecipients(c.client.id) : [];
   return (
@@ -350,6 +354,9 @@ async function Report({ params }: Params) {
         summary={draftSummary}
         recipients={recipients}
         missingAnnexures={missingAnnexures}
+        unreported={unreported}
+        closedChecks={checks.filter((k) => k.state === "completed" || k.state === "discrepancy" || k.state === "unable_to_verify").map((k) => ({ id: k.id, label: k.label }))}
+        canReturn={can(viewer, "cases.stage.change") || can(viewer, "reports.approve") || can(viewer, "qc.post")}
         perms={{
           preview: can(viewer, "cases.stage.change") || can(viewer, "reports.approve") || c.assignee?.id === viewer.userId,
           approve: can(viewer, "reports.approve"),

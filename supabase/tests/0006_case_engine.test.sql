@@ -69,7 +69,8 @@ begin
   assert c.checks_total = 3 and c.proposed_result = 'amber', 'roll-up wrong at creation';
   assert c.due_at is not null and c.package_snapshot ->> 'code' = 'STANDARD', 'snapshot or due date missing';
   assert (select count(*) from public.case_checks where case_id = c.id) = 3, 'three checks expected';
-  assert (select count(*) from public.case_check_requirements where case_id = c.id and status = 'pending') = 3, 'three required documents expected (NIC, certificates, service letters)';
+  assert (select count(*) from public.case_check_requirements where case_id = c.id and status = 'pending') = 4, 'four required documents expected (BGV form, NIC, certificates, service letters)';
+  update public.case_check_requirements set status = 'waived', waived_reason = 'test' where case_id = c.id and category = 'consent_form';
   assert (select count(*) from public.jobs where kind = 'assign.auto' and entity_id = c.id) = 1, 'assign.auto not queued';
   assert (select count(*) from public.case_events where case_id = c.id and kind = 'created') = 1, 'created event missing';
 end $$;

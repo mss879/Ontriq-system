@@ -1,27 +1,30 @@
 # Production readiness
 
-State on 30 October 2026, after Phases 0 to 5 and an independent security review.
+State on 31 October 2026, after the client requirements audit and an independent re-audit.
 
-**Verdict:** the system is built and works end to end for every role on the hosted database. It is ready for a client demonstration and for UAT. It is not yet ready for real candidate data: the items under "Before real data" must be done first, and the AI features have not yet run against a real model.
+**Verdict:** every requirement in the client's two documents is built and tested, and every role works end to end on the hosted database. It is ready for a client demonstration and for UAT once a host is chosen. It is not yet ready for real candidate data: the items under "Before real data" come first, and the AI features have not yet run against a real model.
 
 ## What was verified
 
+Numbers come from the final run recorded in `docs/verification/`.
+
 | Check | Result |
 |---|---|
-| Hosted simulation: every role, through all five phases, on the live Supabase project | 156 of 156 passed, nothing left behind ([report](verification/simulation-2026-10-30-phases3-5.md)) |
+| Hosted simulation: every role, end to end, on the live Supabase project | All passed, nothing left behind |
 | Browser smoke test on the production build: 11 roles, desktop, phone and dark mode | 135 of 135 page views clean, 6 of 6 interactions passed |
-| Unit tests | 151 passed |
-| Database suites (permissions, row level security, workflow, money, retention, attacks from the review) | All 14 passed |
+| Demo walkthrough and layout check on hosted data | Clean; all 10 pages fit at 8 widths |
+| Unit tests and database suites (permissions, row level security, workflow, money, retention, client visibility) | All passed |
 | Type check, lint, production build | Clean |
-| Supabase advisors | Only expected items (see below) |
-| Independent security review of the new code | 10 findings, all fixed in `0038_security_fixes.sql`, each with a test that replays the attack |
+| Independent security review of the code before the requirements work | 10 findings, all fixed in `0038_security_fixes.sql`, each with a test that replays the attack |
+| Independent re-audit against the client's documents | 12 findings, all fixed in `0042_review_fixes.sql` |
 
-The three serious review findings were: AI suggestions readable by any staff member; ownership checks that passed when a case had no owner; and erasure failing for cases with several files. All are fixed and live.
+The code added after the security review (migrations 0040 to 0042, the portal questions, the contact log and the candidate rows form) has database tests, but has not had a separate security review.
 
 ## Before real data
 
 | Item | Who | Notes |
 |---|---|---|
+| Make the GitHub repository private | Owner | It is public. It holds no keys, but it does hold the project reference, the cost document and how the system works. |
 | Remove the demo data | Developer | `npx tsx scripts/seed-demo.ts --env .env.hosted --clean`, then delete `demo-logins.local.md`. Removes the sample clients, cases, sign-ins and prices, and resets numbering. |
 | Turn two-step verification on for staff | Super Admin | Settings → Organisation → Security. It is off so the system could be tested and demonstrated. |
 | Add `ANTHROPIC_API_KEY` and run the AI live | Developer | No AI feature has run against a real model yet. They work without a key by saying so. Run the document set through it, check accuracy, then refresh the cost document with measured numbers. |
@@ -32,7 +35,7 @@ The three serious review findings were: AI suggestions readable by any staff mem
 
 ## Ontriq to confirm
 
-Real prices (package prices are empty once demo data is removed), VAT and SSCL rules, bank details on invoices, the consent form wording, Sinhala and Tamil wording on the candidate page, default retention period, and who may see revenue figures (currently finance roles only: Admin, Client Relations, Super Admin).
+The working assumptions in [Client requirements](features/0041-client-requirements.md): what "BGV form", "reference form" and "Global sanctions screening details" mean, whether referee contact details should print, and whether steps must run in order. Also: Real prices (package prices are empty once demo data is removed), VAT and SSCL rules, bank details on invoices, the consent form wording, Sinhala and Tamil wording on the candidate page, default retention period, and who may see revenue figures (currently finance roles only: Admin, Client Relations, Super Admin).
 
 ## Known limits
 

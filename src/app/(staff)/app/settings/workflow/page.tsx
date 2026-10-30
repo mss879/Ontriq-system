@@ -28,7 +28,7 @@ async function Content() {
   const supabase = await createRequestClient();
   const [{ data: statuses }, { data: categories }] = await Promise.all([
     supabase.from("client_status_catalog").select("key, internal_label, client_label, candidate_label, sort").order("sort"),
-    supabase.from("document_categories").select("id, key, name, guide, sensitive, is_active, sort").order("sort"),
+    supabase.from("document_categories").select("id, key, name, guide, sensitive, in_report, is_active, sort").order("sort"),
   ]);
   return (
     <div className="space-y-5">

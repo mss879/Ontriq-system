@@ -12,6 +12,7 @@ import { parseNic } from "@/domain/nic-core";
 import { DISTRICTS } from "@/domain/districts";
 import { parseCheckTypeSchema } from "@/domain/check-types/schema";
 import { validateCheckValues } from "@/domain/check-types/validate";
+import { recordMoves } from "@/domain/check-types/records";
 import { CHECK_STATES } from "@/domain/workflow/stages";
 import { isValidPhoneNumber } from "libphonenumber-js";
 import { autoCandidateLink, emailCandidateUpdate, type Channel } from "@/lib/server/candidate/links";
@@ -352,7 +353,7 @@ export async function saveCheckValues(checkId: string, values: Record<string, un
   return guarded(async () => {
     await staff();
     const supabase = await createClient();
-    const { data: check } = await supabase.from("case_checks").select("id, version:check_type_versions(schema)").eq("id", checkId).maybeSingle();
+    const { data: check } = await supabase.from("case_checks").select("id, values, version:check_type_versions(schema)").eq("id", checkId).maybeSingle();
     if (!check) return fail("That check no longer exists, or you don't have access to it.");
     const schema = parseCheckTypeSchema((check.version as { schema: unknown } | null)?.schema);
     const draft = validateCheckValues(schema.fields, values, "draft");
@@ -360,6 +361,8 @@ export async function saveCheckValues(checkId: string, values: Record<string, un
     const submit = validateCheckValues(schema.fields, draft.values, "submit");
     const { error } = await supabase.rpc("save_check_values", { p_check: checkId, p_values: draft.values as never, p_valid: submit.ok });
     if (error) return fail(rpcErrorMessage(error));
+    const moves = recordMoves(schema.fields, check.values as Record<string, unknown>, draft.values);
+    if (Object.keys(moves).length) await supabase.rpc("remap_check_records", { p_check: checkId, p_map: moves });
     refresh();
     return { ok: true, valid: submit.ok, errors: submit.errors };
   });
@@ -404,6 +407,7 @@ export async function recordQcReview(caseId: string, input: z.input<typeof qcSch
     const parsed = qcSchema.safeParse(input);
     if (!parsed.success) return fail("Check the review.");
     const v = parsed.data;
+    if (v.kind === "pre" && v.decision === "returned" && !v.message) return fail("Say what you need sent or corrected.");
     const supabase = await createClient();
     const { error } = await supabase.rpc("record_qc_review", {
       p_case: caseId,

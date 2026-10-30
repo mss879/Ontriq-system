@@ -139,8 +139,9 @@ export function DocumentsPanel({
       <div>
         <p className="mb-1.5 text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">Files</p>
         {docs.length && perms.visibility ? (
-          <p className="mb-2 text-xs text-muted-foreground">Clients open a file in their portal only when it says “Client can see”. “In the report” files reach them inside the released PDF.</p>
+          <p className="mb-2 text-xs text-muted-foreground">Clients open a file in their portal only when it says “Client can see”. “In the report” files reach them inside the released PDF. “Internal only” keeps a file out of both.</p>
         ) : null}
+        {records.length && docs.length ? <RecordsWithoutFiles records={records} docs={docs} /> : null}
         {docs.length ? (
           <ul className="divide-y rounded-xl border">
             {docs.map((d) => (
@@ -172,6 +173,13 @@ export function DocumentsPanel({
       <RequestDialog open={requesting} onOpenChange={setRequesting} caseId={caseId} checkId={checkId} categories={categories} checks={checks} />
     </div>
   );
+}
+
+/** One file can sit on the check as a whole, but each employer or referee should have its own (spec 4.2). */
+function RecordsWithoutFiles({ records, docs }: { records: RecordOption[]; docs: CaseDocument[] }) {
+  const without = records.filter((r) => !docs.some((d) => d.recordKey === r.key && d.status !== "superseded" && d.status !== "rejected"));
+  if (!without.length) return null;
+  return <p className="mb-2 text-xs text-warning-foreground dark:text-warning">No file tied to: {without.map((r) => r.label).join(", ")}.</p>;
 }
 
 function RequirementRow({ caseId, r, perms, closed, onUpload }: { caseId: string; r: Requirement; perms: DocPerms; closed: boolean; onUpload: () => void }) {
