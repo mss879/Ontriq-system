@@ -1407,7 +1407,7 @@ async function main() {
     const { data, error } = await admin.db.rpc("request_report_draft", { p_case: case1 });
     if (error) return error.message;
     draftId = data as string;
-    await drainJobs({ budgetMs: 120_000, reserveMs: 0, maxJobs: 10, workerId: `sim-${RUN}`, admin: service });
+    await drainJobs({ budgetMs: 120_000, reserveMs: 0, maxJobs: 80, workerId: `sim-${RUN}`, admin: service });
     const { data: v } = await service.from("report_versions").select("status, storage_path, sha256, page_count, snapshot_hash, error").eq("id", draftId).single();
     if (v?.status !== "ready") return `draft ${v?.status}: ${v?.error ?? ""}`;
     if (v.storage_path) made.objects.push({ bucket: "reports", path: v.storage_path });
@@ -1427,7 +1427,7 @@ async function main() {
     const ok = await ops.db.rpc("approve_report", { p_case: case1, p_draft: draftId, p_final_result: "red", p_current_hash: hash });
     if (ok.error) return ok.error.message;
     finalId = ok.data as string;
-    await drainJobs({ budgetMs: 120_000, reserveMs: 0, maxJobs: 10, workerId: `sim-${RUN}`, admin: service });
+    await drainJobs({ budgetMs: 120_000, reserveMs: 0, maxJobs: 80, workerId: `sim-${RUN}`, admin: service });
     const { data: f } = await service.from("report_versions").select("status, storage_path").eq("id", finalId).single();
     if (f?.storage_path) made.objects.push({ bucket: "reports", path: f.storage_path });
     return expectEq(f?.status, "ready", "final status");
@@ -1446,7 +1446,7 @@ async function main() {
   });
 
   await check("Per-case billing drafts the invoice on release, priced from the case", async () => {
-    await drainJobs({ budgetMs: 60_000, reserveMs: 0, maxJobs: 10, workerId: `sim-${RUN}`, admin: service });
+    await drainJobs({ budgetMs: 60_000, reserveMs: 0, maxJobs: 80, workerId: `sim-${RUN}`, admin: service });
     const { data: inv } = await service.from("invoices").select("id, status, net_total").eq("source_key", `case:${case1}`).maybeSingle();
     if (!inv) return "no invoice draft after release";
     invoiceId = inv.id;
@@ -1465,7 +1465,7 @@ async function main() {
       if (item.error) return item.error.message;
       const conf = await relations.db.rpc("confirm_quote", { p_quote: quoteId });
       if (conf.error) return conf.error.message;
-      await drainJobs({ budgetMs: 60_000, reserveMs: 0, maxJobs: 10, workerId: `sim-${RUN}`, admin: service });
+      await drainJobs({ budgetMs: 60_000, reserveMs: 0, maxJobs: 80, workerId: `sim-${RUN}`, admin: service });
       const sent = await relations.db.rpc("mark_quote_sent", { p_quote: quoteId, p_to: [] });
       if (sent.error) return sent.error.message;
       const other = await betaUser.db.rpc("portal_quote", { p_quote: quoteId });
@@ -1488,7 +1488,7 @@ async function main() {
       }
       const conf = await admin.db.rpc("confirm_invoice", { p_invoice: invoiceId });
       if (conf.error) return conf.error.message;
-      await drainJobs({ budgetMs: 60_000, reserveMs: 0, maxJobs: 10, workerId: `sim-${RUN}`, admin: service });
+      await drainJobs({ budgetMs: 60_000, reserveMs: 0, maxJobs: 80, workerId: `sim-${RUN}`, admin: service });
       const sent = await admin.db.rpc("mark_invoice_sent", { p_invoice: invoiceId, p_to: [] });
       if (sent.error) return sent.error.message;
       const viewerTry = await alphaViewer.db.rpc("portal_invoices");
@@ -1504,7 +1504,7 @@ async function main() {
       if (fin.error) return fin.error.message;
       const pay = await relations.db.rpc("record_payment", { p_invoice: invoiceId, p_amount: total, p_method: "bank_transfer", p_reference: `SIM-${RUN}`, p_slip: b.id });
       if (pay.error) return pay.error.message;
-      await drainJobs({ budgetMs: 60_000, reserveMs: 0, maxJobs: 10, workerId: `sim-${RUN}`, admin: service });
+      await drainJobs({ budgetMs: 60_000, reserveMs: 0, maxJobs: 80, workerId: `sim-${RUN}`, admin: service });
       const { data: after } = await service.from("invoices").select("status, balance").eq("id", invoiceId).single();
       const st = await alphaAdmin.db.rpc("client_statement", { p_client: clientA, p_from: "2020-01-01", p_to: "2100-01-01" });
       const theirs = await betaUser.db.rpc("client_statement", { p_client: clientA, p_from: "2020-01-01", p_to: "2100-01-01" });
@@ -2095,7 +2095,12 @@ async function main() {
         files: (await service.storage.from("documents").list(`sim/${RUN}`)).data?.length ?? 0,
         cases: (await service.from("cases").select("id").in("id", made.cases)).data?.length ?? 0,
         candidates: (await service.from("candidates").select("id").in("id", made.candidates)).data?.length ?? 0,
-        caseFiles: (await Promise.all(made.objects.filter((o) => o.bucket === "case-files").map((o) => service.storage.from("case-files").exists(o.path)))).filter((e) => e.data).length,
+        caseFiles: await (async () => {
+          // One at a time: a burst of storage calls here can drop on a slow connection.
+          let found = 0;
+          for (const o of made.objects.filter((x) => x.bucket === "case-files")) if ((await service.storage.from("case-files").exists(o.path)).data) found += 1;
+          return found;
+        })(),
       };
       return Object.values(left).every((n) => n === 0) ? true : `left behind ${JSON.stringify(left)}`;
     });
