@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { Pencil } from "lucide-react";
 import { toast } from "sonner";
-import { updateCandidate, updateCaseDetails } from "../../actions";
+import { setCaseClientVisible, updateCandidate, updateCaseDetails } from "../../actions";
 import type { CaseDetail } from "@/lib/server/cases/queries";
 import { formatDate, formatPlainDate } from "@/lib/format";
 import { parseNic } from "@/domain/nic-core";
@@ -228,7 +228,7 @@ function CandidateForm({ candidate, onDone }: { candidate: CaseDetail["candidate
 
 export type DetailsView = Pick<
   CaseDetail,
-  "priority" | "positionTitle" | "department" | "clientReference" | "instructions" | "receivedAt" | "dueAt" | "processType" | "createdVia" | "package"
+  "priority" | "positionTitle" | "department" | "clientReference" | "instructions" | "receivedAt" | "dueAt" | "processType" | "createdVia" | "package" | "clientVisible"
 >;
 
 const VIA = { staff: "Ontriq staff", portal: "Client portal", import: "Bulk import", assistant: "Command assistant" } as Record<string, string>;
@@ -239,7 +239,34 @@ function colomboDate(iso: string | null): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Colombo", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(iso));
 }
 
-export function DetailsCard({ caseId, details, canEdit, canSetDue }: { caseId: string; details: DetailsView; canEdit: boolean; canSetDue: boolean }) {
+/** Ontriq decides whether a case shows in the client's portal (spec 6.4). */
+function PortalVisibility({ caseId, visible, canHide }: { caseId: string; visible: boolean; canHide: boolean }) {
+  const [pending, start] = useTransition();
+  return (
+    <span className="flex flex-wrap items-center justify-between gap-2">
+      {visible ? "Shown to the client" : "Hidden from the client"}
+      {canHide ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="-my-1 h-7"
+          disabled={pending}
+          onClick={() =>
+            start(async () => {
+              const r = await setCaseClientVisible(caseId, !visible);
+              if (r.ok) toast.success(visible ? "Hidden from the client portal" : "Shown in the client portal");
+              else toast.error(r.error);
+            })
+          }
+        >
+          {visible ? "Hide" : "Show"}
+        </Button>
+      ) : null}
+    </span>
+  );
+}
+
+export function DetailsCard({ caseId, details, canEdit, canSetDue, canHide }: { caseId: string; details: DetailsView; canEdit: boolean; canSetDue: boolean; canHide: boolean }) {
   const [open, setOpen] = useState(false);
   const [formKey, setFormKey] = useState(0);
   return (
@@ -260,6 +287,9 @@ export function DetailsCard({ caseId, details, canEdit, canSetDue }: { caseId: s
         </Row>
         <Row label="Due">{formatDate(details.dueAt)}</Row>
         {details.instructions ? <Row label="Instructions">{details.instructions}</Row> : null}
+        <Row label="Client portal">
+          <PortalVisibility caseId={caseId} visible={details.clientVisible} canHide={canHide} />
+        </Row>
       </CardShell>
       <Dialog
         open={open}

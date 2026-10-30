@@ -257,6 +257,18 @@ const REQUEST_STATUS: Record<CandidateRequestItem["status"], { label: string; to
 
 const KIND_ICON = { document: FileUp, field: TextCursorInput, question: MessageCircleQuestion } as const;
 
+/** One row the candidate filled in, as a line: "Ruwan Perera · Dialog · 077 123 4567". */
+function rowText(row: Record<string, unknown>): string {
+  return Object.values(row)
+    .map((v) => {
+      if (typeof v !== "object" || v === null) return String(v ?? "");
+      const r = v as { from?: string; to?: string; present?: boolean };
+      return `${r.from ?? "?"} to ${r.present ? "present" : (r.to ?? "?")}`;
+    })
+    .filter(Boolean)
+    .join(" · ");
+}
+
 function RequestRow({ q, checkLabel, editable }: { q: CandidateRequestItem; checkLabel: string | null; editable: boolean }) {
   const [pending, start] = useTransition();
   const [reopening, setReopening] = useState(false);
@@ -297,7 +309,7 @@ function RequestRow({ q, checkLabel, editable }: { q: CandidateRequestItem; chec
           </a>
         ) : (
           <blockquote className="ml-11 rounded-lg border-l-2 border-primary/40 bg-muted/40 px-3 py-2 text-sm whitespace-pre-line">
-            {String(q.answer.value ?? "")}
+            {q.answer.rows ? q.answer.rows.map(rowText).join("\n") : String(q.answer.value ?? "")}
             {q.answeredAt ? (
               <span className="mt-1 block text-xs text-muted-foreground">
                 Answered <RelativeTime iso={q.answeredAt} />

@@ -7,6 +7,7 @@ import type { ServiceClient } from "../admin-client";
 import { checkTypeSchema, type FieldDef } from "../../domain/check-types/schema";
 import { fileBlock } from "../../lib/ai/claude";
 import type { Json } from "../../lib/supabase/database.types";
+import { toJpeg } from "../report/convert-image";
 
 export type AiDoc = {
   id: string;
@@ -136,7 +137,8 @@ export async function documentBlock(admin: ServiceClient, d: Pick<AiDoc, "storag
   if (!file.data) return null;
   const bytes = new Uint8Array(await file.data.arrayBuffer());
   if (d.mime === "image/heic" || (d.mime.startsWith("image/") && bytes.byteLength > MAX_IMAGE_BYTES)) {
-    const small = await shrinkImage(bytes);
+    const readable = d.mime === "image/heic" ? await toJpeg(bytes, d.mime) : bytes;
+    const small = readable ? await shrinkImage(readable) : null;
     return small ? fileBlock(small, "image/jpeg") : null;
   }
   return fileBlock(bytes, d.mime);

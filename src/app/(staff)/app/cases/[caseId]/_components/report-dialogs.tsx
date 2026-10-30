@@ -220,7 +220,7 @@ function ReleaseForm({ caseId, clientName, recipients, onDone }: { caseId: strin
       <DialogHeader className="mb-4">
         <DialogTitle>Release to {clientName}</DialogTitle>
         <DialogDescription>
-          The report appears in their portal straight away and their portal users are told. Choose who is recorded as receiving it.
+          The report appears in their portal straight away. Only the people you tick can open it, and they are told.
         </DialogDescription>
       </DialogHeader>
       {recipients.length ? (
@@ -251,7 +251,7 @@ function ReleaseForm({ caseId, clientName, recipients, onDone }: { caseId: strin
         </p>
       ) : null}
       <DialogFooter className="mt-5">
-        <Button onClick={submit} disabled={pending}>
+        <Button onClick={submit} disabled={pending || (recipients.length > 0 && chosen.size === 0)}>
           {pending ? <Spinner /> : <Send />}
           Release report
         </Button>

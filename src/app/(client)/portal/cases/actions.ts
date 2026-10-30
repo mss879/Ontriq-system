@@ -40,6 +40,23 @@ const optionalText = (max: number) =>
     .optional()
     .transform((v) => v || undefined);
 
+// ---------------------------------------------------------------- questions
+
+export async function answerQuestion(requestId: string, answer: string): Promise<ActionResult> {
+  return guarded(async () => {
+    await requester();
+    if (!z.uuid().safeParse(requestId).success) return fail("That question no longer exists.");
+    const text = answer.trim();
+    if (!text) return fail("Write an answer first.");
+    if (text.length > 4000) return fail("Keep your answer under 4,000 characters.");
+    const supabase = await createClient();
+    const { error } = await supabase.rpc("portal_answer_request", { p_request: requestId, p_answer: text });
+    if (error) return fail(rpcErrorMessage(error));
+    refresh();
+    return { ok: true };
+  });
+}
+
 // ---------------------------------------------------------------- uploads
 
 const uploadSchema = z.object({

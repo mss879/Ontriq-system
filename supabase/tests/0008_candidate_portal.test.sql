@@ -91,7 +91,7 @@ begin
     jsonb_build_object('kind', 'document', 'check_id', k, 'category', 'resignation_letter', 'note', 'From ABC Ltd, please'));
   perform set_config('t.doc_request', v::text, false);
   begin
-    perform public.create_candidate_request(current_setting('t.case1')::uuid, jsonb_build_object('kind', 'document', 'category', 'police_report'));
+    perform public.create_candidate_request(current_setting('t.case1')::uuid, jsonb_build_object('kind', 'document', 'category', 'sanction_report'));
     raise exception 'TEST FAILED: the candidate was asked for a staff-only document';
   exception when sqlstate '22023' then null;
   end;
@@ -130,7 +130,7 @@ begin
   v := public.candidate_link_view(current_setting('t.link')::uuid);
   assert v -> 'case' ->> 'client_name' is not null and v -> 'candidate' ->> 'full_name' = 'Kasun Silva', 'welcome details missing';
   assert jsonb_array_length(v -> 'checks') = 3, 'the candidate should see the three checks by name';
-  assert not exists (select 1 from jsonb_array_elements(v -> 'requirements') x where x ->> 'category' in ('police_report', 'field_verification', 'sanction_report')),
+  assert not exists (select 1 from jsonb_array_elements(v -> 'requirements') x where x ->> 'category' in ('field_verification', 'sanction_report')),
     'staff-only document slots reached the candidate';
   assert exists (select 1 from jsonb_array_elements(v -> 'requirements') x where x ->> 'category' = 'resignation_letter'), 'the requested document slot is missing';
   assert jsonb_array_length(v -> 'messages') = 1, 'the staff message is missing';

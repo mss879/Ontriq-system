@@ -1079,7 +1079,7 @@ async function main() {
     const employment = await checkId("Employment");
     const back = await qcOfficer.db.rpc("record_qc_review", { p_case: case1, p_kind: "post", p_decision: "returned", p_remarks: "Second employer not confirmed", p_return_checks: [employment] });
     if (back.error) return back.error.message;
-    const redo = await verifier.db.rpc("set_check_state", { p_check: employment, p_state: "discrepancy", p_note: "Dates differ by eight months" });
+    const redo = await verifier.db.rpc("set_check_state", { p_check: employment, p_state: "discrepancy", p_note: "Dates differ by eight months", p_client_note: "The employment dates differ from the employer's records." });
     if (redo.error) return redo.error.message;
     const again = await verifier.db.rpc("case_transition", { p_case: case1, p_event: "submit_post_qc" });
     if (again.error) return again.error.message;
@@ -1219,7 +1219,7 @@ async function main() {
     const text = JSON.stringify(view);
     const v = view as { requirements: { category: string; min_count: number }[]; checks: unknown[]; link: { language: string } };
     if (text.includes("INTERNAL NOTE")) return "an internal note reached the candidate";
-    if (v.requirements.some((r) => ["police_report", "field_verification", "sanction_report"].includes(r.category))) return "staff-only document slots reached the candidate";
+    if (v.requirements.some((r) => ["field_verification", "sanction_report"].includes(r.category))) return "staff-only document slots reached the candidate";
     if (/result_tone|assigned_to/.test(text)) return "results or assignees reached the candidate";
     const signedIn = await alphaAdmin.db.rpc("candidate_link_view", { p_link: linkId });
     if (!signedIn.error) return "a signed-in client called the candidate view";

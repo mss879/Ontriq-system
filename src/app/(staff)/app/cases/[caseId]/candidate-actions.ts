@@ -155,6 +155,17 @@ export async function askCandidate(caseId: string, input: AskInput): Promise<Act
  * Accept an answer (a detail is copied into its check first, validated against
  * the check's schema), ask again with a note, or withdraw the request.
  */
+function mergeRows(existing: unknown, incoming: Record<string, unknown>[]) {
+  const rows = Array.isArray(existing) ? (existing as Record<string, unknown>[]).filter((r) => Object.keys(r ?? {}).length) : [];
+  const key = (r: Record<string, unknown>) => String(Object.values(r)[0] ?? "").trim().toLowerCase();
+  for (const row of incoming) {
+    const i = rows.findIndex((r) => key(r) === key(row));
+    if (i >= 0) rows[i] = { ...rows[i], ...row };
+    else rows.push(row);
+  }
+  return rows;
+}
+
 export async function reviewRequest(requestId: string, decision: "accept" | "reopen" | "cancel", note?: string): Promise<ActionResult> {
   return guarded(async () => {
     const viewer = await staff();
@@ -164,12 +175,15 @@ export async function reviewRequest(requestId: string, decision: "accept" | "reo
     if (!q) return fail("That request no longer exists, or you don't have access to it.");
 
     if (decision === "accept" && q.kind === "field" && q.case_check_id && q.field_key) {
-      const answer = (q.answer as { value?: unknown } | null)?.value;
+      const given = q.answer as { value?: unknown; rows?: Record<string, unknown>[] } | null;
+      const answer = given?.rows ?? given?.value;
       if (answer === undefined || answer === null || String(answer).trim() === "") return fail("There is no answer to use yet.");
       const { data: check } = await supabase.from("case_checks").select("id, values, version:check_type_versions(schema)").eq("id", q.case_check_id).maybeSingle();
       if (!check) return fail("That check no longer exists, or you don't have access to it.");
       const schema = parseCheckTypeSchema((check.version as { schema: unknown } | null)?.schema);
-      const merged = { ...((check.values ?? {}) as Record<string, unknown>), [q.field_key]: answer };
+      const current = (check.values ?? {}) as Record<string, unknown>;
+      // Rows join what staff already entered; a row with the same first detail updates it.
+      const merged = { ...current, [q.field_key]: given?.rows ? mergeRows(current[q.field_key], given.rows) : answer };
       const draft = validateCheckValues(schema.fields, merged, "draft");
       if (!draft.ok) {
         const message = draft.errors[q.field_key] ?? Object.values(draft.errors)[0];

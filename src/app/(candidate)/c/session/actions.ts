@@ -136,6 +136,30 @@ export async function answerRequest(input: z.input<typeof answerSchema>): Promis
   });
 }
 
+const rowsSchema = z.object({
+  requestId: uuid,
+  rows: z
+    .array(z.record(z.string().max(48), z.union([z.string().trim().max(500), z.object({ from: z.string().max(10).optional(), to: z.string().max(10).optional(), present: z.boolean().optional() })])))
+    .min(1)
+    .max(20),
+});
+
+/** Rows such as referees or employers, for staff to check and use. */
+export async function answerRows(input: z.input<typeof rowsSchema>): Promise<ActionResult> {
+  return withLink(async (linkId) => {
+    const parsed = rowsSchema.safeParse(input);
+    if (!parsed.success) return fail("answerNeeded");
+    const { error } = await createAdminClient().rpc("candidate_answer_request", {
+      p_link: linkId,
+      p_request: parsed.data.requestId,
+      p_answer: { rows: parsed.data.rows },
+    });
+    if (error) return dbFail(error);
+    refresh();
+    return { ok: true };
+  });
+}
+
 export async function postMessage(body: string): Promise<ActionResult> {
   return withLink(async (linkId) => {
     const text = typeof body === "string" ? body.trim() : "";

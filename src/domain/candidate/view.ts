@@ -20,17 +20,22 @@ export type CandidateRequirement = {
   files: { id: string; filename: string; status: "uploaded" | "accepted" | "rejected" | "superseded"; rejection_reason: string | null; created_at: string }[];
 };
 
+export type CandidateRowField = { key: string; label: string; type: string; required: boolean; options: { value: string; label: string }[] };
+export type CandidateRowForm = { min: number; max: number; item_label: string; fields: CandidateRowField[] };
+export type CandidateRow = Record<string, string | { from?: string; to?: string; present?: boolean }>;
+
 export type CandidateRequest = {
   id: string;
   kind: "document" | "field" | "question";
   title: string;
   help: string | null;
   field_type: string | null;
-  options: { value: string; label: string }[] | string[];
+  /** Choices for a single detail, or the columns when the candidate fills in rows. */
+  options: { value: string; label: string }[] | string[] | CandidateRowForm;
   requirement_id: string | null;
   due_at: string | null;
   status: "open" | "answered" | "accepted";
-  answer: { value?: string; document_id?: string } | null;
+  answer: { value?: string; document_id?: string; rows?: CandidateRow[] } | null;
   answered_at: string | null;
   review_note: string | null;
   created_at: string;

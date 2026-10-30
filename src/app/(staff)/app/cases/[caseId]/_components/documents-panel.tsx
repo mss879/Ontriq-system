@@ -3,7 +3,8 @@
 import { useState, useTransition } from "react";
 import { Ban, Check, Download, ExternalLink, FileImage, FileText, Lock, MailQuestion, MoreHorizontal, RefreshCw, Upload, X } from "lucide-react";
 import { toast } from "sonner";
-import { requestDocument, reviewDocument, setDocumentVisibility, waiveRequirement } from "../../actions";
+import { requestDocument, reviewDocument, setDocumentRecord, setDocumentVisibility, waiveRequirement } from "../../actions";
+import type { RecordOption } from "@/domain/check-types/records";
 import type { CaseDocument, Requirement } from "@/lib/server/cases/queries";
 import { cn } from "@/lib/utils";
 import { formatBytes } from "@/lib/format";
@@ -39,6 +40,7 @@ const DOC_STATUS: Record<CaseDocument["status"], { label: string; tone: Tone }> 
   superseded: { label: "Replaced", tone: "neutral" },
 };
 
+const WHOLE_CHECK = "__check__";
 const VISIBILITY_LABEL = { internal: "Internal only", client: "Client can see", report: "In the report" } as const;
 
 export function DocumentsPanel({
@@ -49,6 +51,7 @@ export function DocumentsPanel({
   categories,
   checks,
   fixedCategories = [],
+  records = [],
   perms,
   closed,
   ai,
@@ -63,6 +66,8 @@ export function DocumentsPanel({
   checks: { id: string; label: string }[];
   /** Categories that go in the report on their own (the Global Sanction report). */
   fixedCategories?: string[];
+  /** The check's employers or referees, so a file can be tied to one. */
+  records?: RecordOption[];
   perms: DocPerms;
   closed: boolean;
   /** What the AI classifier made of each file, by document id. */
@@ -145,9 +150,10 @@ export function DocumentsPanel({
                 categoryName={catName(d.category)}
                 checkName={d.caseCheckId ? checkLabel(d.caseCheckId) : null}
                 fixed={fixedCategories.includes(d.category)}
+                records={records}
                 perms={perms}
                 closed={closed}
-                onNewVersion={() => setUpload({ category: d.category, checkId: d.caseCheckId, parentId: d.id, parentName: d.filename })}
+                onNewVersion={() => setUpload({ category: d.category, checkId: d.caseCheckId, parentId: d.id, parentName: d.filename, recordKey: d.recordKey })}
                 ai={d.status === "superseded" ? undefined : ai?.[d.id]}
                 typeName={catName}
                 canDismissAi={canDismissAi && !closed}
@@ -162,7 +168,7 @@ export function DocumentsPanel({
         )}
       </div>
 
-      <UploadDialog open={upload !== null} onOpenChange={(o) => !o && setUpload(null)} caseId={caseId} target={upload ?? {}} categories={categories} checks={checks} />
+      <UploadDialog open={upload !== null} onOpenChange={(o) => !o && setUpload(null)} caseId={caseId} target={upload ?? {}} categories={categories} checks={checks} records={records} />
       <RequestDialog open={requesting} onOpenChange={setRequesting} caseId={caseId} checkId={checkId} categories={categories} checks={checks} />
     </div>
   );
@@ -260,6 +266,7 @@ function FileRow({
   categoryName,
   checkName,
   fixed,
+  records,
   perms,
   closed,
   onNewVersion,
@@ -271,6 +278,7 @@ function FileRow({
   categoryName: string;
   checkName: string | null;
   fixed: boolean;
+  records: RecordOption[];
   perms: DocPerms;
   closed: boolean;
   onNewVersion: () => void;
@@ -290,6 +298,11 @@ function FileRow({
       const r = await reviewDocument(d.id, true);
       if (r.ok) toast.success("Accepted");
       else toast.error(r.error);
+    });
+  const changeRecord = (v: string) =>
+    start(async () => {
+      const r = await setDocumentRecord(d.id, v === WHOLE_CHECK ? null : v);
+      if (!r.ok) toast.error(r.error);
     });
   const applyVisibility = (v: string) =>
     start(async () => {
@@ -326,6 +339,21 @@ function FileRow({
         ) : null}
         {ai ? <DocumentAiChip ai={ai} typeName={typeName} canDismiss={canDismissAi} /> : null}
         <ToneChip tone={status.tone}>{status.label}</ToneChip>
+        {records.length && perms.upload && !superseded && !closed ? (
+          <Select value={d.recordKey ?? WHOLE_CHECK} onValueChange={changeRecord} disabled={pending}>
+            <SelectTrigger size="sm" className="h-7 w-[10rem] text-xs" aria-label={`Which record ${d.filename} belongs to`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={WHOLE_CHECK}>Whole check</SelectItem>
+              {records.map((r) => (
+                <SelectItem key={r.key} value={r.key}>
+                  {r.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null}
         {fixed && !superseded ? (
           <span className="text-xs text-muted-foreground">Always in the report</span>
         ) : perms.visibility && !superseded && !closed ? (

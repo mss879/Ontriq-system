@@ -49,6 +49,7 @@ export type CaseAction =
   | "pre_qc_review"
   | "start_verification"
   | "submit_post_qc"
+  | "submit_post_qc_pending"
   | "post_qc_review"
   | "return_to_documents"
   | "hold"
@@ -128,6 +129,10 @@ export function availableActions(facts: CaseFacts, can: (permission: string) => 
                 : undefined,
           emphasis: "primary",
         });
+      }
+      // Spec 9: amber covers checks still pending. A manager decides, with a reason.
+      if (can("cases.stage.change") && counted.some((c) => !isTerminalCheck(c.state))) {
+        out.push({ action: "submit_post_qc_pending", label: "Send with pending checks", allowed: true, emphasis: "secondary" });
       }
       break;
     }

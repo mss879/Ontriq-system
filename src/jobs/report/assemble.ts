@@ -6,6 +6,7 @@
  */
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import type { ReportAnnexure } from "../../domain/reports/compile-core";
+import { toJpeg } from "./convert-image";
 
 const A4 = { w: 595.28, h: 841.89 };
 export const MAX_ANNEXURE_PAGES = 60;
@@ -18,11 +19,12 @@ export async function assembleReport(
   body: Uint8Array,
   annexures: (ReportAnnexure & { bytes: Uint8Array | null })[],
   opts: { reference: string; draft: boolean },
-): Promise<{ bytes: Uint8Array; pages: number; skipped: string[] }> {
+): Promise<{ bytes: Uint8Array; pages: number; skipped: string[]; partial: string[] }> {
   const doc = await PDFDocument.load(body);
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   const skipped: string[] = [];
+  const partial: string[] = [];
   let added = 0;
   let bytesSeen = 0;
 
@@ -58,14 +60,18 @@ export async function assembleReport(
     try {
       if (a.mime === "application/pdf") {
         const src = await PDFDocument.load(a.bytes, { ignoreEncryption: false });
-        const indices = src.getPageIndices().slice(0, a.kind === "fixed" ? undefined : Math.max(0, MAX_ANNEXURE_PAGES - added));
-        cover(n, a);
+        const all = src.getPageIndices();
+        const indices = all.slice(0, a.kind === "fixed" ? undefined : Math.max(0, MAX_ANNEXURE_PAGES - added));
+        if (indices.length < all.length) partial.push(a.filename);
+        cover(n, a, indices.length < all.length ? `Only the first ${indices.length} of ${all.length} pages are included. Ontriq can share the full file.` : undefined);
         const pages = await doc.copyPages(src, indices);
         for (const p of pages) doc.addPage(p);
         added += pages.length;
-      } else if (a.mime === "image/jpeg" || a.mime === "image/png") {
+      } else if (a.mime.startsWith("image/")) {
+        const photo = a.mime === "image/jpeg" || a.mime === "image/png" ? a.bytes : await toJpeg(a.bytes, a.mime);
+        if (!photo) throw new Error("unreadable image");
         cover(n, a);
-        const img = a.mime === "image/png" ? await doc.embedPng(a.bytes) : await doc.embedJpg(a.bytes);
+        const img = a.mime === "image/png" ? await doc.embedPng(photo) : await doc.embedJpg(photo);
         const page = doc.addPage([A4.w, A4.h]);
         const scale = Math.min((A4.w - 72) / img.width, (A4.h - 96) / img.height, 1);
         const w = img.width * scale;
@@ -84,5 +90,5 @@ export async function assembleReport(
   doc.setTitle(`${opts.reference} verification report`);
   doc.setProducer("Ontriq CRM");
   const bytes = await doc.save();
-  return { bytes, pages: doc.getPageCount(), skipped };
+  return { bytes, pages: doc.getPageCount(), skipped, partial };
 }

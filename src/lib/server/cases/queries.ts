@@ -155,6 +155,7 @@ export type CaseDetail = {
   statusKey: string;
   priority: Priority;
   processType: ProcessType;
+  clientVisible: boolean;
   onHold: boolean;
   holdReason: string | null;
   returnedAt: string | null;
@@ -221,6 +222,7 @@ export const getCase = cache(async (id: string): Promise<CaseDetail | null> => {
     statusKey: c.status_key,
     priority: c.priority as Priority,
     processType: c.process_type,
+    clientVisible: c.client_visible,
     onHold: c.on_hold,
     holdReason: c.hold_reason,
     returnedAt: c.returned_at,
@@ -370,6 +372,7 @@ export type CaseDocument = {
   parentId: string | null;
   sensitive: boolean;
   visibility: "internal" | "client" | "report";
+  recordKey: string | null;
   status: "pending_upload" | "uploaded" | "accepted" | "rejected" | "superseded";
   rejectionReason: string | null;
   uploadedBy: Person | null;
@@ -395,6 +398,7 @@ export const getDocuments = cache(async (caseId: string): Promise<CaseDocument[]
     parentId: d.parent_id,
     sensitive: d.sensitive,
     visibility: d.visibility as CaseDocument["visibility"],
+    recordKey: d.record_key,
     status: d.status as CaseDocument["status"],
     rejectionReason: d.rejection_reason,
     uploadedBy: d.uploaded_by ? (people.get(d.uploaded_by) ?? null) : null,

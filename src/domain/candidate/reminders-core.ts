@@ -2,14 +2,16 @@
  * When to remind a candidate who still owes documents, answers or consent.
  * Default cadence: day 1, 3 and 5 after the link was first sent, in office
  * hours (Monday to Saturday, 08:00–18:00 Asia/Colombo), then one escalation
- * to the case owner two days after the last reminder. The reminder.candidate
- * job applies this to public.candidate_reminder_candidates(). Pure module.
+ * to the case owner two days after the last reminder, then a reminder every
+ * seven days until the link expires. The reminder.candidate job applies this
+ * to public.candidate_reminder_candidates(). Pure module.
  */
 import { toZonedTime } from "date-fns-tz";
 import { TZ } from "../sla-core";
 
 export const DEFAULT_CADENCE_DAYS = [1, 3, 5] as const;
 export const ESCALATE_AFTER_DAYS = 2;
+export const REPEAT_EVERY_DAYS = 7;
 const DAY = 24 * 3600_000;
 
 export type ReminderState = {
@@ -44,7 +46,7 @@ export function decideReminder(s: ReminderState, now: Date, cadence: readonly nu
     const rested = !s.lastRemindedAt || now.getTime() - s.lastRemindedAt.getTime() >= 20 * 3600_000;
     return now.getTime() >= due && rested ? { kind: "remind", step: next } : { kind: "none", reason: "not due yet" };
   }
-  if (s.escalatedAt) return { kind: "none", reason: "already escalated" };
   const last = s.lastRemindedAt ?? new Date(s.sentAt.getTime() + cadence[cadence.length - 1] * DAY);
+  if (s.escalatedAt) return now.getTime() - last.getTime() >= REPEAT_EVERY_DAYS * DAY ? { kind: "remind", step: next } : { kind: "none", reason: "waiting for the next weekly reminder" };
   return now.getTime() - last.getTime() >= ESCALATE_AFTER_DAYS * DAY ? { kind: "escalate" } : { kind: "none", reason: "waiting after the last reminder" };
 }

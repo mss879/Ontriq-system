@@ -30,7 +30,7 @@ describe("report compile", () => {
     const r = compileReport(inputs());
     expect(r.summary.map((s) => s.label)).toEqual(["NIC verification", "Employment"]);
     expect(r.summary[0]).toMatchObject({ status: "verified", result_label: "Clear", result_tone: "green" });
-    expect(r.summary[1]).toMatchObject({ status: "incomplete", status_label: "Not completed", result_label: null, result_tone: null });
+    expect(r.summary[1]).toMatchObject({ status: "incomplete", status_label: "Pending", result_label: null, result_tone: null });
     expect(r.checks[1].fields).toEqual([]);
     expect(r.checks[0].remarks).toBe("Matches DRP records.");
     expect(r.checks[0].evidence).toEqual(["NIC copy: nic.jpg"]);
@@ -59,7 +59,7 @@ describe("report compile", () => {
   });
 
   it("formats field values for print", () => {
-    expect(formatFieldValue({ key: "p", label: "Period", type: "date_range" } as never, { from: "2020-01-01", to: "" })).toBe("1 Jan 2020 to present");
+    expect(formatFieldValue({ key: "p", label: "Period", type: "date_range" } as never, { from: "2020-01-01", to: "" })).toBe("01/01/20 to present");
     expect(formatFieldValue({ key: "x", label: "X", type: "boolean" } as never, false)).toBe("No");
     expect(formatFieldValue({ key: "s", label: "S", type: "select", options: [{ value: "a", label: "Alpha" }] } as never, "a")).toBe("Alpha");
   });

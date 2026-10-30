@@ -10,8 +10,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Spinner } from "@/components/ui/spinner";
 import { candidateDict, type CandidateLang } from "@/domain/candidate/i18n";
 import { answerRequest } from "@/app/(candidate)/c/session/actions";
+import type { CandidateRow, CandidateRowForm } from "@/domain/candidate/view";
 import { errorText } from "./errors";
 import { DateField } from "@/components/forms/date-field";
+import { RowsForm } from "./rows-form";
 
 export type RequestData = {
   id: string;
@@ -25,6 +27,9 @@ export type RequestData = {
   status: "open" | "answered" | "accepted";
   answer: string | null;
   reviewNote: string | null;
+  /** Set when the candidate fills in rows, such as referees or employers. */
+  rowForm?: CandidateRowForm | null;
+  rows?: CandidateRow[];
 };
 
 const selectClass =
@@ -153,6 +158,8 @@ export function RequestCard({ lang, request }: { lang: CandidateLang; request: R
           <p className="font-medium text-success">{t.requests.accepted}</p>
           {request.answer ? <p className="mt-0.5 whitespace-pre-wrap text-foreground">{request.answer}</p> : null}
         </div>
+      ) : request.rowForm ? (
+        <RowsForm lang={lang} requestId={request.id} form={request.rowForm} initial={request.rows ?? []} answered={request.status === "answered"} />
       ) : editing ? (
         <form onSubmit={submit} className="mt-3 space-y-2">
           <label htmlFor={`answer-${request.id}`} className="text-xs font-medium text-muted-foreground">

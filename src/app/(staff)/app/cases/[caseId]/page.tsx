@@ -29,7 +29,12 @@ import { CandidateCard, DetailsCard } from "./_components/info-cards";
 import { CandidatePanel } from "./_components/candidate-panel";
 import { ReportPanel } from "./_components/report-panel";
 import { getMissingAnnexures, getReleaseRecipients, getReportVersions } from "@/lib/server/reports/queries";
+import { getCheckTypeOptions, getClientQuestions, getContactLog } from "@/lib/server/cases/detail-queries";
+import { AddCheck } from "./_components/add-check";
+import { ClientQuestions } from "./_components/client-questions";
+import { ContactLogSection } from "./_components/contact-log-section";
 import { validateCheckValues } from "@/domain/check-types/validate";
+import type { FieldDef } from "@/domain/check-types/schema";
 import { fixedAnnexureCategories } from "@/domain/reports/compile-core";
 import { aiItem, getAiStatus, getAiWork, getCaseAi, getDocumentAi } from "@/lib/server/ai/queries";
 import { canDecide, canRerun, RERUN, type RerunCapability } from "@/domain/ai/suggestions";
@@ -72,7 +77,15 @@ export default function CasePage({ params }: PageProps<"/app/cases/[caseId]">) {
               <Copilot params={params} />
             </Suspense>
           </SectionBoundary>
-          <Section title="Checks" id="checks">
+          <Section
+            title="Checks"
+            id="checks"
+            action={
+              <Suspense fallback={null}>
+                <AddCheckButton params={params} />
+              </Suspense>
+            }
+          >
             <Suspense fallback={<SectionSkeleton rows={4} className="shadow-none ring-0" />}>
               <Checks params={params} />
             </Suspense>
@@ -82,9 +95,19 @@ export default function CasePage({ params }: PageProps<"/app/cases/[caseId]">) {
               <Documents params={params} />
             </Suspense>
           </Section>
+          <Section title="Questions for the client" id="questions">
+            <Suspense fallback={<SectionSkeleton rows={2} className="shadow-none ring-0" />}>
+              <Questions params={params} />
+            </Suspense>
+          </Section>
           <Section title="Candidate" id="candidate">
             <Suspense fallback={<SectionSkeleton rows={4} className="shadow-none ring-0" />}>
               <Candidate params={params} />
+            </Suspense>
+          </Section>
+          <Section title="Contact log" id="contacts">
+            <Suspense fallback={<SectionSkeleton rows={2} className="shadow-none ring-0" />}>
+              <Contacts params={params} />
             </Suspense>
           </Section>
           <Section title="Activity" id="activity">
@@ -140,12 +163,14 @@ async function Header({ params }: Params) {
   if (!c) notFound();
   const [checks, reqs, candidate] = await Promise.all([getCaseChecks(caseId), getRequirements(caseId), getCandidatePanel(caseId)]);
   const missing = (stageFilter: (s: string) => boolean) => reqs.filter((r) => r.status === "pending" && r.minCount > r.receivedCount && stageFilter(r.stage)).length;
+  // Mirrors public.case_transition: a document for an open or waived check doesn't hold the case back.
+  const closedChecks = new Set(checks.filter((k) => k.state === "completed" || k.state === "discrepancy" || k.state === "unable_to_verify").map((k) => k.id));
   const actions = availableActions(
     {
       stage: c.stage,
       onHold: c.onHold,
       documentsOutstanding: missing((s) => s === "documents"),
-      verificationDocumentsOutstanding: missing(() => true),
+      verificationDocumentsOutstanding: reqs.filter((r) => r.status === "pending" && r.minCount > r.receivedCount && (!r.caseCheckId || closedChecks.has(r.caseCheckId))).length,
       checks: checks.map((k) => ({ state: k.state, entryReady: k.valuesValid || validateCheckValues(k.schema.fields, k.values, "entry").ok })),
       annexuresMissing: c.stage === "verification" ? await getMissingAnnexures(caseId) : [],
       isOwner: c.assignee?.id === viewer.userId,
@@ -263,7 +288,9 @@ async function SectionsBar({ params }: Params) {
     ...(atReport ? [{ href: "#report", label: "Report" }] : []),
     { href: "#checks", label: "Checks", note: `${c.checksDone}/${c.checksTotal}` },
     { href: "#documents", label: "Documents", note: missing ? `${missing} missing` : undefined, alert: missing > 0 },
+    { href: "#questions", label: "Questions" },
     { href: "#candidate", label: "Candidate" },
+    { href: "#contacts", label: "Contacts" },
     { href: "#activity", label: "Activity" },
     { href: "#details", label: "Details", phoneOnly: true },
   ];
@@ -406,7 +433,7 @@ async function Copilot({ params }: Params) {
                 checks: checks.map((k) => ({
                   id: k.id,
                   label: k.label,
-                  fields: k.schema.fields.filter((f) => f.type !== "repeatable_group").map((f) => ({ key: f.key, label: f.label, type: f.type, help: f.help ?? undefined })),
+                  fields: askableFields(k.schema.fields),
                 })),
                 categories: categories.filter((cat) => !STAFF_ONLY_CATEGORIES.has(cat.key)),
                 linkActive: candidate.link?.state === "active",
@@ -425,6 +452,32 @@ async function Checks({ params }: Params) {
   if (!c) return null;
   const [checks, ai] = await Promise.all([getCaseChecks(caseId), getCaseAi(caseId)]);
   return <CheckCards caseId={caseId} checks={checks} stage={c.stage} receivedAt={c.receivedAt} found={Object.fromEntries(Object.entries(ai.checks).map(([id, k]) => [id, k.extract.length]))} />;
+}
+
+const OPEN_FOR_CHECKS = ["intake", "documents", "pre_qc", "data_entry", "verification"];
+
+async function AddCheckButton({ params }: Params) {
+  const { caseId } = await params;
+  const [viewer, c] = await Promise.all([getStaffViewer(), loadCase(caseId)]);
+  if (!c || !can(viewer, "cases.stage.change") || !OPEN_FOR_CHECKS.includes(c.stage) || c.onHold) return null;
+  return <AddCheck caseId={caseId} types={await getCheckTypeOptions()} />;
+}
+
+async function Questions({ params }: Params) {
+  const { caseId } = await params;
+  const [viewer, c] = await Promise.all([getStaffViewer(), loadCase(caseId)]);
+  if (!c) return null;
+  const closed = c.stage === "released" || c.stage === "cancelled";
+  return <ClientQuestions caseId={caseId} questions={await getClientQuestions(caseId)} canAsk={!closed && can(viewer, "cases.update")} clientName={c.client.name || "The client"} />;
+}
+
+async function Contacts({ params }: Params) {
+  const { caseId } = await params;
+  const [viewer, c] = await Promise.all([getStaffViewer(), loadCase(caseId)]);
+  if (!c) return null;
+  const [entries, checks] = await Promise.all([getContactLog(caseId), getCaseChecks(caseId)]);
+  const labels = Object.fromEntries(checks.map((k) => [k.id, k.label]));
+  return <ContactLogSection caseId={caseId} entries={entries} canLog={can(viewer, "cases.update") || can(viewer, "checks.verify")} labels={labels} candidate={c.candidate.fullName} />;
 }
 
 async function Documents({ params }: Params) {
@@ -458,8 +511,14 @@ async function Documents({ params }: Params) {
   );
 }
 
-/** Categories only Ontriq staff provide (public.candidate_providable in 0008). */
-const STAFF_ONLY_CATEGORIES = new Set(["field_verification", "sanction_report", "police_report", "consent_form"]);
+/** Categories only Ontriq staff provide (public.candidate_providable in 0041). */
+const STAFF_ONLY_CATEGORIES = new Set(["field_verification", "sanction_report", "consent_form"]);
+
+/** What a candidate can be asked to fill in: single details, and rows of a group they can fill. */
+const askableFields = (fields: FieldDef[]) =>
+  fields
+    .filter((f) => f.type !== "repeatable_group" || (f.fields ?? []).some((s) => s.fill_by?.includes("candidate")))
+    .map((f) => ({ key: f.key, label: f.label, type: f.type, help: f.help ?? undefined }));
 
 async function Candidate({ params }: Params) {
   const { caseId } = await params;
@@ -475,7 +534,7 @@ async function Candidate({ params }: Params) {
       checks={checks.map((k) => ({
         id: k.id,
         label: k.label,
-        fields: k.schema.fields.filter((f) => f.type !== "repeatable_group").map((f) => ({ key: f.key, label: f.label, type: f.type, help: f.help ?? undefined })),
+        fields: askableFields(k.schema.fields),
       }))}
       categories={categories.filter((cat) => !STAFF_ONLY_CATEGORIES.has(cat.key))}
       consentDocuments={docs.filter((d) => d.category === "consent_form" && (d.status === "uploaded" || d.status === "accepted")).map((d) => ({ id: d.id, filename: d.filename, createdAt: d.createdAt }))}
@@ -536,9 +595,11 @@ async function People({ params }: Params) {
           processType: c.processType,
           createdVia: c.createdVia,
           package: c.package,
+          clientVisible: c.clientVisible,
         }}
         canEdit={!closed && can(viewer, "cases.update")}
         canSetDue={can(viewer, "cases.assign")}
+        canHide={can(viewer, "documents.manage_visibility")}
       />
     </>
   );

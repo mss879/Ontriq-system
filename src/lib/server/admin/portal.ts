@@ -61,7 +61,7 @@ export async function getClientRoles(): Promise<{ id: string; key: string; name:
   return (data ?? []).sort((a, b) => (rank[a.key] ?? 9) - (rank[b.key] ?? 9));
 }
 
-export type PortalOptions = { bulk_upload: boolean; client_packages: boolean; client_packages_need_approval: boolean };
+export type PortalOptions = { bulk_upload: boolean; client_packages: boolean; client_packages_need_approval: boolean; status_updates: boolean };
 
 export async function getClientPortalSettings(clientId: string): Promise<{ visibility: PortalVisibility; portal: PortalOptions }> {
   const supabase = await createRequestClient();
@@ -70,7 +70,7 @@ export async function getClientPortalSettings(clientId: string): Promise<{ visib
   const p = (data?.portal ?? {}) as Partial<PortalOptions>;
   return {
     visibility: { ...DEFAULT_PORTAL_VISIBILITY, ...v, hidden_check_types: Array.isArray(v.hidden_check_types) ? v.hidden_check_types : [] },
-    portal: { bulk_upload: p.bulk_upload !== false, client_packages: p.client_packages !== false, client_packages_need_approval: p.client_packages_need_approval === true },
+    portal: { bulk_upload: p.bulk_upload !== false, client_packages: p.client_packages !== false, client_packages_need_approval: p.client_packages_need_approval === true, status_updates: p.status_updates !== false },
   };
 }
 

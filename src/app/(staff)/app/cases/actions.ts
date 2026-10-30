@@ -14,7 +14,7 @@ import { parseCheckTypeSchema } from "@/domain/check-types/schema";
 import { validateCheckValues } from "@/domain/check-types/validate";
 import { CHECK_STATES } from "@/domain/workflow/stages";
 import { isValidPhoneNumber } from "libphonenumber-js";
-import { autoCandidateLink, type Channel } from "@/lib/server/candidate/links";
+import { autoCandidateLink, emailCandidateUpdate, type Channel } from "@/lib/server/candidate/links";
 
 /**
  * Case actions. Each one confirms the caller, validates input, then calls the
@@ -394,11 +394,13 @@ const qcSchema = z.object({
   checklist: z.array(z.object({ item: z.string().max(200), ok: z.boolean() })).max(40).default([]),
   remarks: z.string().trim().max(4000).optional(),
   returnCheckIds: z.array(z.uuid()).default([]),
+  /** Pre-QC return: what to send the client or candidate (the flowchart's "clear request"). */
+  message: z.string().trim().max(2000).optional(),
 });
 
 export async function recordQcReview(caseId: string, input: z.input<typeof qcSchema>): Promise<ActionResult> {
   return guarded(async () => {
-    await staff();
+    const viewer = await staff();
     const parsed = qcSchema.safeParse(input);
     if (!parsed.success) return fail("Check the review.");
     const v = parsed.data;
@@ -412,6 +414,104 @@ export async function recordQcReview(caseId: string, input: z.input<typeof qcSch
       p_return_checks: v.returnCheckIds,
     });
     if (error) return fail(rpcErrorMessage(error));
+    if (v.kind === "pre" && v.decision === "returned" && v.message) await sendAmendmentRequest(caseId, v.message, viewer.userId);
+    refresh();
+    return { ok: true };
+  });
+}
+
+/** Pre-QC's request for amendments goes to whoever is providing the documents. */
+async function sendAmendmentRequest(caseId: string, message: string, actorId: string) {
+  const supabase = await createClient();
+  const { data: c } = await supabase.from("cases").select("process_type").eq("id", caseId).maybeSingle();
+  if (c?.process_type === "candidate_collected") {
+    const { error } = await supabase.rpc("post_candidate_message", { p_case: caseId, p_body: message });
+    if (!error) {
+      await emailCandidateUpdate(caseId, actorId).catch(() => false);
+      return;
+    }
+  }
+  await supabase.rpc("create_client_request", { p_case: caseId, p_check: orNull(null), p_question: message });
+}
+
+// ---------------------------------------------------------------- questions to the client, contact log
+
+export async function askClient(caseId: string, question: string, checkId?: string | null): Promise<ActionResult> {
+  return guarded(async () => {
+    await staff();
+    if (!uuid.safeParse(caseId).success) return fail("Unknown case.");
+    if (!question.trim()) return fail("Write the question.");
+    if (question.length > 2000) return fail("Keep questions under 2,000 characters.");
+    const supabase = await createClient();
+    const { error } = await supabase.rpc("create_client_request", { p_case: caseId, p_check: orNull(checkId), p_question: question.trim() });
+    if (error) return fail(rpcErrorMessage(error));
+    kickWorker();
+    refresh();
+    return { ok: true };
+  });
+}
+
+export async function closeClientRequest(requestId: string): Promise<ActionResult> {
+  return guarded(async () => {
+    await staff();
+    if (!uuid.safeParse(requestId).success) return fail("Unknown question.");
+    const supabase = await createClient();
+    const { error } = await supabase.rpc("close_client_request", { p_request: requestId });
+    if (error) return fail(rpcErrorMessage(error));
+    refresh();
+    return { ok: true };
+  });
+}
+
+const contactSchema = z.object({
+  checkId: z.uuid().nullable().optional(),
+  recordKey: z.string().max(60).nullable().optional(),
+  counterparty: z.string().trim().min(1, "Say who you spoke to.").max(200),
+  channel: z.enum(["phone", "email", "whatsapp", "sms", "letter", "visit"]),
+  direction: z.enum(["outbound", "inbound"]),
+  outcome: z.string().trim().max(100).optional(),
+  body: z.string().trim().max(4000).optional(),
+});
+
+export async function logContact(caseId: string, input: z.input<typeof contactSchema>): Promise<ActionResult> {
+  return guarded(async () => {
+    await staff();
+    if (!uuid.safeParse(caseId).success) return fail("Unknown case.");
+    const parsed = contactSchema.safeParse(input);
+    if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Check the details.");
+    const v = parsed.data;
+    const supabase = await createClient();
+    const { error } = await supabase.rpc("log_contact", {
+      p_case: caseId,
+      p: { check_id: v.checkId ?? null, record_key: v.recordKey ?? null, counterparty: v.counterparty, channel: v.channel, direction: v.direction, outcome: v.outcome ?? null, body: v.body ?? "" },
+    });
+    if (error) return fail(rpcErrorMessage(error));
+    refresh();
+    return { ok: true };
+  });
+}
+
+// ---------------------------------------------------------------- case structure
+
+export async function addCaseCheck(caseId: string, checkTypeId: string, label?: string): Promise<ActionResult> {
+  return guarded(async () => {
+    await staff();
+    if (!uuid.safeParse(caseId).success || !uuid.safeParse(checkTypeId).success) return fail("Choose a check.");
+    const supabase = await createClient();
+    const { error } = await supabase.rpc("add_case_check", { p_case: caseId, p_check_type: checkTypeId, p_label: label?.trim() || undefined });
+    if (error) return fail(rpcErrorMessage(error));
+    refresh();
+    return { ok: true };
+  });
+}
+
+export async function setCaseClientVisible(caseId: string, visible: boolean): Promise<ActionResult> {
+  return guarded(async () => {
+    await staff();
+    if (!uuid.safeParse(caseId).success) return fail("Unknown case.");
+    const supabase = await createClient();
+    const { error } = await supabase.rpc("set_case_client_visible", { p_case: caseId, p_visible: visible });
+    if (error) return fail(rpcErrorMessage(error));
     refresh();
     return { ok: true };
   });
@@ -421,7 +521,7 @@ export async function recordQcReview(caseId: string, input: z.input<typeof qcSch
 
 export async function requestDocument(caseId: string, input: { checkId?: string | null; category: string; label?: string; note?: string }): Promise<ActionResult> {
   return guarded(async () => {
-    await staff();
+    const viewer = await staff();
     const supabase = await createClient();
     const { error } = await supabase.rpc("request_case_document", {
       p_case: caseId,
@@ -431,6 +531,8 @@ export async function requestDocument(caseId: string, input: { checkId?: string 
       p_note: input.note?.trim() || undefined,
     });
     if (error) return fail(rpcErrorMessage(error));
+    await emailCandidateUpdate(caseId, viewer.userId).catch(() => false);
+    kickWorker();
     refresh();
     return { ok: true };
   });
@@ -453,6 +555,7 @@ const uploadSchema = z.object({
   category: z.string().regex(/^[a-z][a-z0-9_]*$/),
   label: z.string().trim().max(120).optional(),
   parentId: z.uuid().nullable().optional(),
+  recordKey: z.string().regex(/^[a-z][a-z0-9_]*\.\d+$/).nullable().optional(),
   filename: z.string().trim().min(1).max(200),
   mime: z.enum(["application/pdf", "image/jpeg", "image/png", "image/webp", "image/heic"], { error: "Upload a PDF, JPEG, PNG, WebP or HEIC file." }),
   size: z
@@ -482,6 +585,7 @@ export async function beginUpload(input: z.input<typeof uploadSchema>): Promise<
     });
     if (error || !data) return fail(rpcErrorMessage(error));
     const d = data as { id: string; bucket: string; path: string };
+    if (v.recordKey) await supabase.rpc("set_document_record", { p_document: d.id, p_record: v.recordKey });
     const admin = createAdminClient();
     const signed = await admin.storage.from(d.bucket).createSignedUploadUrl(d.path);
     if (signed.error) return fail("We couldn't prepare the upload. Try again in a moment.");
@@ -510,9 +614,25 @@ export async function finalizeUpload(documentId: string, sha256?: string): Promi
 
 export async function reviewDocument(documentId: string, accept: boolean, reason?: string): Promise<ActionResult> {
   return guarded(async () => {
-    await staff();
+    const viewer = await staff();
     const supabase = await createClient();
     const { error } = await supabase.rpc("review_document", { p_document: documentId, p_accept: accept, p_reason: reason?.trim() || undefined });
+    if (error) return fail(rpcErrorMessage(error));
+    if (!accept) {
+      const { data: d } = await supabase.from("documents").select("case_id, uploaded_by_kind").eq("id", documentId).maybeSingle();
+      if (d?.uploaded_by_kind === "candidate") await emailCandidateUpdate(d.case_id, viewer.userId).catch(() => false);
+      kickWorker();
+    }
+    refresh();
+    return { ok: true };
+  });
+}
+
+export async function setDocumentRecord(documentId: string, recordKey: string | null): Promise<ActionResult> {
+  return guarded(async () => {
+    await staff();
+    const supabase = await createClient();
+    const { error } = await supabase.rpc("set_document_record", { p_document: documentId, p_record: recordKey ?? "" });
     if (error) return fail(rpcErrorMessage(error));
     refresh();
     return { ok: true };

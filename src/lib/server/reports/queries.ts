@@ -33,7 +33,7 @@ export type ReportVersion = {
   approvedAt: string | null;
   releasedBy: Person | null;
   releasedAt: string | null;
-  annexures: { title: string; filename: string; kind: string; embedded: boolean }[];
+  annexures: { title: string; filename: string; kind: string; embedded: boolean; partial?: boolean }[];
 };
 
 /** What the approver sees from a draft: the proposed result and each check's line. */

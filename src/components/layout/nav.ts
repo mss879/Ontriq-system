@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { BarChart3, Briefcase, ClipboardList, FileSignature, FileText, FolderKanban, History, Inbox, LayoutDashboard, Palette, Receipt, Settings, Sparkles, SquareTerminal, TrendingUp, UserRound, Users, Wallet } from "lucide-react";
+import { BarChart3, Briefcase, ClipboardList, FileSignature, FileText, FolderKanban, History, Inbox, LayoutDashboard, Palette, Receipt, Settings, Sparkles, SquareTerminal, TrendingUp, UserRound, Users, Wallet, Workflow } from "lucide-react";
 import type { Permission } from "@/domain/permissions";
 
 /**
@@ -73,6 +73,7 @@ export const AREA_LABELS: Record<string, string> = {
 /** Settings sub-pages, each gated by its own permission. */
 export const SETTINGS_NAV: NavItem[] = [
   { title: "Organisation", href: "/app/settings", icon: Settings, permission: "settings.manage" },
+  { title: "Workflow", href: "/app/settings/workflow", icon: Workflow, anyOf: ["settings.manage", "check_types.manage"] },
   { title: "Check types", href: "/app/settings/check-types", icon: ClipboardList, permission: "check_types.manage" },
   { title: "Packages & templates", href: "/app/settings/packages", icon: Briefcase, anyOf: ["packages.manage", "templates.manage"] },
   { title: "Assignment", href: "/app/settings/assignment", icon: Users, permission: "assignment.configure" },

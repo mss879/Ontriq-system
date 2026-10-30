@@ -212,16 +212,22 @@ function ScalarField({
       control = <DateField id={id} value={str} onChange={(e) => onChange(e.target.value)} disabled={readOnly} aria-invalid={invalid || undefined} />;
       break;
     case "date_range": {
-      const r = (value ?? {}) as { from?: string; to?: string };
+      const r = (value ?? {}) as { from?: string; to?: string; present?: boolean };
       control = (
-        <div className="grid grid-cols-2 gap-2">
-          <label className="space-y-1">
-            <span className="text-[11px] text-muted-foreground">From</span>
-            <DateField id={id} value={r.from ?? ""} onChange={(e) => onChange({ ...r, from: e.target.value })} disabled={readOnly} aria-invalid={invalid || undefined} />
-          </label>
-          <label className="space-y-1">
-            <span className="text-[11px] text-muted-foreground">To</span>
-            <DateField value={r.to ?? ""} onChange={(e) => onChange({ ...r, to: e.target.value })} disabled={readOnly} aria-invalid={invalid || undefined} aria-label={`${field.label}: to`} />
+        <div className="space-y-1.5">
+          <div className="grid grid-cols-2 gap-2">
+            <label className="space-y-1">
+              <span className="text-[11px] text-muted-foreground">From</span>
+              <DateField id={id} value={r.from ?? ""} onChange={(e) => onChange({ ...r, from: e.target.value })} disabled={readOnly} aria-invalid={invalid || undefined} />
+            </label>
+            <label className="space-y-1">
+              <span className="text-[11px] text-muted-foreground">To</span>
+              <DateField value={r.present ? "" : (r.to ?? "")} onChange={(e) => onChange({ ...r, to: e.target.value })} disabled={readOnly || r.present === true} aria-invalid={invalid || undefined} aria-label={`${field.label}: to`} />
+            </label>
+          </div>
+          <label className="flex w-fit items-center gap-2 text-xs text-muted-foreground">
+            <Checkbox checked={r.present === true} disabled={readOnly} onCheckedChange={(c) => onChange({ ...r, present: c === true || undefined, to: c === true ? undefined : r.to })} />
+            Still here
           </label>
         </div>
       );

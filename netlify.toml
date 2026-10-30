@@ -13,7 +13,7 @@
 # Background worker (15-minute budget): AI jobs, PDF rendering, email.
 [functions."jobs-worker-background"]
   included_files = ["src/jobs/fonts/**"]
-  external_node_modules = ["@react-pdf/renderer", "sharp"]
+  external_node_modules = ["@react-pdf/renderer", "sharp", "heic-convert"]
 
 [[headers]]
   for = "/*"

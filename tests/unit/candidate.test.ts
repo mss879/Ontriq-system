@@ -74,6 +74,8 @@ describe("candidate reminders", () => {
     expect(decideReminder(afterThird, new Date("2026-11-08T10:00:00+05:30")).kind).toBe("none");
     expect(decideReminder(afterThird, new Date("2026-11-09T10:30:00+05:30"))).toEqual({ kind: "escalate" });
     expect(decideReminder({ ...afterThird, escalatedAt: new Date() }, new Date("2026-11-10T10:30:00+05:30")).kind).toBe("none");
+    // After the escalation, a reminder every week until the link expires.
+    expect(decideReminder({ ...afterThird, escalatedAt: new Date(), expiresAt: new Date("2026-12-30T00:00:00+05:30") }, new Date("2026-11-16T10:30:00+05:30"))).toEqual({ kind: "remind", step: 4 });
   });
 
   it("stops when nothing is owed or the link expired", () => {

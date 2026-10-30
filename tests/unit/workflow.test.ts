@@ -62,6 +62,13 @@ describe("stage transitions", () => {
     expect(availableActions({ ...f, annexuresMissing: [] }, only("cases.update"))[0]).toMatchObject({ action: "submit_post_qc", allowed: true });
   });
 
+  it("lets a manager send open checks on, and nobody else", () => {
+    const f = facts({ stage: "verification", isOwner: true, checks: [{ state: "completed", entryReady: true }, { state: "in_progress", entryReady: true }] });
+    expect(availableActions(f, all).map((a) => a.action)).toContain("submit_post_qc_pending");
+    expect(availableActions(f, only("cases.update")).map((a) => a.action)).not.toContain("submit_post_qc_pending");
+    expect(availableActions({ ...f, checks: [{ state: "completed", entryReady: true }] }, all).map((a) => a.action)).not.toContain("submit_post_qc_pending");
+  });
+
   it("offers only resume and cancel while on hold, and nothing once released", () => {
     expect(availableActions(facts({ onHold: true }), all).map((a) => a.action)).toEqual(["resume", "cancel"]);
     expect(availableActions(facts({ stage: "released" }), all)).toEqual([]);

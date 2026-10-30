@@ -56,6 +56,8 @@ export function CandidatePage({ view, lang }: { view: CandidateView; lang: Candi
     help: q.help,
     fieldType: q.field_type,
     options: (Array.isArray(q.options) ? q.options : []).map((o) => (typeof o === "string" ? { value: o, label: o } : { value: String(o.value), label: String(o.label ?? o.value) })),
+    rowForm: q.field_type === "repeatable_group" && !Array.isArray(q.options) ? q.options : null,
+    rows: q.answer?.rows ?? [],
     requirementId: q.requirement_id,
     dueText: q.due_at ? fmt(t.requests.dueBy, { date: candidateDate(q.due_at, lang) }) : null,
     status: q.status,

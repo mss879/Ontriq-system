@@ -102,6 +102,16 @@ export type PortalDocument = {
   rejection_reason: string | null;
 };
 
+export type PortalQuestion = {
+  id: string;
+  question: string;
+  status: "open" | "answered";
+  answer: string | null;
+  check_label: string | null;
+  asked_at: string;
+  answered_at: string | null;
+};
+
 export type PortalCaseDetail = {
   case: PortalCaseRow & {
     candidate: { full_name: string; nic: string | null; email: string | null; phone: string | null };
@@ -114,6 +124,8 @@ export type PortalCaseDetail = {
   can_upload: boolean;
   checks: PortalCheck[];
   requirements: PortalRequirement[];
+  questions: PortalQuestion[];
+  can_answer: boolean;
   documents: PortalDocument[];
   candidate_progress: { invited_at: string | null; active: boolean; opened: boolean; consent: boolean } | null;
   timeline: { id: number; kind: string; at: string; title: string; body: string | null }[];

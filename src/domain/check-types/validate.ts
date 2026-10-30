@@ -73,13 +73,14 @@ function checkScalar(f: FieldDef, raw: unknown): FieldOutcome {
       return validDate(s) ? { value: s } : { error: `${label} must be a valid date.` };
     }
     case "date_range": {
-      const r = (raw ?? {}) as { from?: string; to?: string };
+      const r = (raw ?? {}) as { from?: string; to?: string; present?: boolean };
       const from = r.from?.trim() || undefined;
-      const to = r.to?.trim() || undefined;
+      const present = r.present === true || undefined;
+      const to = present ? undefined : r.to?.trim() || undefined;
       if (from && !validDate(from)) return { error: `${label}: the start date is not valid.` };
       if (to && !validDate(to)) return { error: `${label}: the end date is not valid.` };
       if (from && to && from > to) return { error: `${label}: the start date is after the end date.` };
-      return { value: { ...(from ? { from } : {}), ...(to ? { to } : {}) } };
+      return { value: { ...(from ? { from } : {}), ...(to ? { to } : {}), ...(present ? { present } : {}) } };
     }
     case "select": {
       const s = String(raw);
@@ -103,8 +104,8 @@ function checkScalar(f: FieldDef, raw: unknown): FieldOutcome {
 
 function missingRequired(f: FieldDef, value: unknown): boolean {
   if (f.type === "date_range") {
-    const r = (value ?? {}) as { from?: string; to?: string };
-    return !r.from || !r.to;
+    const r = (value ?? {}) as { from?: string; to?: string; present?: boolean };
+    return !r.from || (!r.to && !r.present);
   }
   return isEmpty(value);
 }
@@ -146,7 +147,7 @@ function validateFields(fields: FieldDef[], input: CheckValues, mode: Validation
       continue;
     }
     if (f.required && dueIn(f, mode) && missingRequired(f, result.value)) {
-      errors[path] = `${f.label} needs both dates.`;
+      errors[path] = `${f.label} needs a start and an end date, or "Still here".`;
       continue;
     }
     if (!isEmpty(result.value)) out[f.key] = result.value;

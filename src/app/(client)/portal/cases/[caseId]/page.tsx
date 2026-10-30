@@ -14,6 +14,8 @@ import { formatBytes, formatDate, formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { PortalCaseDetail } from "@/domain/portal/types";
 import { DocumentSlots } from "./document-slots";
+import { PortalQuestions } from "./questions";
+import { fieldDate } from "@/domain/reports/compile-core";
 import { getPortalReport } from "@/lib/server/reports/queries";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -48,6 +50,9 @@ export default function PortalCasePage({ params }: PageProps<"/portal/cases/[cas
           </Suspense>
         </div>
         <div className="min-w-0 space-y-5 lg:col-start-1 lg:row-span-2 lg:row-start-1">
+          <Suspense fallback={null}>
+            <Asked params={params} />
+          </Suspense>
           <Suspense fallback={null}>
             <Needed params={params} />
           </Suspense>
@@ -142,6 +147,22 @@ async function Header({ params }: Params) {
   );
 }
 
+async function Asked({ params }: Params) {
+  const d = await load(params);
+  if (!d.questions.length) return null;
+  const open = d.questions.filter((q) => q.status === "open").length;
+  return (
+    <Section
+      id="questions"
+      title="Questions from Ontriq"
+      description={open ? `Ontriq needs ${open === 1 ? "an answer" : `${open} answers`} from you to continue.` : "Thank you. Ontriq has your answers."}
+      className={open ? "ring-brand-orange/30" : undefined}
+    >
+      <PortalQuestions questions={d.questions} canAnswer={d.can_answer} />
+    </Section>
+  );
+}
+
 async function Needed({ params }: Params) {
   const d = await load(params);
   const slots = d.requirements.filter((r) => r.status !== "optional" || r.received_count > 0);
@@ -226,10 +247,11 @@ async function Checks({ params }: Params) {
 function fieldText(value: unknown): string {
   if (value === null || value === undefined || value === "") return "—";
   if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) return fieldDate(value) ?? value;
   if (Array.isArray(value)) return value.map(fieldText).join(", ");
   if (typeof value === "object") {
     const v = value as Record<string, unknown>;
-    if ("from" in v || "to" in v) return `${v.from ?? "?"} – ${v.to ?? "present"}`;
+    if ("from" in v || "to" in v) return `${fieldDate(v.from as string) ?? "?"} – ${fieldDate(v.to as string) ?? "present"}`;
     return Object.values(v).map(fieldText).join(", ");
   }
   return String(value);
@@ -303,9 +325,11 @@ async function Timeline({ params }: Params) {
 
 async function ReportCard({ params }: Params) {
   const { report, case: c } = await load(params);
-  const file = report.status === "released" ? await getPortalReport(c.id) : null;
-  const tone = report.status === "released" ? "success" : report.status === "in_preparation" ? "progress" : "neutral";
-  const label = { released: "Released", in_preparation: "In preparation", not_ready: "Not ready yet", cancelled: "Cancelled" }[report.status];
+  // A released report stays available while a revision is prepared.
+  const file = await getPortalReport(c.id);
+  const revising = Boolean(file) && report.status !== "released";
+  const tone = report.status === "released" ? "success" : revising ? "warning" : report.status === "in_preparation" ? "progress" : "neutral";
+  const label = revising ? "Being revised" : { released: "Released", in_preparation: "In preparation", not_ready: "Not ready yet", cancelled: "Cancelled" }[report.status];
   return (
     <section className={cn("rounded-2xl p-5 shadow-soft ring-1", report.status === "released" ? "bg-success/6 ring-success/25" : "bg-card ring-foreground/[0.07]")}>
       <div className="flex items-center justify-between gap-2">
@@ -313,10 +337,12 @@ async function ReportCard({ params }: Params) {
         <ToneChip tone={tone}>{label}</ToneChip>
       </div>
       <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-        {report.status === "released"
+        {revising
+          ? "Ontriq is revising this report. The version below stays yours until the new one is released."
+          : report.status === "released"
           ? file
             ? `Released on ${formatDate(file.releasedAt ?? report.released_at)}${file.version > 2 ? " (revised)" : ""}${file.pageCount ? ` · ${file.pageCount} pages` : ""}.`
-            : `Ontriq released the report on ${formatDate(report.released_at)}. If the download doesn't appear, ask your Ontriq contact for a copy.`
+            : `Ontriq released the report on ${formatDate(report.released_at)} to the people your company named. Ask your Ontriq contact if you need a copy.`
           : report.status === "cancelled"
             ? "No report will be issued for a cancelled request."
             : report.status === "in_preparation"

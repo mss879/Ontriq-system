@@ -9,7 +9,7 @@ import { CheckStatePill, RESULT_TONE, StagePill, ToneChip } from "@/components/c
 import { SlaBadge } from "@/components/cases/sla-badge";
 import { getStaffViewer } from "@/lib/server/viewer";
 import { getCase, getCaseChecks, getDocuments, getRequirements, getTimeline, staffOptions } from "@/lib/server/cases/queries";
-import { getDocumentCategories } from "@/lib/server/cases/detail-queries";
+import { getContactLog, getDocumentCategories } from "@/lib/server/cases/detail-queries";
 import { formatDate, formatDateTime } from "@/lib/format";
 import { can, type Permission } from "@/domain/permissions";
 import { isTerminalCheck, STAGE_LABELS } from "@/domain/workflow/stages";
@@ -21,6 +21,8 @@ import { CheckAssignment, StatusPanel } from "./status-panel";
 import { aiItem, getAiStatus, getAiWork, getCaseAi, getDocumentAi } from "@/lib/server/ai/queries";
 import { canDecide } from "@/domain/ai/suggestions";
 import { fixedAnnexureCategories } from "@/domain/reports/compile-core";
+import { recordOptions } from "@/domain/check-types/records";
+import { ContactLog } from "../../_components/contact-log";
 import type { OutreachResult, ResponseResult } from "@/lib/ai/prompts";
 import { CheckAiPanel } from "@/components/ai/check-ai-panel";
 import { cn } from "@/lib/utils";
@@ -65,6 +67,11 @@ export default function CheckPage({ params }: PageProps<"/app/cases/[caseId]/che
           <Section title="Documents">
             <Suspense fallback={<SectionSkeleton rows={4} className="shadow-none ring-0" />}>
               <Documents params={params} />
+            </Suspense>
+          </Section>
+          <Section title="Contact log">
+            <Suspense fallback={<SectionSkeleton rows={2} className="shadow-none ring-0" />}>
+              <Contacts params={params} />
             </Suspense>
           </Section>
           <Section title="Notes and activity">
@@ -193,6 +200,7 @@ async function Documents({ params }: Params) {
       categories={categories}
       checks={data.checks.map((k) => ({ id: k.id, label: k.label }))}
       fixedCategories={fixedAnnexureCategories(data.checks)}
+      records={recordOptions(data.check.schema.fields, data.check.values)}
       perms={{
         upload: can(viewer, "cases.update") || can(viewer, "candidates.manage"),
         review: can(viewer, "cases.update") || can(viewer, "qc.pre"),
@@ -201,6 +209,22 @@ async function Documents({ params }: Params) {
         visibility: can(viewer, "documents.manage_visibility"),
       }}
       closed={data.c.stage === "released" || data.c.stage === "cancelled"}
+    />
+  );
+}
+
+async function Contacts({ params }: Params) {
+  const { caseId, checkId } = await params;
+  const [viewer, data] = await Promise.all([getStaffViewer(), load(caseId, checkId)]);
+  if (!data) return null;
+  return (
+    <ContactLog
+      caseId={caseId}
+      checkId={checkId}
+      entries={await getContactLog(caseId)}
+      canLog={can(viewer, "cases.update") || can(viewer, "checks.verify")}
+      people={[data.c.candidate.fullName]}
+      records={recordOptions(data.check.schema.fields, data.check.values)}
     />
   );
 }

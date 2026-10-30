@@ -35,7 +35,7 @@ export async function loadReportInputs(admin: ServiceClient, caseId: string): Pr
   const fixed = fixedAnnexureCategories(parsed.map(({ k, schema }) => ({ state: k.state, schema })));
   const annexed = admin
     .from("documents")
-    .select("id, case_check_id, category, filename, mime, sha256, created_at, storage_bucket, storage_path")
+    .select("id, case_check_id, category, filename, mime, sha256, created_at, storage_bucket, storage_path, record_key")
     .eq("case_id", caseId)
     .in("status", ["uploaded", "accepted"]);
   const { data: docs } = await (fixed.length ? annexed.or(`visibility.eq.report,category.in.(${fixed.join(",")})`) : annexed.eq("visibility", "report"));
@@ -91,6 +91,7 @@ export async function loadReportInputs(admin: ServiceClient, caseId: string): Pr
       mime: d.mime,
       sha256: d.sha256,
       created_at: d.created_at,
+      record_key: d.record_key,
     })),
     qc: (qc ?? []).map((q) => ({ kind: q.kind as "pre" | "post", reviewer: q.reviewer_id ? (nameOf.get(q.reviewer_id) ?? "Ontriq QC") : "Ontriq QC", created_at: q.created_at })),
   };

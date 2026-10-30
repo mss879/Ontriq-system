@@ -202,7 +202,7 @@ export function OutcomeForm({
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        if (outcome === "discrepancy" && !note.trim()) return setError("Explain the discrepancy in the internal note.");
+        if (outcome !== "completed" && !clientNote.trim()) return setError("Write the finding. It prints in the report.");
         start(async () => {
           const r = await setCheckState(checkId, { state: outcome, result: result || undefined, note, clientNote });
           if (r.ok) {
@@ -261,15 +261,21 @@ export function OutcomeForm({
         ) : null}
         <div className="space-y-1.5">
           <label htmlFor="outcome-note" className="text-sm font-medium">
-            Internal note {outcome === "discrepancy" ? null : <span className="font-normal text-muted-foreground">(optional)</span>}
+            Internal note <span className="font-normal text-muted-foreground">(optional)</span>
           </label>
           <Textarea id="outcome-note" value={note} onChange={(e) => setNote(e.target.value)} rows={3} placeholder="What the source said, who confirmed it and when." />
         </div>
         <div className="space-y-1.5">
           <label htmlFor="outcome-client" className="text-sm font-medium">
-            Note for the client <span className="font-normal text-muted-foreground">(optional)</span>
+            {outcome === "completed" ? (
+              <>
+                Note for the client <span className="font-normal text-muted-foreground">(optional)</span>
+              </>
+            ) : (
+              "Finding for the report"
+            )}
           </label>
-          <Textarea id="outcome-client" value={clientNote} onChange={(e) => setClientNote(e.target.value)} rows={2} placeholder="A short, factual summary the client may read." />
+          <Textarea id="outcome-client" value={clientNote} onChange={(e) => setClientNote(e.target.value)} rows={2} placeholder={outcome === "completed" ? "A short, factual summary the client may read." : "What was found. The client reads this in the report."} />
         </div>
         {error ? (
           <p role="alert" className="text-sm text-destructive">

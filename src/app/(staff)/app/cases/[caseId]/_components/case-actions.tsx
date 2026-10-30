@@ -21,6 +21,7 @@ const ICONS: Partial<Record<CaseAction, React.ComponentType<{ className?: string
   pre_qc_review: ShieldCheck,
   start_verification: ArrowRight,
   submit_post_qc: ArrowRight,
+  submit_post_qc_pending: ArrowRight,
   post_qc_review: ShieldCheck,
   return_to_documents: Undo2,
   hold: Pause,
@@ -54,7 +55,7 @@ export function CaseActions({
   const [dialog, setDialog] = useState<CaseAction | null>(null);
 
   const run = (a: ActionAvailability) => {
-    if (a.action === "pre_qc_review" || a.action === "post_qc_review" || a.action === "return_to_documents" || a.action === "hold" || a.action === "cancel") {
+    if (a.action === "pre_qc_review" || a.action === "post_qc_review" || a.action === "return_to_documents" || a.action === "hold" || a.action === "cancel" || a.action === "submit_post_qc_pending") {
       setDialog(a.action);
       return;
     }
@@ -143,6 +144,16 @@ export function CaseActions({
       {blocked ? <p className="text-sm text-muted-foreground">{blocked.reason}</p> : null}
 
       <ReasonDialog
+        open={dialog === "submit_post_qc_pending"}
+        onOpenChange={(o) => setDialog(o ? "submit_post_qc_pending" : null)}
+        title="Send to Post-QC with pending checks"
+        description="The report shows these checks as pending and the result can't be Clear. Say why it can't wait."
+        placeholder="e.g. The police report is delayed and the client needs the rest now."
+        confirmLabel="Send to Post-QC"
+        success="Sent to Post-QC"
+        onSubmit={(reason) => transitionCase(caseId, "submit_post_qc", reason)}
+      />
+      <ReasonDialog
         open={dialog === "hold"}
         onOpenChange={(o) => setDialog(o ? "hold" : null)}
         title="Put the case on hold"
@@ -185,7 +196,7 @@ export function CaseActions({
   );
 }
 
-const PRE_ITEMS = ["Every required document is in", "Documents are readable and complete", "Names, NIC and dates match across documents"];
+const PRE_ITEMS = ["Every required document is in", "Documents are readable and complete", "Names, NIC and dates match across documents", "Copy or original requirements are met"];
 const POST_ITEMS = ["Each finding matches its evidence", "Discrepancies are explained with reasons", "Nothing is still pending"];
 
 function QcDialog({
@@ -246,6 +257,7 @@ function QcForm({
   const [ticks, setTicks] = useState<boolean[]>(() => items.map(() => false));
   const [decision, setDecision] = useState<"approved" | "returned">("approved");
   const [remarks, setRemarks] = useState("");
+  const [message, setMessage] = useState("");
   const [returnIds, setReturnIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
@@ -261,6 +273,7 @@ function QcForm({
         checklist: items.map((item, i) => ({ item, ok: ticks[i] })),
         remarks: remarks.trim() || undefined,
         returnCheckIds: decision === "returned" ? returnIds : [],
+        message: decision === "returned" && message.trim() ? message.trim() : undefined,
       });
       if (r.ok) {
         toast.success(decision === "approved" ? (kind === "pre" ? "Pre-QC approved: on to data entry" : "Post-QC approved: ready for the report") : "Returned for correction");
@@ -343,6 +356,21 @@ function QcForm({
             placeholder={decision === "returned" ? "What needs correcting, and where." : "Anything the next stage should know."}
           />
         </div>
+
+        {kind === "pre" && decision === "returned" ? (
+          <div className="space-y-1.5">
+            <label htmlFor="qc-message" className="text-sm font-medium">
+              Message to the {processType === "candidate_collected" ? "candidate" : "client"} <span className="font-normal text-muted-foreground">(optional)</span>
+            </label>
+            <Textarea
+              id="qc-message"
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              rows={3}
+              placeholder="What they need to send or correct. They see exactly this."
+            />
+          </div>
+        ) : null}
 
         {decision === "approved" && unticked > 0 ? (
           <p className="text-sm text-warning-foreground dark:text-warning">

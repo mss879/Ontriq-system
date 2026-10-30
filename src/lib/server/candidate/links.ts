@@ -184,7 +184,21 @@ export async function emailCandidateUpdate(caseId: string, actorId: string): Pro
     .maybeSingle();
   const secret = openLinkSecret(link?.token_enc);
   const contact = await caseContact(caseId);
-  if (!link || !secret || !contact?.email) return false;
+  if (!link || !secret || !contact) return false;
+  if (!contact.email) {
+    if (!contact.phone) return false;
+    const { error } = await admin.rpc("queue_sms", {
+      p_to: contact.phone,
+      p_body: candidateLinkSms({ orgName: contact.orgName, url: candidateLinkUrl(appOrigin(), secret), reminder: true }),
+      p_template_key: "candidate.update",
+      p_entity_type: "case",
+      p_entity_id: caseId,
+      p_created_by: actorId,
+      p_org: contact.orgId,
+    });
+    if (!error) kickWorker();
+    return !error;
+  }
   const mail = candidateUpdateEmail({ language: link.language, candidateName: contact.candidateName, orgName: contact.orgName, url: candidateLinkUrl(appOrigin(), secret) }, emailBrand());
   await queueEmail({ to: [contact.email], subject: mail.subject, html: mail.html, text: mail.text, templateKey: "candidate.update", entityType: "case", entityId: caseId, createdBy: actorId, orgId: contact.orgId });
   return true;

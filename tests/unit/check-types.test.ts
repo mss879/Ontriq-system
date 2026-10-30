@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { BUILTIN_CHECK_TYPES, BUILTIN_PACKAGES, DOCUMENT_CATEGORIES } from "@/domain/check-types/builtin";
-import { checkTypeSchema, parseCheckTypeSchema, type FieldDef } from "@/domain/check-types/schema";
+import { checkTypeSchema, parseCheckTypeSchema, type CheckTypeSchema, type FieldDef } from "@/domain/check-types/schema";
+import { recordLabel, recordOptions } from "@/domain/check-types/records";
 import { completion, modeAt, validateCheckValues } from "@/domain/check-types/validate";
 import type { Stage } from "@/domain/workflow/stages";
 
@@ -38,22 +39,31 @@ describe("built-in check types", () => {
     expect(byKey("reference").fields[0].group).toMatchObject({ min: 2, max: 2 });
   });
 
-  it("are seeded exactly by 0024_seed_catalog.sql", () => {
-    const sql = readFileSync("supabase/migrations/0024_seed_catalog.sql", "utf8");
-    const start = sql.indexOf("$builtin$") + "$builtin$".length;
-    const end = sql.indexOf("$builtin$", start);
-    const seeded = JSON.parse(sql.slice(start, end)) as { key: string; schema: unknown }[];
-    expect(seeded.map((s) => s.key)).toEqual(BUILTIN_CHECK_TYPES.map((t) => t.key));
-    // 0024 predates field stages; 0040 adds them, checked below.
-    const withoutStage = (f: FieldDef): Partial<FieldDef> => {
-      const copy: Partial<FieldDef> = { ...f };
-      delete copy.stage;
-      if (f.fields) copy.fields = (f.fields as FieldDef[]).map(withoutStage) as FieldDef["fields"];
-      return copy;
+  it("are what 0024 seeds plus the changes in 0040 and 0041", () => {
+    const between = (file: string, tag: string) => {
+      const sql = readFileSync(`supabase/migrations/${file}`, "utf8");
+      const start = sql.indexOf(tag) + tag.length;
+      return JSON.parse(sql.slice(start, sql.indexOf(tag, start)));
     };
+    const seeded = between("0024_seed_catalog.sql", "$builtin$") as { key: string; schema: CheckTypeSchema }[];
+    const stages = between("0040_evidence_and_entry_rules.sql", "$stages$") as Record<string, string[]>;
+    const delta = between("0041_client_requirements.sql", "$json$") as Record<"documents_client_visible" | "report_fields" | "candidate_fields", Record<string, string[]>>;
+    expect(seeded.map((s) => s.key)).toEqual(BUILTIN_CHECK_TYPES.map((t) => t.key));
+    const applied = (key: string, f: FieldDef): FieldDef => ({
+      ...f,
+      ...(stages[key]?.includes(f.key) ? { stage: "verification" as const } : {}),
+      ...(delta.report_fields[key]?.includes(f.key) ? { visibility: { ...f.visibility, report: true } } : {}),
+      ...(delta.candidate_fields[key]?.includes(f.key) ? { fill_by: [...f.fill_by, "candidate" as const] } : {}),
+      ...(f.fields ? { fields: (f.fields as FieldDef[]).map((s) => applied(key, s)) } : {}),
+    });
     for (const t of BUILTIN_CHECK_TYPES) {
-      const parsed = parseCheckTypeSchema(t.schema);
-      expect(seeded.find((s) => s.key === t.key)!.schema).toEqual({ ...parsed, fields: parsed.fields.map(withoutStage) });
+      const base = parseCheckTypeSchema(seeded.find((s) => s.key === t.key)!.schema);
+      const expected = {
+        ...base,
+        fields: base.fields.map((f) => applied(t.key, f)),
+        documents: base.documents.map((d) => (delta.documents_client_visible[t.key]?.includes(d.category) ? { ...d, client_visible: true } : d)),
+      };
+      expect(parseCheckTypeSchema(t.schema), t.key).toEqual(expected);
     }
   });
 
@@ -119,6 +129,23 @@ describe("check values", () => {
     expect(["verification", "post_qc", "report"].map((s) => modeAt(s as Stage))).toEqual(["submit", "submit", "submit"]);
   });
 
+  it("accepts a current job or address with no end date", () => {
+    const row = { company: "Dialog", designation: "Engineer", employee_code: "D1", employment_type: "permanent" };
+    const check = (period: unknown) => validateCheckValues(employment, { candidate_name: "N", employers: [{ ...row, period }] }, "entry");
+    expect(check({ from: "2020-01-01", present: true }).ok).toBe(true);
+    expect(check({ from: "2020-01-01", to: "2021-01-01" }).ok).toBe(true);
+    expect(check({ from: "2020-01-01" }).errors).toHaveProperty(["employers.0.period"]);
+    expect(check({ from: "2020-01-01", to: "2021-01-01", present: true }).values.employers).toEqual([{ ...row, period: { from: "2020-01-01", present: true } }]);
+  });
+
+  it("names a check's rows so files and contacts can belong to one", () => {
+    const values = { employers: [{ company: "Dialog Axiata" }, {}] };
+    expect(recordOptions(employment, values)).toEqual([{ key: "employers.0", label: "Employer 1 · Dialog Axiata" }, { key: "employers.1", label: "Employer 2" }]);
+    expect(recordLabel(employment, values, "employers.0")).toBe("Employer 1 · Dialog Axiata");
+    expect(recordLabel(employment, values, "employers.9")).toBeNull();
+    expect(recordLabel(employment, values, null)).toBeNull();
+  });
+
   it("lets a draft be saved with required fields missing", () => {
     const r = validateCheckValues(employment, { candidate_name: "  Nimal Perera " }, "draft");
     expect(r.ok).toBe(true);
@@ -143,7 +170,7 @@ describe("check values", () => {
       },
       "submit",
     );
-    expect(r.errors).toEqual({ "employers.1.period": "Period of employment needs both dates." });
+    expect(r.errors).toEqual({ "employers.1.period": 'Period of employment needs a start and an end date, or "Still here".' });
   });
 
   it("checks formats even in drafts", () => {

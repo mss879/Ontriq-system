@@ -10,6 +10,7 @@
  * (public.approve_report in 0012). Keep it free of timestamps of the moment
  * it is compiled. Pure module (tests/unit/report.test.ts).
  */
+import { recordLabel } from "../check-types/records";
 import type { FieldDef } from "../check-types/schema";
 import type { ResultTone } from "../check-types/schema";
 
@@ -90,7 +91,7 @@ export type ReportInputs = {
     completed_at: string | null;
     schema: { fields: FieldDef[]; result: { options: { key: string; label: string; tone: ResultTone }[] }; fixed_annexure?: { category: string } };
   }[];
-  documents: { id: string; case_check_id: string | null; category: string; category_name: string; filename: string; mime: string; sha256: string | null; created_at: string }[];
+  documents: { id: string; case_check_id: string | null; category: string; category_name: string; filename: string; mime: string; sha256: string | null; created_at: string; record_key?: string | null }[];
   qc: { kind: "pre" | "post"; reviewer: string; created_at: string }[];
 };
 
@@ -100,6 +101,13 @@ export function fixedAnnexureCategories(checks: { state: string; schema: { fixed
 }
 
 const DATE_FMT: Intl.DateTimeFormatOptions = { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Colombo" };
+
+/** Spec 4.2: dates in the check's details read DD/MM/YY. */
+export function fieldDate(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
+  return m ? `${m[3]}/${m[2]}/${m[1].slice(2)}` : iso;
+}
 
 /** "12 Mar 2024" from an ISO date or timestamp. */
 export function reportDate(iso: string | null | undefined): string | null {
@@ -113,11 +121,11 @@ export function formatFieldValue(f: FieldDef, raw: unknown): string {
   const optionLabel = (v: unknown) => f.options?.find((o) => o.value === v)?.label ?? String(v);
   switch (f.type) {
     case "date":
-      return reportDate(String(raw)) ?? "—";
+      return fieldDate(String(raw)) ?? "—";
     case "date_range": {
       const r = raw as { from?: string; to?: string };
       if (!r.from && !r.to) return "—";
-      return `${reportDate(r.from) ?? "?"} to ${r.to ? reportDate(r.to) : "present"}`;
+      return `${fieldDate(r.from) ?? "?"} to ${r.to ? fieldDate(r.to) : "present"}`;
     }
     case "boolean":
       return raw === true ? "Yes" : raw === false ? "No" : String(raw);
@@ -137,7 +145,7 @@ const STATUS: Record<ReportCheck["status"], string> = {
   discrepancy: "Discrepancy found",
   unable_to_verify: "Unable to verify",
   not_required: "Not required",
-  incomplete: "Not completed",
+  incomplete: "Pending",
 };
 
 function checkStatus(state: string): ReportCheck["status"] {
@@ -181,19 +189,26 @@ export function compileReport(input: ReportInputs): ReportSnapshot {
       groups: done ? groups : [],
       remarks: k.client_note?.trim() || null,
       completed_on: done ? reportDate(k.completed_at) : null,
-      evidence: evidenceFor(k.id).map((d) => `${d.category_name}: ${d.filename}`),
+      evidence: evidenceFor(k.id).map((d) => {
+        const record = recordLabel(k.schema.fields, k.values, d.record_key);
+        return `${d.category_name}${record ? ` (${record})` : ""}: ${d.filename}`;
+      }),
     };
   });
 
   const fixedCategories = new Set(checks.map((k) => k.schema.fixed_annexure?.category).filter(Boolean) as string[]);
   const checkLabel = new Map(checks.map((k) => [k.id, k.label]));
+  const recordOf = (d: ReportInputs["documents"][number]) => {
+    const k = checks.find((x) => x.id === d.case_check_id);
+    return k ? recordLabel(k.schema.fields, k.values, d.record_key) : null;
+  };
   const docs = [...input.documents].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
   const annexures: ReportAnnexure[] = [
     ...docs.filter((d) => !fixedCategories.has(d.category)).map((d) => ({ d, kind: "evidence" as const })),
     ...docs.filter((d) => fixedCategories.has(d.category)).map((d) => ({ d, kind: "fixed" as const })),
   ].map(({ d, kind }) => ({
     document_id: d.id,
-    title: kind === "fixed" ? d.category_name : `${d.case_check_id ? `${checkLabel.get(d.case_check_id) ?? "Case"} · ` : ""}${d.category_name}`,
+    title: kind === "fixed" ? d.category_name : `${d.case_check_id ? `${checkLabel.get(d.case_check_id) ?? "Case"} · ` : ""}${d.category_name}${recordOf(d) ? ` · ${recordOf(d)}` : ""}`,
     filename: d.filename,
     mime: d.mime,
     kind,

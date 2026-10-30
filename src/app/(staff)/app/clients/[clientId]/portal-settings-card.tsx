@@ -21,6 +21,7 @@ const SEE: { key: BoolKey; label: string; hint: string }[] = [
 ];
 
 const DO: { key: keyof PortalOptions; label: string; hint: string }[] = [
+  { key: "status_updates", label: "Get status updates", hint: "An email and portal alert when a case changes stage or goes on hold." },
   { key: "bulk_upload", label: "Bulk requests", hint: "Submit many candidates at once from a spreadsheet." },
   { key: "client_packages", label: "Build their own packages", hint: "From the checks they may order, at Ontriq's prices." },
   { key: "client_packages_need_approval", label: "Approve their packages first", hint: "New packages wait for Ontriq before they can be used." },

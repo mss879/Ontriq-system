@@ -44,7 +44,7 @@ export type CandidateRequestItem = {
   requirementId: string | null;
   dueAt: string | null;
   status: "open" | "answered" | "accepted" | "cancelled";
-  answer: { value?: string; document_id?: string } | null;
+  answer: { value?: string; document_id?: string; rows?: Record<string, unknown>[] } | null;
   answeredAt: string | null;
   reviewNote: string | null;
   reviewedBy: Person | null;

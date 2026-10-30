@@ -4,14 +4,14 @@ import { PORTAL_STEPS, PORTAL_STEP_LABELS, portalStep } from "@/domain/candidate
 import type { Tone } from "@/domain/workflow/stages";
 import type { PortalCaseRow, PortalCheck } from "@/domain/portal/types";
 
-type ActionRow = Pick<PortalCaseRow, "stage" | "needs_documents" | "process_type">;
+type ActionRow = Pick<PortalCaseRow, "stage" | "needs_documents">;
 
 /**
- * Does this case wait on documents from the client? Only when the client
- * supplies them: when Ontriq collects from the candidate, open slots are the
- * candidate's to fill.
+ * Does this case wait on the client? The database counts documents they supply
+ * and questions from Ontriq, at any stage. When Ontriq collects from the
+ * candidate, open document slots are the candidate's and aren't counted.
  */
-export const waitsOnClient = (row: ActionRow) => row.process_type === "client_supplied" && row.needs_documents > 0 && (row.stage === "intake" || row.stage === "documents");
+export const waitsOnClient = (row: ActionRow) => row.needs_documents > 0 && row.stage !== "released" && row.stage !== "cancelled";
 
 /** The client-facing status of a case: Ontriq's client label, coloured by where it stands. */
 export function PortalStatusChip({ row, className }: { row: ActionRow & Pick<PortalCaseRow, "on_hold" | "status_label">; className?: string }) {
@@ -20,7 +20,7 @@ export function PortalStatusChip({ row, className }: { row: ActionRow & Pick<Por
   const tone: Tone = row.stage === "released" ? "success" : row.stage === "cancelled" ? "neutral" : action ? "warning" : row.stage === "intake" ? "info" : "progress";
   return (
     <ToneChip tone={tone} className={className}>
-      {action ? "Documents needed" : row.status_label}
+      {action ? "Action needed" : row.status_label}
     </ToneChip>
   );
 }

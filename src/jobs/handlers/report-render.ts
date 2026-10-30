@@ -65,7 +65,7 @@ export const reportRender: JobHandler = async (job, { admin, heartbeat }) => {
     // A report without its fixed annexure is not a report: stop here and say why.
     const lost = snapshot.annexures.find((a) => a.kind === "fixed" && assembled.skipped.includes(a.filename));
     if (lost) {
-      throw new NonRetryableError(`${lost.title} (${lost.filename}) couldn't be attached. It must be a PDF, JPEG or PNG that opens normally. Upload a new version, then generate the draft again.`);
+      throw new NonRetryableError(`${lost.title} (${lost.filename}) couldn't be attached. It must be a PDF or photo that opens normally. Upload a new version, then generate the draft again.`);
     }
 
     const path = `org/${v.org_id}/case/${v.case_id}/report/v${v.version}-${v.kind}.pdf`;
@@ -81,7 +81,7 @@ export const reportRender: JobHandler = async (job, { admin, heartbeat }) => {
       p_sha256: sha256,
       p_pages: assembled.pages,
       p_size: assembled.bytes.byteLength,
-      p_annexures: snapshot.annexures.map((a) => ({ title: a.title, filename: a.filename, kind: a.kind, embedded: !assembled.skipped.includes(a.filename) })) as never,
+      p_annexures: snapshot.annexures.map((a) => ({ title: a.title, filename: a.filename, kind: a.kind, embedded: !assembled.skipped.includes(a.filename), partial: assembled.partial.includes(a.filename) })) as never,
     });
     if (done.error) throw new Error(`report_render_done: ${done.error.message}`);
     return { path, pages: assembled.pages, sha256, skipped: assembled.skipped };

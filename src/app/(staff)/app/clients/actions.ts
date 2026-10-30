@@ -309,7 +309,7 @@ export async function savePortalVisibility(clientId: string, input: Partial<z.in
   });
 }
 
-const portalOptionsSchema = z.object({ bulk_upload: z.boolean(), client_packages: z.boolean(), client_packages_need_approval: z.boolean() });
+const portalOptionsSchema = z.object({ bulk_upload: z.boolean(), client_packages: z.boolean(), client_packages_need_approval: z.boolean(), status_updates: z.boolean() });
 
 export async function savePortalOptions(clientId: string, input: Partial<z.input<typeof portalOptionsSchema>>): Promise<ActionResult> {
   return guarded(async () => {
@@ -317,7 +317,7 @@ export async function savePortalOptions(clientId: string, input: Partial<z.input
     const supabase = await createClient();
     const { data: current } = await supabase.from("client_settings").select("portal").eq("client_id", clientId).maybeSingle();
     if (!current) return fail("That client no longer exists, or you don't have access to it.");
-    const merged = { bulk_upload: true, client_packages: true, client_packages_need_approval: false, ...((current.portal ?? {}) as object), ...input };
+    const merged = { bulk_upload: true, client_packages: true, client_packages_need_approval: false, status_updates: true, ...((current.portal ?? {}) as object), ...input };
     const parsed = portalOptionsSchema.safeParse(merged);
     if (!parsed.success) return fail("Those portal options aren't valid.");
     // Keep any other keys a later feature stored alongside.

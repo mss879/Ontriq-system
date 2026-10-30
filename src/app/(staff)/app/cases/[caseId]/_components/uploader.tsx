@@ -12,11 +12,13 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
+import type { RecordOption } from "@/domain/check-types/records";
 
 const ACCEPT = ["application/pdf", "image/jpeg", "image/png", "image/webp", "image/heic"] as const;
 type Mime = (typeof ACCEPT)[number];
 const MAX = 25 * 1024 * 1024;
 const WHOLE_CASE = "__case__";
+const WHOLE_CHECK = "__check__";
 
 const BY_EXTENSION: Record<string, Mime> = { pdf: "application/pdf", jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", heic: "image/heic", heif: "image/heic" };
 
@@ -47,7 +49,7 @@ const STAGE_LABEL: Record<Stage, string> = {
 };
 const STAGE_PCT: Record<Stage, number> = { ready: 0, hashing: 15, preparing: 30, uploading: 65, saving: 90, done: 100, error: 100 };
 
-export type UploadTarget = { category?: string; checkId?: string | null; parentId?: string | null; label?: string; parentName?: string };
+export type UploadTarget = { category?: string; checkId?: string | null; parentId?: string | null; label?: string; parentName?: string; recordKey?: string | null };
 
 /**
  * Uploads straight from the browser to private Storage: the server creates the
@@ -61,6 +63,7 @@ export function UploadDialog({
   target,
   categories,
   checks,
+  records = [],
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -68,11 +71,12 @@ export function UploadDialog({
   target: UploadTarget;
   categories: { key: string; name: string; guide: string }[];
   checks: { id: string; label: string }[];
+  records?: RecordOption[];
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
-        {open ? <UploadForm caseId={caseId} target={target} categories={categories} checks={checks} onClose={() => onOpenChange(false)} /> : null}
+        {open ? <UploadForm caseId={caseId} target={target} categories={categories} checks={checks} records={records} onClose={() => onOpenChange(false)} /> : null}
       </DialogContent>
     </Dialog>
   );
@@ -83,17 +87,20 @@ function UploadForm({
   target,
   categories,
   checks,
+  records,
   onClose,
 }: {
   caseId: string;
   target: UploadTarget;
   categories: { key: string; name: string; guide: string }[];
   checks: { id: string; label: string }[];
+  records: RecordOption[];
   onClose: () => void;
 }) {
   const [category, setCategory] = useState(target.category ?? "");
   const [checkId, setCheckId] = useState<string>(target.checkId ?? WHOLE_CASE);
   const [label, setLabel] = useState(target.label ?? "");
+  const [record, setRecord] = useState(target.recordKey ?? WHOLE_CHECK);
   const [items, setItems] = useState<Item[]>([]);
   const [running, setRunning] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -133,6 +140,7 @@ function UploadForm({
           category,
           label: label.trim() || undefined,
           parentId: target.parentId ?? null,
+          recordKey: record === WHOLE_CHECK ? null : record,
           filename: it.file.name,
           mime: it.mime,
           size: it.file.size,
@@ -167,6 +175,26 @@ function UploadForm({
       </DialogHeader>
 
       <div className="space-y-4">
+        {records.length ? (
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium" htmlFor="upload-record">
+              Belongs to
+            </label>
+            <Select value={record} onValueChange={setRecord} disabled={running}>
+              <SelectTrigger id="upload-record" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={WHOLE_CHECK}>The whole check</SelectItem>
+                {records.map((r) => (
+                  <SelectItem key={r.key} value={r.key}>
+                    {r.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        ) : null}
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="space-y-1.5">
             <label className="text-sm font-medium" htmlFor="upload-category">

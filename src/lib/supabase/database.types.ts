@@ -1876,6 +1876,74 @@ export type Database = {
           },
         ];
       };
+      client_requests: {
+        Row: {
+          answer: string | null;
+          answered_at: string | null;
+          answered_by: string | null;
+          case_check_id: string | null;
+          case_id: string;
+          created_at: string;
+          created_by: string | null;
+          id: string;
+          org_id: string;
+          question: string;
+          status: string;
+          updated_at: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          answer?: string | null;
+          answered_at?: string | null;
+          answered_by?: string | null;
+          case_check_id?: string | null;
+          case_id: string;
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          org_id: string;
+          question: string;
+          status?: string;
+          updated_at?: string;
+        };
+        Update: {
+          answer?: string | null;
+          answered_at?: string | null;
+          answered_by?: string | null;
+          case_check_id?: string | null;
+          case_id?: string;
+          created_at?: string;
+          created_by?: string | null;
+          id?: string;
+          org_id?: string;
+          question?: string;
+          status?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "client_requests_case_check_id_fkey";
+            columns: ["case_check_id"];
+            isOneToOne: false;
+            referencedRelation: "case_checks";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "client_requests_case_id_fkey";
+            columns: ["case_id"];
+            isOneToOne: false;
+            referencedRelation: "cases";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "client_requests_org_id_fkey";
+            columns: ["org_id"];
+            isOneToOne: false;
+            referencedRelation: "orgs";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       client_settings: {
         Row: {
           client_id: string;
@@ -2061,6 +2129,7 @@ export type Database = {
       communications: {
         Row: {
           body: string;
+          case_check_id: string | null;
           case_id: string | null;
           channel: string;
           client_id: string | null;
@@ -2072,6 +2141,8 @@ export type Database = {
           external_id: string | null;
           id: string;
           org_id: string;
+          outcome: string | null;
+          record_key: string | null;
           sms_outbox_id: string | null;
           status: string;
           subject: string | null;
@@ -2081,6 +2152,7 @@ export type Database = {
         ComputedFields: never;
         Insert: {
           body?: string;
+          case_check_id?: string | null;
           case_id?: string | null;
           channel: string;
           client_id?: string | null;
@@ -2092,6 +2164,8 @@ export type Database = {
           external_id?: string | null;
           id?: string;
           org_id: string;
+          outcome?: string | null;
+          record_key?: string | null;
           sms_outbox_id?: string | null;
           status?: string;
           subject?: string | null;
@@ -2100,6 +2174,7 @@ export type Database = {
         };
         Update: {
           body?: string;
+          case_check_id?: string | null;
           case_id?: string | null;
           channel?: string;
           client_id?: string | null;
@@ -2111,6 +2186,8 @@ export type Database = {
           external_id?: string | null;
           id?: string;
           org_id?: string;
+          outcome?: string | null;
+          record_key?: string | null;
           sms_outbox_id?: string | null;
           status?: string;
           subject?: string | null;
@@ -2118,6 +2195,13 @@ export type Database = {
           visible_to_client?: boolean;
         };
         Relationships: [
+          {
+            foreignKeyName: "communications_case_check_id_fkey";
+            columns: ["case_check_id"];
+            isOneToOne: false;
+            referencedRelation: "case_checks";
+            referencedColumns: ["id"];
+          },
           {
             foreignKeyName: "communications_client_id_fkey";
             columns: ["client_id"];
@@ -2599,6 +2683,7 @@ export type Database = {
           mime: string;
           org_id: string;
           parent_id: string | null;
+          record_key: string | null;
           rejection_reason: string | null;
           reviewed_at: string | null;
           reviewed_by: string | null;
@@ -2628,6 +2713,7 @@ export type Database = {
           mime: string;
           org_id: string;
           parent_id?: string | null;
+          record_key?: string | null;
           rejection_reason?: string | null;
           reviewed_at?: string | null;
           reviewed_by?: string | null;
@@ -2656,6 +2742,7 @@ export type Database = {
           mime?: string;
           org_id?: string;
           parent_id?: string | null;
+          record_key?: string | null;
           rejection_reason?: string | null;
           reviewed_at?: string | null;
           reviewed_by?: string | null;
@@ -5431,6 +5518,10 @@ export type Database = {
     Functions: {
       accept_my_invitation: { Args: Record<PropertyKey, never>; Returns: boolean };
       acknowledge_nudge: { Args: { p_nudge: string; p_reply?: string }; Returns: undefined };
+      add_case_check: {
+        Args: { p_case: string; p_check_type: string; p_label?: string };
+        Returns: string;
+      };
       add_case_note: {
         Args: { p_body: string; p_case: string; p_check: string };
         Returns: undefined;
@@ -5629,6 +5720,7 @@ export type Database = {
       client_can_use_package: { Args: { p_client: string; p_package: string }; Returns: boolean };
       client_id_of_user: { Args: Record<PropertyKey, never>; Returns: string };
       client_statement: { Args: { p_client: string; p_from: string; p_to: string }; Returns: Json };
+      close_client_request: { Args: { p_request: string }; Returns: undefined };
       complete_job: { Args: { p_id: string; p_result?: Json; p_worker: string }; Returns: boolean };
       confirm_invoice: { Args: { p_invoice: string }; Returns: Json };
       confirm_quote: { Args: { p_quote: string }; Returns: Json };
@@ -5638,6 +5730,10 @@ export type Database = {
       };
       create_candidate_request: { Args: { p: Json; p_case: string }; Returns: string };
       create_case: { Args: { p: Json }; Returns: Json };
+      create_client_request: {
+        Args: { p_case: string; p_check: string; p_question: string };
+        Returns: string;
+      };
       current_actor_id: { Args: Record<PropertyKey, never>; Returns: string };
       current_actor_kind: { Args: Record<PropertyKey, never>; Returns: string };
       decide_ai_suggestion: {
@@ -5728,6 +5824,7 @@ export type Database = {
         };
         Returns: undefined;
       };
+      log_contact: { Args: { p: Json; p_case: string }; Returns: string };
       log_document_access: {
         Args: { p_action: string; p_document: string; p_ip?: string };
         Returns: undefined;
@@ -5833,6 +5930,7 @@ export type Database = {
         Args: { p_ip?: string; p_name: string; p_quote: string };
         Returns: undefined;
       };
+      portal_answer_request: { Args: { p_answer: string; p_request: string }; Returns: undefined };
       portal_begin_slip: {
         Args: {
           p_filename: string;
@@ -5917,6 +6015,7 @@ export type Database = {
         Args: { p_action: string; p_quote: string; p_text: string };
         Returns: undefined;
       };
+      portal_scalar_value: { Args: { p_field: Json; p_value: Json }; Returns: Json };
       portal_stage_label: {
         Args: { p: Database["public"]["Enums"]["case_stage"] };
         Returns: string;
@@ -5982,6 +6081,7 @@ export type Database = {
         };
         Returns: string;
       };
+      range_complete: { Args: { p_value: Json }; Returns: boolean };
       rate_limit_check: {
         Args: { p_key: string; p_max: number; p_window_seconds: number };
         Returns: boolean;
@@ -6027,6 +6127,7 @@ export type Database = {
       reject_payment_slip: { Args: { p_reason: string; p_slip: string }; Returns: undefined };
       release_report: { Args: { p_case: string; p_recipients?: string[] }; Returns: string };
       report_download: { Args: { p_ip?: string; p_version: string }; Returns: Json };
+      report_open_to_caller: { Args: { p_version: string }; Returns: boolean };
       report_render_done: {
         Args: {
           p_annexures?: Json;
@@ -6136,6 +6237,7 @@ export type Database = {
         Args: { p_channels?: string[]; p_items?: Json; p_message: string; p_to: string };
         Returns: string;
       };
+      set_case_client_visible: { Args: { p_case: string; p_visible: boolean }; Returns: undefined };
       set_case_hold: {
         Args: { p_case: string; p_hold: boolean; p_reason?: string };
         Returns: undefined;
@@ -6151,6 +6253,7 @@ export type Database = {
         };
         Returns: undefined;
       };
+      set_document_record: { Args: { p_document: string; p_record: string }; Returns: undefined };
       set_document_visibility: {
         Args: { p_document: string; p_visibility: string };
         Returns: undefined;

@@ -357,6 +357,9 @@ function VersionRow({ v }: { v: ReportVersion }) {
         {v.annexures.some((a) => !a.embedded) ? (
           <p className="text-xs text-warning-foreground dark:text-warning">Some annexures couldn’t be embedded: {v.annexures.filter((a) => !a.embedded).map((a) => a.filename).join(", ")}</p>
         ) : null}
+        {v.annexures.some((a) => a.partial) ? (
+          <p className="text-xs text-warning-foreground dark:text-warning">Cut short at the page limit: {v.annexures.filter((a) => a.partial).map((a) => a.filename).join(", ")}</p>
+        ) : null}
         {v.sha256 && v.kind === "final" ? (
           <p className="truncate font-mono text-[11px] text-muted-foreground" title={v.sha256}>
             SHA-256 {v.sha256}
