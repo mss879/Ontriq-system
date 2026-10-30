@@ -1,0 +1,25 @@
+# Supabase settings for the Ontriq CRM, kept as code.
+# `supabase config push` applies only the properties declared here; everything
+# else stays as set in the dashboard. Preview first with `supabase config diff`.
+project_id = "ontriq-crm"
+
+[auth]
+# Update to the Netlify URL at go-live. The app builds its own confirm links
+# (/auth/confirm?token_hash=…), so these only matter for Supabase-sent mail.
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["http://localhost:3000/**", "http://localhost:3100/**"]
+# Nobody signs themselves up: staff and client users arrive by invitation only.
+enable_signup = false
+# Matches the app's own rule in src/app/(auth)/actions.ts.
+minimum_password_length = 10
+jwt_expiry = 3600
+enable_refresh_token_rotation = true
+
+[auth.email]
+# Invitation, magic and recovery links stay valid for 24 hours, matching what
+# the invitation email promises (src/domain/email/templates.ts). Each works once.
+otp_expiry = 86400
+
+[auth.mfa.totp]
+enroll_enabled = true
+verify_enabled = true

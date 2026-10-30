@@ -1,0 +1,264 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * Ontriq design tokens, taken from the official brand (ontriq.com and the
+ * logo artwork):
+ *   Ontriq Blue    #0C5A9A  logo · primary actions in light mode
+ *   Ontriq Orange  #F78F1E  logo
+ *   Signal Orange  #F75834  website accent · highlights, indicators, glows
+ *   Sky            #0098F3  website links · primary actions in dark mode
+ *   Navy           #0A1A2F  website dark sections · brand surfaces
+ *   Ink            #060709  wordmark
+ * Type: Inter for UI text, Stack Sans Notch for display headings.
+ * Semantic colours (success / warning / info / destructive) carry the
+ * Green / Amber / Red verification outcomes and stay separate from the brand.
+ */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-inter);
+  --font-mono: var(--font-geist-mono);
+  --font-heading: var(--font-inter);
+  --font-display: var(--font-stack-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-brand: var(--brand);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-brand-orange: var(--brand-orange);
+  --color-brand-orange-ink: var(--brand-orange-ink);
+  --color-brand-blue: var(--brand-blue);
+  --color-brand-sky: var(--brand-sky);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+  --shadow-soft: 0 1px 2px oklch(0.2 0.03 255 / 0.04), 0 4px 16px -4px oklch(0.2 0.03 255 / 0.08);
+  --shadow-lift: 0 1px 2px oklch(0.2 0.03 255 / 0.05), 0 12px 32px -8px oklch(0.2 0.03 255 / 0.14);
+}
+
+:root {
+  --radius: 0.7rem;
+  --background: oklch(0.984 0.003 250);
+  --foreground: oklch(0.19 0.022 256);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.19 0.022 256);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.19 0.022 256);
+  /* Ontriq Blue #0C5A9A */
+  --primary: oklch(0.46 0.125 250.2);
+  --primary-foreground: oklch(0.99 0.003 250);
+  --secondary: oklch(0.962 0.006 250);
+  --secondary-foreground: oklch(0.27 0.04 255);
+  --muted: oklch(0.962 0.006 250);
+  --muted-foreground: oklch(0.5 0.02 256);
+  --accent: oklch(0.955 0.016 246);
+  --accent-foreground: oklch(0.35 0.1 250);
+  --destructive: oklch(0.56 0.21 22);
+  --border: oklch(0.918 0.007 252);
+  --input: oklch(0.89 0.009 252);
+  --ring: oklch(0.6 0.15 248);
+  --success: oklch(0.56 0.13 156);
+  --success-foreground: oklch(0.99 0 0);
+  --warning: oklch(0.75 0.155 70);
+  --warning-foreground: oklch(0.27 0.06 60);
+  --info: oklch(0.58 0.15 246);
+  /* Navy #0A1A2F: dark brand surfaces */
+  --brand: oklch(0.216 0.047 256);
+  --brand-foreground: oklch(0.99 0.003 250);
+  /* Signal orange #F75834 for fills; a deeper orange for small text on light */
+  --brand-orange: oklch(0.669 0.201 34.2);
+  --brand-orange-ink: oklch(0.56 0.18 36);
+  --brand-blue: oklch(0.46 0.125 250.2);
+  --brand-sky: oklch(0.66 0.171 246.3);
+  --logo-blue: #0c5a9a;
+  --chart-1: oklch(0.46 0.125 250.2);
+  --chart-2: oklch(0.669 0.201 34.2);
+  --chart-3: oklch(0.66 0.171 246.3);
+  --chart-4: oklch(0.746 0.167 60.1);
+  --chart-5: oklch(0.56 0.13 156);
+  /* The sidebar is a navy brand surface in both themes. */
+  --sidebar: oklch(0.2 0.045 256);
+  --sidebar-foreground: oklch(0.86 0.018 252);
+  --sidebar-primary: oklch(0.669 0.201 34.2);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.27 0.05 256);
+  --sidebar-accent-foreground: oklch(0.99 0.003 250);
+  --sidebar-border: oklch(1 0 0 / 8%);
+  --sidebar-ring: oklch(0.66 0.171 246.3);
+}
+
+.dark {
+  --background: oklch(0.155 0.018 258);
+  --foreground: oklch(0.955 0.006 250);
+  --card: oklch(0.192 0.022 258);
+  --card-foreground: oklch(0.955 0.006 250);
+  --popover: oklch(0.205 0.024 258);
+  --popover-foreground: oklch(0.955 0.006 250);
+  /* Sky #0098F3 reads better than the logo blue on dark surfaces. */
+  --primary: oklch(0.7 0.155 246);
+  --primary-foreground: oklch(0.17 0.03 256);
+  --secondary: oklch(0.245 0.026 258);
+  --secondary-foreground: oklch(0.93 0.008 250);
+  --muted: oklch(0.245 0.026 258);
+  --muted-foreground: oklch(0.7 0.022 254);
+  --accent: oklch(0.27 0.04 252);
+  --accent-foreground: oklch(0.955 0.006 250);
+  --destructive: oklch(0.68 0.19 22);
+  --border: oklch(1 0 0 / 9%);
+  --input: oklch(1 0 0 / 14%);
+  --ring: oklch(0.7 0.155 246);
+  --success: oklch(0.72 0.15 156);
+  --success-foreground: oklch(0.18 0.04 160);
+  --warning: oklch(0.8 0.14 75);
+  --warning-foreground: oklch(0.22 0.05 60);
+  --info: oklch(0.72 0.14 244);
+  --brand: oklch(0.13 0.03 258);
+  --brand-foreground: oklch(0.99 0.003 250);
+  --brand-orange: oklch(0.7 0.19 38);
+  --brand-orange-ink: oklch(0.74 0.17 42);
+  --brand-blue: oklch(0.62 0.15 249);
+  --brand-sky: oklch(0.7 0.155 246);
+  --logo-blue: #3d8fdb;
+  --chart-1: oklch(0.7 0.155 246);
+  --chart-2: oklch(0.7 0.19 38);
+  --chart-3: oklch(0.62 0.15 249);
+  --chart-4: oklch(0.78 0.15 62);
+  --chart-5: oklch(0.72 0.15 156);
+  --sidebar: oklch(0.13 0.022 258);
+  --sidebar-foreground: oklch(0.84 0.016 252);
+  --sidebar-primary: oklch(0.7 0.19 38);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.21 0.03 256);
+  --sidebar-accent-foreground: oklch(0.99 0.003 250);
+  --sidebar-border: oklch(1 0 0 / 7%);
+  --sidebar-ring: oklch(0.7 0.155 246);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "cv11";
+  }
+  html {
+    @apply font-sans;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection {
+    background: color-mix(in oklch, var(--brand-orange) 24%, transparent);
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  .bg-grid {
+    background-image:
+      linear-gradient(to right, color-mix(in oklch, var(--border) 70%, transparent) 1px, transparent 1px),
+      linear-gradient(to bottom, color-mix(in oklch, var(--border) 70%, transparent) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+  .bg-grid-fade {
+    mask-image: radial-gradient(ellipse at top, black 20%, transparent 70%);
+  }
+  /* The website's signature: a dark surface lit by an orange and a blue glow. */
+  .brand-glow {
+    background-color: var(--brand);
+    background-image:
+      radial-gradient(60% 55% at 0% 100%, oklch(0.62 0.2 38 / 0.38), transparent 70%),
+      radial-gradient(60% 55% at 100% 100%, oklch(0.58 0.17 248 / 0.4), transparent 70%),
+      radial-gradient(45% 40% at 85% 0%, oklch(0.5 0.13 250 / 0.22), transparent 70%);
+  }
+  /* The website's hero-button border: orange through ember and black into sky. */
+  .brand-gradient {
+    background-image: linear-gradient(163deg, #ff8918 28%, #a22904 54%, #000 68%, #0098f3 100%);
+  }
+  .brand-gradient-soft {
+    background-image: linear-gradient(100deg, #ff8918, #f75834 35%, #0c5a9a 75%, #0098f3);
+  }
+  .text-brand-gradient {
+    background-image: linear-gradient(100deg, #f78f1e, #f75834 40%, #0c5a9a 80%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .dark .text-brand-gradient {
+    background-image: linear-gradient(100deg, #ff9b4a, #f9744f 40%, #3aa7f5 85%);
+  }
+  .shadow-soft {
+    box-shadow: var(--shadow-soft);
+  }
+  .shadow-lift {
+    box-shadow: var(--shadow-lift);
+  }
+  .dark .shadow-soft,
+  .dark .shadow-lift {
+    box-shadow: 0 0 0 1px oklch(1 0 0 / 0.04), 0 8px 24px -8px oklch(0 0 0 / 0.5);
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@keyframes ontriq-rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@utility animate-rise {
+  animation: ontriq-rise 0.5s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-rise {
+    animation: none;
+  }
+}

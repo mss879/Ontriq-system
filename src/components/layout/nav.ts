@@ -1,0 +1,69 @@
+import type { LucideIcon } from "lucide-react";
+import { Briefcase, ClipboardList, FolderKanban, History, Inbox, LayoutDashboard, Settings, UserRound, Users } from "lucide-react";
+import type { Permission } from "@/domain/permissions";
+
+/**
+ * The one navigation config. The sidebar, the command palette and page titles
+ * read it. Items appear as their phase ships; `permission` hides items the
+ * viewer cannot use (pages re-check on the server).
+ */
+export type NavItem = {
+  title: string;
+  href: string;
+  icon: LucideIcon;
+  permission?: Permission;
+  /** Visible with any one of these. */
+  anyOf?: Permission[];
+  keywords?: string[];
+  superAdminOnly?: boolean;
+};
+
+export type NavSection = { label: string; items: NavItem[] };
+
+export const STAFF_NAV: NavSection[] = [
+  {
+    label: "Workspace",
+    items: [
+      { title: "Dashboard", href: "/app", icon: LayoutDashboard, keywords: ["home", "overview"] },
+      { title: "My work", href: "/app/queues", icon: Inbox, anyOf: ["cases.read", "cases.read_assigned", "qc.pre", "qc.post", "checks.data_entry"], keywords: ["queue", "tasks", "assigned", "qc", "pre-qc", "post-qc", "data entry"] },
+      { title: "Cases", href: "/app/cases", icon: FolderKanban, anyOf: ["cases.read", "cases.read_assigned"], keywords: ["verifications", "requests", "board", "kanban"] },
+    ],
+  },
+  {
+    label: "Directory",
+    items: [
+      { title: "Clients", href: "/app/clients", icon: Briefcase, anyOf: ["clients.read", "clients.manage"], keywords: ["companies", "customers", "employers"] },
+      { title: "Candidates", href: "/app/candidates", icon: UserRound, anyOf: ["cases.read", "candidates.manage"], keywords: ["people", "nic", "applicants"] },
+    ],
+  },
+  {
+    label: "Administration",
+    items: [
+      { title: "Team", href: "/app/team", icon: Users, permission: "users.manage", keywords: ["staff", "users", "invite", "roles"] },
+      { title: "Settings", href: "/app/settings", icon: Settings, anyOf: ["settings.manage", "check_types.manage", "packages.manage", "templates.manage", "assignment.configure"], keywords: ["branding", "organisation", "security", "check types", "packages", "templates", "assignment"] },
+      { title: "Audit log", href: "/app/audit", icon: History, permission: "audit.read", keywords: ["history", "changes", "who"] },
+    ],
+  },
+];
+
+/** Settings sub-pages, each gated by its own permission. */
+export const SETTINGS_NAV: NavItem[] = [
+  { title: "Organisation", href: "/app/settings", icon: Settings, permission: "settings.manage" },
+  { title: "Check types", href: "/app/settings/check-types", icon: ClipboardList, permission: "check_types.manage" },
+  { title: "Packages & templates", href: "/app/settings/packages", icon: Briefcase, anyOf: ["packages.manage", "templates.manage"] },
+  { title: "Assignment", href: "/app/settings/assignment", icon: Users, permission: "assignment.configure" },
+];
+
+export function visibleNav(sections: NavSection[], viewer: { permissions: string[]; roleKey: string }): NavSection[] {
+  const canSee = (item: NavItem) => canSeeNavItem(item, viewer);
+  return sections.map((s) => ({ ...s, items: s.items.filter(canSee) })).filter((s) => s.items.length > 0);
+}
+
+export function canSeeNavItem(item: NavItem, viewer: { permissions: string[]; roleKey: string }): boolean {
+  const has = (p: string) => viewer.permissions.includes("*") || viewer.permissions.includes(p);
+  return (
+    (!item.superAdminOnly || viewer.roleKey === "super_admin") &&
+    (!item.permission || has(item.permission)) &&
+    (!item.anyOf || item.anyOf.some(has))
+  );
+}

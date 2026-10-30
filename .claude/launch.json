@@ -1,0 +1,41 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "next-dev",
+      "runtimeExecutable": "/Users/shahidshamir/Developer/ontiq-new/node_modules/.bin/next",
+      "runtimeArgs": [
+        "dev",
+        "/Users/shahidshamir/Developer/ontiq-new",
+        "-p",
+        "3000"
+      ],
+      "port": 3000
+    },
+    {
+      "name": "next-start",
+      "runtimeExecutable": "/Users/shahidshamir/Developer/ontiq-new/node_modules/.bin/next",
+      "runtimeArgs": [
+        "start",
+        "/Users/shahidshamir/Developer/ontiq-new",
+        "-p",
+        "3100"
+      ],
+      "port": 3100,
+      "env": {
+        "APP_ORIGIN": "http://localhost:3100"
+      }
+    },
+    {
+      "name": "live-local",
+      "runtimeExecutable": "/Users/shahidshamir/Developer/ontiq-new/node_modules/.bin/next",
+      "runtimeArgs": [
+        "start",
+        "/Users/shahidshamir/.ontriq/live-app",
+        "-p",
+        "3200"
+      ],
+      "port": 3200
+    }
+  ]
+}

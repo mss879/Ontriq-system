@@ -1,0 +1,26 @@
+# Netlify builds Next.js with its OpenNext-based adapter automatically.
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "22"
+  NEXT_TELEMETRY_DISABLED = "1"
+
+[functions]
+  node_bundler = "esbuild"
+
+# Background worker (15-minute budget): AI jobs, PDF rendering, email.
+[functions."jobs-worker-background"]
+  included_files = ["src/jobs/fonts/**"]
+  external_node_modules = ["@react-pdf/renderer"]
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(self), microphone=(self), geolocation=()"
+    Strict-Transport-Security = "max-age=63072000; includeSubDomains"
+    X-Robots-Tag = "noindex, nofollow"

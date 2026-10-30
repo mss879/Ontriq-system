@@ -1,0 +1,1757 @@
+/**
+ * End-to-end simulation of every live feature against a real Supabase project.
+ *
+ *   npm run simulate                         # the hosted project in .env.hosted
+ *   npm run simulate -- --env .env.staging   # any other real Supabase project
+ *   npm run simulate -- --report docs/verification/simulation.md
+ *   npm run simulate -- --keep               # leave the data for inspection
+ *   npm run simulate -- --env .env.hosted --app http://localhost:3200
+ *                                            # also drive a running build of the app
+ *
+ * It creates a throwaway person for every designation, two client companies
+ * and supporting rows, all tagged with a run id. Everyone signs in for real
+ * (staff with a TOTP second factor), then it checks what each role can and
+ * cannot see or change, walks the invitation, recovery and magic-link flows,
+ * runs the real job worker, exercises storage, live updates, numbering, the AI
+ * cost ledger and the audit trail, and finally deletes everything it made.
+ * Exit code 1 when any check fails.
+ */
+import { randomBytes } from "node:crypto";
+import { writeFileSync, mkdirSync } from "node:fs";
+import { dirname } from "node:path";
+import { loadEnvFile } from "node:process";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "../src/lib/supabase/database.types";
+import { totp } from "./local-stack/totp";
+import { parseNic } from "../src/domain/nic-core";
+import { parseCheckTypeSchema } from "../src/domain/check-types/schema";
+import { validateCheckValues } from "../src/domain/check-types/validate";
+
+type DB = SupabaseClient<Database>;
+type RoleKey =
+  | "super_admin"
+  | "admin"
+  | "operations_manager"
+  | "client_relations"
+  | "qc_officer"
+  | "verification_officer"
+  | "data_entry_officer"
+  | "viewer"
+  | "client_admin"
+  | "client_user"
+  | "client_viewer";
+
+type Person = {
+  label: string;
+  role: RoleKey;
+  kind: "staff" | "client";
+  company?: "A" | "B";
+  email: string;
+  password: string;
+  id: string;
+  db: DB;
+  membershipId?: string;
+};
+
+const ORG_ID = "00000000-0000-4000-8000-000000000001";
+
+function arg(name: string): string | undefined {
+  const i = process.argv.indexOf(`--${name}`);
+  return i >= 0 ? process.argv[i + 1] : undefined;
+}
+
+// ---------------------------------------------------------------- results
+
+type Result = { area: string; name: string; ok: boolean; detail?: string };
+const results: Result[] = [];
+let area = "";
+
+function section(name: string) {
+  area = name;
+  console.log(`\n${name}`);
+}
+
+/** A check passes when it returns true or nothing; a string is the failure reason. */
+async function check(name: string, fn: () => Promise<boolean | string | void> | boolean | string | void) {
+  try {
+    const r = await fn();
+    const ok = r === undefined || r === true;
+    const detail = typeof r === "string" ? r : ok ? undefined : "returned false";
+    results.push({ area, name, ok, detail });
+    console.log(`  ${ok ? "✓" : "✗"} ${name}${ok ? "" : ` — ${detail}`}`);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    results.push({ area, name, ok: false, detail });
+    console.log(`  ✗ ${name} — ${detail}`);
+  }
+}
+
+const expectEq = (actual: unknown, expected: unknown, what = "value") =>
+  JSON.stringify(actual) === JSON.stringify(expected) ? true : `${what} was ${JSON.stringify(actual)}, expected ${JSON.stringify(expected)}`;
+
+type Res = { error: { code?: string; message: string } | null; data?: unknown };
+/** Refused by the database: a permission error, or a write that matched no rows. */
+function refused(res: Res): true | string {
+  if (res.error) return ["42501", "P0001", "PGRST301"].includes(res.error.code ?? "") || /permission|not allowed|row-level security/i.test(res.error.message) ? true : `unexpected error ${res.error.code}: ${res.error.message}`;
+  if (Array.isArray(res.data) && res.data.length === 0) return true;
+  if (res.data === null) return true;
+  return "the action was allowed";
+}
+function allowed(res: Res): true | string {
+  if (res.error) return `${res.error.code ?? ""} ${res.error.message}`.trim();
+  if (Array.isArray(res.data) && res.data.length === 0) return "no rows were affected";
+  return true;
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const jwtPayload = (token: string) => JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString()) as Record<string, unknown>;
+const jwtHeader = (token: string) => JSON.parse(Buffer.from(token.split(".")[0], "base64url").toString()) as Record<string, unknown>;
+const strongPassword = () => `${randomBytes(12).toString("base64url")}Aa1!`;
+
+async function main() {
+  // Needs a real Supabase project: the local stand-in has no realtime or storage.
+  const envFile = arg("env") ?? ".env.hosted";
+  loadEnvFile(envFile);
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const publishable = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const secret = process.env.SUPABASE_SECRET_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !publishable || !secret) throw new Error(`${envFile} needs NEXT_PUBLIC_SUPABASE_URL, the publishable key and SUPABASE_SECRET_KEY.`);
+  const { drainJobs } = await import("../src/jobs/run-job");
+
+  const RUN = Date.now().toString(36).slice(-6);
+  const TAG = `SIM-${RUN.toUpperCase()}`;
+  const domain = arg("domain") ?? "sim.ontriq.test";
+  const keep = process.argv.includes("--keep");
+  const opts = { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } } as const;
+  const service: DB = createClient<Database>(url, secret, opts);
+  const anon = (): DB => createClient<Database>(url, publishable, opts);
+  const startedAt = new Date();
+
+  console.log(`Ontriq CRM simulation ${TAG} against ${new URL(url).host} (${envFile})`);
+
+  // Everything created, for clean-up.
+  const made = {
+    users: [] as string[],
+    clients: [] as string[],
+    roles: [] as string[],
+    invitations: [] as string[],
+    jobs: [] as string[],
+    outbox: [] as string[],
+    aiRuns: [] as string[],
+    objects: [] as { bucket: string; path: string }[],
+    entityIds: [] as string[],
+    cases: [] as string[],
+    candidates: [] as string[],
+    checkTypes: [] as string[],
+  };
+
+  const { data: roleRows, error: roleError } = await service.from("roles").select("id, key, kind").eq("org_id", ORG_ID);
+  if (roleError || !roleRows?.length) throw new Error(`cannot read roles: ${roleError?.message ?? "none"}`);
+  const roleId = (key: string) => {
+    const r = roleRows.find((x) => x.key === key);
+    if (!r) throw new Error(`role ${key} missing`);
+    return r.id;
+  };
+  const { data: org } = await service.from("orgs").select("name, mfa_required_for_staff").eq("id", ORG_ID).single();
+  if (!org) throw new Error("Ontriq org row missing");
+
+  // ---------------------------------------------------------------- people
+
+  async function createPerson(label: string, role: RoleKey, company?: "A" | "B"): Promise<Person> {
+    const kind = (["client_admin", "client_user", "client_viewer"] as RoleKey[]).includes(role) ? "client" : "staff";
+    const email = `sim-${RUN}-${label}@${domain}`.toLowerCase();
+    const password = strongPassword();
+    const { data, error } = await service.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { full_name: `Sim ${label}` },
+      app_metadata: { kind, org_id: ORG_ID },
+    });
+    if (error || !data.user) throw new Error(`createUser ${label}: ${error?.message}`);
+    made.users.push(data.user.id);
+    return { label, role, kind, company, email, password, id: data.user.id, db: anon() };
+  }
+
+  async function signIn(p: Person) {
+    const { error } = await p.db.auth.signInWithPassword({ email: p.email, password: p.password });
+    if (error) throw new Error(`sign-in ${p.label}: ${error.message}`);
+  }
+
+  async function enrollTotp(p: Person) {
+    const { data, error } = await p.db.auth.mfa.enroll({ factorType: "totp", friendlyName: `sim-${RUN}` });
+    if (error || !data) throw new Error(`enrol ${p.label}: ${error?.message}`);
+    const verify = await p.db.auth.mfa.challengeAndVerify({ factorId: data.id, code: totp(data.totp.secret) });
+    if (verify.error) throw new Error(`verify ${p.label}: ${verify.error.message}`);
+    return { factorId: data.id, secret: data.totp.secret };
+  }
+
+  const token = async (p: Person) => (await p.db.auth.getSession()).data.session?.access_token ?? "";
+
+  section("Setting up a throwaway team and two client companies");
+
+  const superAdmin = await createPerson("super", "super_admin");
+  const admin = await createPerson("admin", "admin");
+  for (const p of [superAdmin, admin]) {
+    // The bootstrap path: the service creates the first active staff.
+    const { data, error } = await service
+      .from("memberships")
+      .insert({ org_id: ORG_ID, user_id: p.id, kind: "staff", role_id: roleId(p.role), status: "active" })
+      .select("id")
+      .single();
+    if (error) throw new Error(`membership ${p.label}: ${error.message}`);
+    p.membershipId = data.id;
+    made.entityIds.push(data.id);
+    await signIn(p);
+    await enrollTotp(p);
+  }
+
+  let clientA = "";
+  let clientB = "";
+  await check("Admin creates two client companies", async () => {
+    const res = await admin.db
+      .from("clients")
+      .insert([
+        { org_id: ORG_ID, name: `${TAG} Alpha Holdings`, code: `${TAG}-A` },
+        { org_id: ORG_ID, name: `${TAG} Beta Finance`, code: `${TAG}-B` },
+      ])
+      .select("id, code");
+    if (res.error) return res.error.message;
+    clientA = res.data.find((c) => c.code.endsWith("-A"))!.id;
+    clientB = res.data.find((c) => c.code.endsWith("-B"))!.id;
+    made.clients.push(clientA, clientB);
+    made.entityIds.push(clientA, clientB);
+  });
+  if (!clientA || !clientB) throw new Error("cannot continue without client companies");
+
+  await check("Client settings are created automatically", async () => {
+    const { data } = await service.from("client_settings").select("client_id").in("client_id", [clientA, clientB]);
+    return expectEq(data?.length, 2, "settings rows");
+  });
+
+  await check("Admin adds a contact to each company", async () => {
+    const res = await admin.db
+      .from("client_contacts")
+      .insert([
+        { org_id: ORG_ID, client_id: clientA, name: "Alpha HR Lead", email: `hr-a-${RUN}@${domain}`, is_primary: true },
+        { org_id: ORG_ID, client_id: clientB, name: "Beta HR Lead", email: `hr-b-${RUN}@${domain}`, is_primary: true },
+      ])
+      .select("id");
+    if (res.error) return res.error.message;
+    made.entityIds.push(...res.data.map((r) => r.id));
+  });
+
+  const team: Person[] = [
+    await createPerson("ops", "operations_manager"),
+    await createPerson("relations", "client_relations"),
+    await createPerson("qc", "qc_officer"),
+    await createPerson("verifier", "verification_officer"),
+    await createPerson("dataentry", "data_entry_officer"),
+    await createPerson("viewer", "viewer"),
+    await createPerson("alpha-admin", "client_admin", "A"),
+    await createPerson("alpha-user", "client_user", "A"),
+    await createPerson("alpha-viewer", "client_viewer", "A"),
+    await createPerson("beta-user", "client_user", "B"),
+  ];
+  const by = (label: string) => [superAdmin, admin, ...team].find((p) => p.label === label)!;
+  const ops = by("ops");
+  const viewer = by("viewer");
+  const alphaAdmin = by("alpha-admin");
+  const alphaUser = by("alpha-user");
+  const betaUser = by("beta-user");
+
+  await check("Admin adds every designation to the team as an invitation", async () => {
+    const res = await admin.db
+      .from("memberships")
+      .insert(
+        team.map((p) => ({
+          org_id: ORG_ID,
+          user_id: p.id,
+          kind: p.kind,
+          client_id: p.company === "A" ? clientA : p.company === "B" ? clientB : null,
+          role_id: roleId(p.role),
+          status: "invited" as const,
+          invited_by: admin.id,
+          invited_at: new Date().toISOString(),
+        })),
+      )
+      .select("id, user_id");
+    if (res.error) return res.error.message;
+    for (const row of res.data) {
+      const p = team.find((t) => t.id === row.user_id)!;
+      p.membershipId = row.id;
+      made.entityIds.push(row.id);
+    }
+    return expectEq(res.data.length, team.length, "memberships");
+  });
+
+  // ---------------------------------------------------------------- authentication
+
+  section("Authentication and two-step verification");
+
+  await check("Everyone signs in with their password", async () => {
+    for (const p of team) await signIn(p);
+  });
+
+  await check("An invited person has no access until they accept", async () => {
+    const { data } = await alphaUser.db.from("clients").select("id");
+    return expectEq(data?.length ?? 0, 0, "visible clients");
+  });
+
+  await check("Everyone accepts their invitation", async () => {
+    for (const p of team) {
+      const { data, error } = await p.db.rpc("accept_my_invitation");
+      if (error || data !== true) return `${p.label}: ${error?.message ?? data}`;
+    }
+  });
+
+  // Two-step for staff is an org setting (Settings → Security); the checks follow it.
+  const mfaOn = org.mfa_required_for_staff;
+  await check(mfaOn ? "Staff without a second factor see no data" : "Two-step is off: staff work without a code", async () => {
+    const { data: m } = await ops.db.rpc("my_membership");
+    const { data } = await ops.db.from("clients").select("id").in("id", [clientA, clientB]);
+    const flagged = (m as { mfa_required?: boolean } | null)?.mfa_required === true;
+    if (flagged !== mfaOn) return `my_membership says mfa_required=${flagged}, the org setting is ${mfaOn}`;
+    return expectEq(data?.length ?? 0, mfaOn ? 0 : 2, "clients visible at aal1");
+  });
+
+  await check("A wrong authenticator code is rejected", async () => {
+    const { data, error } = await viewer.db.auth.mfa.enroll({ factorType: "totp", friendlyName: `sim-wrong-${RUN}` });
+    if (error || !data) return error?.message ?? "enrol failed";
+    const bad = String((Number(totp(data.totp.secret)) + 1) % 1_000_000).padStart(6, "0");
+    const res = await viewer.db.auth.mfa.challengeAndVerify({ factorId: data.id, code: bad });
+    await viewer.db.auth.mfa.unenroll({ factorId: data.id });
+    return res.error ? true : "a wrong code was accepted";
+  });
+
+  await check("Every staff member enrols an authenticator and reaches aal2", async () => {
+    for (const p of team.filter((t) => t.kind === "staff")) {
+      await enrollTotp(p);
+      const claims = jwtPayload(await token(p));
+      if (claims.aal !== "aal2") return `${p.label} is at ${String(claims.aal)}`;
+    }
+  });
+
+  await check("Tokens carry the routing kind the proxy relies on", async () => {
+    const staffKind = (jwtPayload(await token(ops)).app_metadata as { kind?: string })?.kind;
+    const clientKind = (jwtPayload(await token(alphaUser)).app_metadata as { kind?: string })?.kind;
+    return expectEq([staffKind, clientKind], ["staff", "client"], "kinds");
+  });
+
+  await check("Tokens verify through getClaims", async () => {
+    const { data, error } = await ops.db.auth.getClaims();
+    if (error || !data) return error?.message ?? "no claims";
+    return expectEq(data.claims.sub, ops.id, "sub");
+  });
+
+  let jwtAlg = "";
+  await check("JWT signing algorithm recorded", async () => {
+    jwtAlg = String(jwtHeader(await token(ops)).alg);
+  });
+
+  await check("Public sign-up is turned off", async () => {
+    const res = await anon().auth.signUp({ email: `sim-${RUN}-stranger@${domain}`, password: strongPassword() });
+    if (res.data.user) made.users.push(res.data.user.id);
+    return res.error ? true : "a stranger could sign up";
+  });
+
+  await check("A wrong password is rejected", async () => {
+    const res = await anon().auth.signInWithPassword({ email: alphaUser.email, password: "Wrong-password-123" });
+    return res.error ? true : "signed in with a wrong password";
+  });
+
+  await check("Passwords shorter than 10 characters are refused", async () => {
+    const res = await by("alpha-viewer").db.auth.updateUser({ password: "Short1!a" });
+    return res.error ? true : "a 8-character password was accepted";
+  });
+
+  // The app's own invitation flow: invite link → /auth/confirm → set password → accept → MFA.
+  const invitee: Person = { label: "invitee", role: "viewer", kind: "staff", email: `sim-${RUN}-invitee@${domain}`, password: strongPassword(), id: "", db: anon() };
+  await check("Team invite: setup link, set password, accept, enrol, then access", async () => {
+    const link = await service.auth.admin.generateLink({ type: "invite", email: invitee.email, options: { data: { full_name: "Sim Invitee" } } });
+    if (link.error) return `generateLink: ${link.error.message}`;
+    invitee.id = link.data.user.id;
+    made.users.push(invitee.id);
+    await service.auth.admin.updateUserById(invitee.id, { app_metadata: { kind: "staff", org_id: ORG_ID } });
+    const m = await admin.db
+      .from("memberships")
+      .insert({ org_id: ORG_ID, user_id: invitee.id, kind: "staff", role_id: roleId("viewer"), status: "invited", invited_by: admin.id, invited_at: new Date().toISOString() })
+      .select("id")
+      .single();
+    if (m.error) return `membership: ${m.error.message}`;
+    invitee.membershipId = m.data.id;
+    made.entityIds.push(m.data.id);
+    const inv = await admin.db
+      .from("invitations")
+      .insert({ org_id: ORG_ID, email: invitee.email, full_name: "Sim Invitee", kind: "staff", role_id: roleId("viewer"), auth_user_id: invitee.id, invited_by: admin.id })
+      .select("id")
+      .single();
+    if (inv.error) return `invitation: ${inv.error.message}`;
+    made.invitations.push(inv.data.id);
+    made.entityIds.push(inv.data.id);
+
+    const otp = await invitee.db.auth.verifyOtp({ token_hash: link.data.properties.hashed_token, type: "invite" });
+    if (otp.error) return `verifyOtp: ${otp.error.message}`;
+    const pw = await invitee.db.auth.updateUser({ password: invitee.password });
+    if (pw.error) return `set password: ${pw.error.message}`;
+    const accepted = await invitee.db.rpc("accept_my_invitation");
+    if (accepted.error || accepted.data !== true) return `accept: ${accepted.error?.message ?? accepted.data}`;
+    const before = await invitee.db.from("clients").select("id").in("id", [clientA, clientB]);
+    if (mfaOn && (before.data?.length ?? 0) !== 0) return "saw clients before enrolling a second factor";
+    await enrollTotp(invitee);
+    const after = await invitee.db.from("clients").select("id").in("id", [clientA, clientB]);
+    return expectEq(after.data?.length, 2, "clients visible after MFA");
+  });
+
+  await check("Re-inviting an existing person falls back to a magic link", async () => {
+    const again = await service.auth.admin.generateLink({ type: "invite", email: invitee.email });
+    if (!again.error) return "a second invite link was issued for an existing user";
+    const magic = await service.auth.admin.generateLink({ type: "magiclink", email: invitee.email });
+    if (magic.error) return `magiclink: ${magic.error.message}`;
+    const otp = await anon().auth.verifyOtp({ token_hash: magic.data.properties.hashed_token, type: "magiclink" });
+    return otp.error ? `verifyOtp: ${otp.error.message}` : true;
+  });
+
+  await check("Password recovery link resets the password", async () => {
+    const link = await service.auth.admin.generateLink({ type: "recovery", email: betaUser.email });
+    if (link.error) return `generateLink: ${link.error.message}`;
+    const db = anon();
+    const otp = await db.auth.verifyOtp({ token_hash: link.data.properties.hashed_token, type: "recovery" });
+    if (otp.error) return `verifyOtp: ${otp.error.message}`;
+    const fresh = strongPassword();
+    const upd = await db.auth.updateUser({ password: fresh });
+    if (upd.error) return `update: ${upd.error.message}`;
+    const old = await anon().auth.signInWithPassword({ email: betaUser.email, password: betaUser.password });
+    if (!old.error) return "the old password still works";
+    betaUser.password = fresh;
+    const relog = await betaUser.db.auth.signInWithPassword({ email: betaUser.email, password: fresh });
+    return relog.error ? `new password: ${relog.error.message}` : true;
+  });
+
+  // ---------------------------------------------------------------- role matrix
+
+  section("Role-based access: what every designation can see and do");
+
+  // Background rows the matrix probes.
+  const outbox = await service.rpc("queue_email", { p_to: [`sim-${RUN}-outbox@${domain}`], p_subject: `${TAG} outbox`, p_html: "<p>Simulation</p>", p_text: "Simulation", p_template_key: "sim", p_payload: {} });
+  if (outbox.error || !outbox.data) throw new Error(`queue_email: ${outbox.error?.message}`);
+  const outboxId = outbox.data as string;
+  made.outbox.push(outboxId);
+  const { data: emailJob } = await service.from("jobs").select("id").eq("idempotency_key", `email.send:${outboxId}`).single();
+  if (emailJob) made.jobs.push(emailJob.id);
+  const aiRun = await service
+    .from("ai_runs")
+    .insert({ org_id: ORG_ID, capability: `sim.${RUN}`, model: "claude-haiku-5-5", input_tokens: 1_000_000, output_tokens: 1_000_000 })
+    .select("id, cost_usd")
+    .single();
+  if (aiRun.error) throw new Error(`ai_runs: ${aiRun.error.message}`);
+  made.aiRuns.push(aiRun.data.id);
+
+  const everyone = [superAdmin, admin, ...team];
+  const has = (p: Person, ...roles: RoleKey[]) => roles.includes(p.role);
+  const own = (p: Person) => (p.company === "A" ? clientA : clientB);
+
+  type Probe = { name: string; expect: (p: Person) => unknown; run: (p: Person) => Promise<unknown> };
+  const probes: Probe[] = [
+    {
+      name: "client companies visible",
+      expect: (p) => (p.kind === "client" ? 1 : has(p, "super_admin", "admin", "operations_manager", "client_relations", "qc_officer", "viewer") ? 2 : 0),
+      run: async (p) => (await p.db.from("clients").select("id").in("id", [clientA, clientB])).data?.length ?? 0,
+    },
+    {
+      name: "client contacts visible",
+      expect: (p) => (p.kind === "client" ? 1 : has(p, "super_admin", "admin", "operations_manager", "client_relations", "viewer") ? 2 : 0),
+      run: async (p) => (await p.db.from("client_contacts").select("id").in("client_id", [clientA, clientB])).data?.length ?? 0,
+    },
+    {
+      name: "sees only their own company",
+      expect: (p) => (p.kind === "client" ? true : "n/a"),
+      run: async (p) => {
+        if (p.kind !== "client") return "n/a";
+        const { data } = await p.db.from("clients").select("id");
+        return (data ?? []).every((c) => c.id === own(p)) && (data?.length ?? 0) === 1;
+      },
+    },
+    {
+      name: "can create a client",
+      expect: (p) => has(p, "super_admin", "admin", "client_relations"),
+      run: async (p) => {
+        const res = await p.db.from("clients").insert({ org_id: ORG_ID, name: `${TAG} ${p.label} Co`, code: `${TAG}-X-${p.label}`.toUpperCase().slice(0, 40) }).select("id");
+        if (res.data?.length) {
+          made.clients.push(res.data[0].id);
+          made.entityIds.push(res.data[0].id);
+        }
+        return allowed(res) === true;
+      },
+    },
+    {
+      name: "can edit a client",
+      expect: (p) => has(p, "super_admin", "admin", "client_relations"),
+      run: async (p) => allowed(await p.db.from("clients").update({ industry: `Sim ${p.label}` }).eq("id", clientA).select("id")) === true,
+    },
+    {
+      name: "reads the audit log",
+      expect: (p) => has(p, "super_admin", "admin", "operations_manager"),
+      run: async (p) => ((await p.db.from("audit_log").select("id").eq("row_id", clientA)).data?.length ?? 0) > 0,
+    },
+    {
+      name: "reads background jobs",
+      expect: (p) => has(p, "super_admin", "admin", "operations_manager"),
+      run: async (p) => ((await p.db.from("jobs").select("id").eq("id", emailJob?.id ?? "")).data?.length ?? 0) > 0,
+    },
+    {
+      name: "reads the email outbox",
+      expect: (p) => has(p, "super_admin", "admin", "operations_manager"),
+      run: async (p) => ((await p.db.from("email_outbox").select("id").eq("id", outboxId)).data?.length ?? 0) > 0,
+    },
+    {
+      name: "reads queue depth",
+      expect: (p) => p.kind === "staff",
+      run: async (p) => !(await p.db.rpc("queue_depth")).error,
+    },
+    {
+      name: "reads the AI cost ledger",
+      expect: (p) => has(p, "super_admin", "admin"),
+      run: async (p) => ((await p.db.from("ai_runs").select("id").eq("id", aiRun.data.id)).data?.length ?? 0) > 0,
+    },
+    {
+      name: "gets AI cost totals",
+      expect: (p) => has(p, "super_admin", "admin"),
+      run: async (p) => {
+        const res = await p.db.rpc("ai_cost_summary", { p_from: new Date(Date.now() - 3600_000).toISOString(), p_to: new Date(Date.now() + 3600_000).toISOString(), p_group: "capability" });
+        return (res.data ?? []).some((r) => r.group_key === `sim.${RUN}`);
+      },
+    },
+    {
+      name: "sees staff designations",
+      expect: (p) => p.kind === "staff",
+      run: async (p) => ((await p.db.from("roles").select("id").eq("kind", "staff")).data?.length ?? 0) > 0,
+    },
+    {
+      name: "sees team members",
+      expect: (p) => (p.kind === "staff" ? team.length + 2 : p.company === "A" ? 3 : 1),
+      run: async (p) => (await p.db.from("memberships").select("id").in("user_id", everyone.map((x) => x.id))).data?.length ?? 0,
+    },
+    {
+      name: "can invite a staff member",
+      expect: (p) => has(p, "super_admin", "admin"),
+      run: async (p) => {
+        const res = await p.db
+          .from("invitations")
+          .insert({ org_id: ORG_ID, email: `sim-${RUN}-inv-${p.label}@${domain}`, kind: "staff", role_id: roleId("viewer"), invited_by: p.id })
+          .select("id");
+        if (res.data?.length) made.invitations.push(res.data[0].id);
+        return allowed(res) === true;
+      },
+    },
+    {
+      name: "can invite into their own company",
+      expect: (p) => (p.kind === "client" ? p.role === "client_admin" : "n/a"),
+      run: async (p) => {
+        if (p.kind !== "client") return "n/a";
+        const res = await p.db
+          .from("invitations")
+          .insert({ org_id: ORG_ID, email: `sim-${RUN}-colleague-${p.label}@${domain}`, kind: "client", client_id: own(p), role_id: roleId("client_user"), invited_by: p.id })
+          .select("id");
+        if (res.data?.length) made.invitations.push(res.data[0].id);
+        return allowed(res) === true;
+      },
+    },
+    {
+      name: "can create a designation",
+      expect: (p) => has(p, "super_admin", "admin"),
+      run: async (p) => {
+        const res = await p.db.from("roles").insert({ org_id: ORG_ID, key: `sim_${RUN}_${p.label.replace(/-/g, "_")}`, name: `Sim ${p.label}`, kind: "staff" }).select("id");
+        if (res.data?.length) made.roles.push(res.data[0].id);
+        return allowed(res) === true;
+      },
+    },
+    {
+      name: "can change organisation settings",
+      expect: (p) => has(p, "super_admin", "admin"),
+      run: async (p) => allowed(await p.db.from("orgs").update({ name: org.name }).eq("id", ORG_ID).select("id")) === true,
+    },
+    {
+      name: "can suggest client codes",
+      expect: (p) => has(p, "super_admin", "admin", "operations_manager", "client_relations", "viewer"),
+      run: async (p) => !(await p.db.rpc("suggest_client_code", { p_name: "Probe Holdings" })).error,
+    },
+    {
+      name: "cannot draw a document number",
+      expect: () => true,
+      run: async (p) => refused(await p.db.rpc("next_document_number", { p_kind: "invoice" })) === true,
+    },
+    {
+      name: "cannot write the audit log",
+      expect: () => true,
+      run: async (p) =>
+        refused(await p.db.from("audit_log").insert({ org_id: ORG_ID, table_name: "clients", row_id: clientA, op: "UPDATE" } as never).select("id")) === true,
+    },
+    {
+      name: "cannot write jobs directly",
+      expect: () => true,
+      run: async (p) => refused(await p.db.from("jobs").insert({ org_id: ORG_ID, kind: "email.send", payload: {} } as never).select("id")) === true,
+    },
+  ];
+
+  for (const p of everyone) {
+    const mismatches: string[] = [];
+    for (const probe of probes) {
+      const want = probe.expect(p);
+      if (want === "n/a") continue;
+      const got = await probe.run(p);
+      if (JSON.stringify(got) !== JSON.stringify(want)) mismatches.push(`${probe.name}: got ${JSON.stringify(got)}, expected ${JSON.stringify(want)}`);
+    }
+    const applicable = probes.filter((x) => x.expect(p) !== "n/a").length;
+    const who = p.kind === "client" ? `${p.role.replace(/_/g, " ")}, company ${p.company}` : p.role.replace(/_/g, " ");
+    await check(`${who[0].toUpperCase()}${who.slice(1)} (${applicable} rules)`, () => (mismatches.length ? mismatches.join("; ") : true));
+  }
+
+  // ---------------------------------------------------------------- guards
+
+  section("Escalation guards and instant revocation");
+
+  await check("Nobody can change their own designation", async () => {
+    for (const p of [admin, viewer]) {
+      const r = refused(await p.db.from("memberships").update({ role_id: roleId("super_admin") }).eq("id", p.membershipId!).select("id"));
+      if (r !== true) return `${p.label}: ${r}`;
+    }
+  });
+
+  await check("An admin cannot make someone a Super Admin", async () =>
+    refused(await admin.db.from("memberships").update({ role_id: roleId("super_admin") }).eq("id", viewer.membershipId!).select("id")),
+  );
+
+  await check("A designation change takes effect on the next request", async () => {
+    const moved = await admin.db.from("memberships").update({ role_id: roleId("verification_officer") }).eq("id", viewer.membershipId!).select("id");
+    if (moved.error) return moved.error.message;
+    const during = (await viewer.db.from("clients").select("id").in("id", [clientA, clientB])).data?.length ?? 0;
+    await admin.db.from("memberships").update({ role_id: roleId("viewer") }).eq("id", viewer.membershipId!);
+    const after = (await viewer.db.from("clients").select("id").in("id", [clientA, clientB])).data?.length ?? 0;
+    return expectEq([during, after], [0, 2], "clients visible while moved, then restored");
+  });
+
+  await check("Suspending someone cuts access immediately", async () => {
+    await admin.db.from("memberships").update({ status: "suspended" }).eq("id", viewer.membershipId!);
+    const during = (await viewer.db.from("clients").select("id").in("id", [clientA, clientB])).data?.length ?? 0;
+    await admin.db.from("memberships").update({ status: "active" }).eq("id", viewer.membershipId!);
+    const after = (await viewer.db.from("clients").select("id").in("id", [clientA, clientB])).data?.length ?? 0;
+    return expectEq([during, after], [0, 2], "clients visible while suspended, then restored");
+  });
+
+  await check("The command assistant permission cannot be granted", async () => {
+    const custom = made.roles[0];
+    if (!custom) return "no custom designation to test with";
+    return refused(await admin.db.from("role_permissions").insert({ role_id: custom, permission: "ai.super_assistant" }).select("role_id"));
+  });
+
+  await check("Portal permissions cannot be given to staff designations", async () => {
+    const custom = made.roles[0];
+    if (!custom) return "no custom designation to test with";
+    return refused(await admin.db.from("role_permissions").insert({ role_id: custom, permission: "portal.quotes.accept" }).select("role_id"));
+  });
+
+  await check("Custom designations accept catalogue permissions", async () => {
+    const custom = made.roles[0];
+    if (!custom) return "no custom designation to test with";
+    return allowed(await admin.db.from("role_permissions").insert({ role_id: custom, permission: "checks.verify" }).select("role_id"));
+  });
+
+  await check("The Super Admin designation cannot be edited", async () =>
+    refused(await admin.db.from("role_permissions").delete().eq("role_id", roleId("super_admin")).select("role_id")),
+  );
+
+  await check("A client admin cannot invite into another company", async () =>
+    refused(
+      await alphaAdmin.db
+        .from("invitations")
+        .insert({ org_id: ORG_ID, email: `sim-${RUN}-spy@${domain}`, kind: "client", client_id: clientB, role_id: roleId("client_user"), invited_by: alphaAdmin.id })
+        .select("id"),
+    ),
+  );
+
+  await check("A client user cannot read another company's contacts", async () =>
+    expectEq((await betaUser.db.from("client_contacts").select("id").eq("client_id", clientA)).data?.length ?? 0, 0, "contacts"),
+  );
+
+  await check("A client user cannot probe client codes", async () => refused(await alphaUser.db.rpc("suggest_client_code", { p_name: "Beta Finance" })));
+
+  // ---------------------------------------------------------------- anonymous
+
+  section("Anonymous visitors (no session)");
+  const stranger = anon();
+  await check("See no clients", async () => expectEq((await stranger.from("clients").select("id")).data?.length ?? 0, 0, "rows"));
+  await check("See no audit entries", async () => expectEq((await stranger.from("audit_log").select("id")).data?.length ?? 0, 0, "rows"));
+  await check("See no team members", async () => expectEq((await stranger.from("memberships").select("id")).data?.length ?? 0, 0, "rows"));
+  await check("Cannot call access helpers", async () => refused(await stranger.rpc("is_staff")));
+  await check("Cannot read queue depth", async () => refused(await stranger.rpc("queue_depth")));
+  await check("Cannot accept invitations", async () => refused(await stranger.rpc("accept_my_invitation")));
+
+  // ---------------------------------------------------------------- jobs
+
+  section("Background jobs and the email outbox (real worker code)");
+
+  let unknownJob = "";
+  await check("Email is queued with its delivery job in one step", async () => (emailJob ? true : "no email.send job was created"));
+
+  await check("Jobs of an unknown kind are accepted for dead-lettering", async () => {
+    const res = await service.rpc("enqueue_job", { p_kind: `sim.unknown`, p_payload: {}, p_idempotency_key: `sim:${RUN}:unknown`, p_max_attempts: 1 });
+    if (res.error) return `enqueue_job: ${res.error.message}`;
+    unknownJob = res.data as string;
+    made.jobs.push(unknownJob);
+  });
+
+  await check("The worker drains the queue", async () => {
+    const r = await drainJobs({ budgetMs: 60_000, reserveMs: 0, maxJobs: 25, workerId: `sim-${RUN}`, admin: service });
+    return r.processed >= 2 ? true : `processed ${r.processed}`;
+  });
+
+  await check("The email job succeeded and the outbox row was settled", async () => {
+    const { data: job } = await service.from("jobs").select("status").eq("id", emailJob?.id ?? "").single();
+    const { data: mail } = await service.from("email_outbox").select("status").eq("id", outboxId).single();
+    const expected = process.env.RESEND_API_KEY ? "sent" : "skipped";
+    return expectEq([job?.status, mail?.status], ["succeeded", expected], "job and outbox status");
+  });
+
+  await check("A job with no handler is dead-lettered with a reason", async () => {
+    const { data } = await service.from("jobs").select("status, last_error").eq("id", unknownJob).single();
+    if (data?.status !== "dead") return `status ${data?.status}`;
+    return /no handler/.test(data.last_error ?? "") ? true : `reason "${data.last_error}"`;
+  });
+
+  await check("A viewer cannot retry a job", async () => refused(await viewer.db.rpc("retry_job", { p_id: unknownJob })));
+
+  await check("An operations manager can retry a dead job", async () => {
+    const res = await ops.db.rpc("retry_job", { p_id: unknownJob });
+    if (res.error || res.data !== true) return res.error?.message ?? `returned ${res.data}`;
+    const { data } = await service.from("jobs").select("status").eq("id", unknownJob).single();
+    await service.from("jobs").update({ status: "cancelled" }).eq("id", unknownJob);
+    return expectEq(data?.status, "queued", "status after retry");
+  });
+
+  await check("The sweeper runs", async () => {
+    const res = await service.rpc("sweep_jobs");
+    return res.error ? res.error.message : true;
+  });
+
+  // ---------------------------------------------------------------- notifications + realtime
+
+  section("Notifications and live updates");
+
+  await check("A notification arrives live for its owner only", async () => {
+    const received: string[] = [];
+    const leaked: string[] = [];
+    // Realtime confirms with a system message once the database listener is attached; SUBSCRIBED alone can come first.
+    const ready = { own: false, spy: false };
+    const system: string[] = [];
+    const onSystem = (who: keyof typeof ready) => (m: { message?: string; status?: string }) => {
+      system.push(`${who}: ${m.status ?? ""} ${m.message ?? ""}`.trim());
+      if (/Subscribed to PostgreSQL/i.test(m.message ?? "")) ready[who] = true;
+    };
+    const mine = viewer.db
+      .channel(`sim-${RUN}-own`)
+      .on("system", {}, onSystem("own"))
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${viewer.id}` }, (m) => received.push(String((m.new as { title?: string }).title)));
+    const spy = alphaUser.db
+      .channel(`sim-${RUN}-spy`)
+      .on("system", {}, onSystem("spy"))
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${viewer.id}` }, (m) => leaked.push(String((m.new as { title?: string }).title)));
+    viewer.db.realtime.setAuth(await token(viewer));
+    alphaUser.db.realtime.setAuth(await token(alphaUser));
+    const subscribed = async (ch: ReturnType<DB["channel"]>) =>
+      new Promise<string>((resolve) => {
+        const t = setTimeout(() => resolve("TIMED_OUT"), 15_000);
+        ch.subscribe((status) => {
+          if (status === "SUBSCRIBED" || status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
+            clearTimeout(t);
+            resolve(status);
+          }
+        });
+      });
+    const [a, b] = await Promise.all([subscribed(mine), subscribed(spy)]);
+    if (a !== "SUBSCRIBED") return `owner channel ${a}`;
+    if (b !== "SUBSCRIBED") return `second channel ${b}`;
+    for (let i = 0; i < 40 && !(ready.own && ready.spy); i++) await sleep(250);
+    await sleep(500);
+    const sent = await service.rpc("notify_users", { p_user_ids: [viewer.id], p_type: "sim", p_title: `${TAG} live`, p_org: ORG_ID });
+    if (sent.error) return sent.error.message;
+    for (let i = 0; i < 30 && received.length === 0; i++) await sleep(500);
+    await sleep(1500);
+    await viewer.db.removeAllChannels();
+    await alphaUser.db.removeAllChannels();
+    if (!received.length) return `no live event reached the owner (realtime said: ${system.join("; ") || "nothing"})`;
+    return leaked.length ? "another user received the notification" : true;
+  });
+
+  await check("Each person reads only their own notifications", async () => {
+    const mine = (await viewer.db.from("notifications").select("id").eq("title", `${TAG} live`)).data?.length ?? 0;
+    const theirs = (await alphaUser.db.from("notifications").select("id").eq("user_id", viewer.id)).data?.length ?? 0;
+    return expectEq([mine, theirs], [1, 0], "owner and other user");
+  });
+
+  await check("Marking notifications read only touches your own", async () => {
+    const other = await alphaUser.db.rpc("mark_notifications_read", {});
+    const own = await viewer.db.rpc("mark_notifications_read", {});
+    if (own.error) return own.error.message;
+    const { data } = await service.from("notifications").select("read_at").eq("user_id", viewer.id).eq("title", `${TAG} live`).single();
+    return expectEq([other.data, own.data, Boolean(data?.read_at)], [0, 1, true], "counts and read flag");
+  });
+
+  // ---------------------------------------------------------------- storage
+
+  section("File storage");
+
+  const pdf = Buffer.from("%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n");
+  const docPath = `sim/${RUN}/evidence.pdf`;
+  await check("A browser can upload through a signed upload link", async () => {
+    const signed = await service.storage.from("documents").createSignedUploadUrl(docPath);
+    if (signed.error) return signed.error.message;
+    made.objects.push({ bucket: "documents", path: docPath });
+    const up = await anon().storage.from("documents").uploadToSignedUrl(docPath, signed.data.token, pdf, { contentType: "application/pdf" });
+    return up.error ? up.error.message : true;
+  });
+
+  await check("The documents bucket refuses disallowed file types", async () => {
+    const path = `sim/${RUN}/notes.txt`;
+    const signed = await service.storage.from("documents").createSignedUploadUrl(path);
+    if (signed.error) return signed.error.message;
+    const up = await anon().storage.from("documents").uploadToSignedUrl(path, signed.data.token, Buffer.from("plain text"), { contentType: "text/plain" });
+    if (!up.error) made.objects.push({ bucket: "documents", path });
+    return up.error ? true : "a text file was accepted";
+  });
+
+  await check("Signed-in users cannot read private files directly", async () => {
+    const res = await admin.db.storage.from("documents").download(docPath);
+    return res.error ? true : "a staff session downloaded without a signed link";
+  });
+
+  await check("Private files are not public", async () => {
+    const res = await fetch(`${url}/storage/v1/object/public/documents/${docPath}`);
+    return res.ok ? "the file was public" : true;
+  });
+
+  await check("A 60-second signed link serves the exact file", async () => {
+    const signed = await service.storage.from("documents").createSignedUrl(docPath, 60);
+    if (signed.error) return signed.error.message;
+    const res = await fetch(signed.data.signedUrl);
+    if (!res.ok) return `HTTP ${res.status}`;
+    return Buffer.from(await res.arrayBuffer()).equals(pdf) ? true : "content differs";
+  });
+
+  await check("Logos in org-assets are publicly served", async () => {
+    const path = `sim/${RUN}/logo.svg`;
+    const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>');
+    const up = await service.storage.from("org-assets").upload(path, svg, { contentType: "image/svg+xml" });
+    if (up.error) return up.error.message;
+    made.objects.push({ bucket: "org-assets", path });
+    const res = await fetch(service.storage.from("org-assets").getPublicUrl(path).data.publicUrl);
+    return res.ok ? true : `HTTP ${res.status}`;
+  });
+
+  // ---------------------------------------------------------------- documents, AI, limits
+
+  section("Document numbering, AI cost ledger and rate limits");
+
+  const simKind = `sim_${RUN}`;
+  await check("Numbering is sequential (on a throwaway series)", async () => {
+    const s = await service.from("document_series").insert({ org_id: ORG_ID, kind: simKind, prefix: "SIM" });
+    if (s.error) return s.error.message;
+    const a = await service.rpc("next_document_number", { p_kind: simKind });
+    const b = await service.rpc("next_document_number", { p_kind: simKind });
+    if (a.error || b.error) return (a.error ?? b.error)!.message;
+    return /0001$/.test(String(a.data)) && /0002$/.test(String(b.data)) ? true : `${a.data}, ${b.data}`;
+  });
+
+  await check("The three document designs are available to staff", async () => {
+    const { data } = await admin.db.from("document_templates").select("key");
+    const keys = (data ?? []).map((d) => d.key).sort();
+    return expectEq(keys, ["classic", "executive", "modern"], "templates");
+  });
+
+  await check("AI calls are priced from the rate table", async () => expectEq(Number(aiRun.data.cost_usd), 0.6, "cost of 1M+1M Haiku tokens"));
+
+  await check("Rate limits stop the third hit in a window", async () => {
+    const key = `sim:${RUN}:login`;
+    const hits = [];
+    for (let i = 0; i < 3; i++) hits.push((await service.rpc("rate_limit_check", { p_key: key, p_window_seconds: 60, p_max: 2 })).data);
+    return expectEq(hits, [true, true, false], "hits");
+  });
+
+  // ---------------------------------------------------------------- audit
+
+  section("Audit trail");
+
+  await check("Creating a client is recorded with who did it", async () => {
+    const { data } = await service.from("audit_log").select("actor_id, op").eq("row_id", clientA).eq("op", "INSERT");
+    return expectEq(data?.[0]?.actor_id, admin.id, "actor");
+  });
+
+  await check("Designation changes are recorded with the changed field", async () => {
+    const { data } = await service.from("audit_log").select("changed_keys").eq("row_id", viewer.membershipId!).eq("op", "UPDATE");
+    return (data ?? []).some((r) => (r.changed_keys ?? []).includes("role_id")) ? true : "no role_id change recorded";
+  });
+
+  await check("Nobody can delete audit entries", async () => refused(await admin.db.from("audit_log").delete().eq("row_id", clientA).select("id")));
+
+  // ---------------------------------------------------------------- case engine
+
+  section("Case engine: one case from receipt to the final report");
+  const verifier = by("verifier");
+  const qcOfficer = by("qc");
+  const dataEntry = by("dataentry");
+  const { data: orgPackages } = await service.from("packages").select("id, code").eq("org_id", ORG_ID).eq("owner_scope", "org");
+  const packageId = (code: string) => orgPackages?.find((p) => p.code === code)?.id ?? "";
+  // A valid NIC unique to this run: old card for case 1, the same person's new card for case 2.
+  const day = 100 + (parseInt(RUN.slice(-2), 36) % 200);
+  const serial = String(parseInt(RUN.slice(0, 3), 36) % 1000).padStart(3, "0");
+  const oldNic = parseNic(`85${day}${serial}4V`);
+  if (!oldNic.valid) throw new Error("could not build a test NIC");
+  const candidateName = `Sim Candidate ${RUN}`;
+  let case1 = "";
+  let case2 = "";
+  let reference = "";
+
+  await check("Staff create a case: checks and document requirements come from the package", async () => {
+    const { data, error } = await admin.db.rpc("create_case", {
+      p: {
+        client_id: clientA,
+        package_id: packageId("STANDARD"),
+        process_type: "client_supplied",
+        position_title: "Software Engineer",
+        candidate: { full_name: candidateName, nic: oldNic.display, nic_canonical: oldNic.canonical, date_of_birth: oldNic.birthDate, gender: oldNic.gender, district: "Kandy" },
+      },
+    });
+    if (error) return error.message;
+    const r = data as { case_id: string; reference: string; candidate_id: string };
+    case1 = r.case_id;
+    reference = r.reference;
+    made.cases.push(case1);
+    made.candidates.push(r.candidate_id);
+    const checks = (await service.from("case_checks").select("id").eq("case_id", case1)).data?.length;
+    const pending = (await service.from("case_check_requirements").select("id").eq("case_id", case1).eq("status", "pending")).data?.length;
+    if (!/^ONT-\d{4}-\d{6}$/.test(reference)) return `reference ${reference}`;
+    return expectEq([checks, pending], [3, 3], "checks and required documents");
+  });
+
+  await check("The same person is matched by NIC whichever card they show", async () => {
+    const { data, error } = await admin.db.rpc("create_case", {
+      p: { client_id: clientA, package_id: packageId("ESSENTIAL"), candidate: { full_name: "Different spelling", nic: oldNic.canonical, nic_canonical: oldNic.canonical } },
+    });
+    if (error) return error.message;
+    const r = data as { case_id: string; candidate_reused: boolean };
+    case2 = r.case_id;
+    made.cases.push(case2);
+    return expectEq(r.candidate_reused, true, "candidate reused");
+  });
+
+  await check("The assignment job gives both cases to the only qualified officer, with reasons", async () => {
+    const r = await drainJobs({ budgetMs: 60_000, reserveMs: 0, maxJobs: 25, workerId: `sim-${RUN}`, admin: service });
+    if (r.processed < 2) return `processed ${r.processed}`;
+    const { data: cases } = await service.from("cases").select("id, assigned_to").in("id", [case1, case2]);
+    const { data: checks } = await service.from("case_checks").select("assigned_to").eq("case_id", case1);
+    const { data: why } = await service.from("assignment_events").select("explanation").eq("case_id", case1).eq("mode", "auto").is("case_check_id", null);
+    if (!cases?.every((c) => c.assigned_to === verifier.id)) return `owners ${JSON.stringify(cases?.map((c) => c.assigned_to === verifier.id))}`;
+    if (!checks?.every((k) => k.assigned_to === verifier.id)) return "checks not assigned to the owner";
+    return why?.[0]?.explanation?.startsWith("Sim:") ? true : `explanation "${why?.[0]?.explanation}"`;
+  });
+
+  await check("Each role sees the cases it should", async () => {
+    const seen = async (p: Person) => (await p.db.from("cases").select("id").in("id", [case1, case2])).data?.length ?? 0;
+    return expectEq([await seen(verifier), await seen(dataEntry), await seen(qcOfficer), await seen(viewer), await seen(alphaUser)], [2, 0, 2, 2, 0], "verifier, data entry, QC, viewer, client");
+  });
+
+  await check("Missing documents block Pre-QC, with the reason", async () => {
+    const { error } = await verifier.db.rpc("case_transition", { p_case: case1, p_event: "submit_pre_qc" });
+    return error?.code === "22023" && /still missing/.test(error.message) ? true : `got ${error?.code} ${error?.message}`;
+  });
+
+  let policeDoc = "";
+  const uploadAs = async (p: Person, category: string, filename: string): Promise<string> => {
+    const { data, error } = await p.db.rpc("begin_document_upload", {
+      p_case: case1,
+      p_check: null as unknown as string,
+      p_category: category,
+      p_filename: filename,
+      p_mime: "application/pdf",
+      p_size: pdf.length,
+    });
+    if (error || !data) throw new Error(`begin upload: ${error?.message}`);
+    const d = data as { id: string; bucket: string; path: string };
+    made.objects.push({ bucket: d.bucket, path: d.path });
+    made.entityIds.push(d.id);
+    const signed = await service.storage.from(d.bucket).createSignedUploadUrl(d.path);
+    if (signed.error) throw new Error(signed.error.message);
+    const up = await anon().storage.from(d.bucket).uploadToSignedUrl(d.path, signed.data.token, pdf, { contentType: "application/pdf" });
+    if (up.error) throw new Error(`upload: ${up.error.message}`);
+    const fin = await p.db.rpc("finalize_document_upload", { p_document: d.id });
+    if (fin.error) throw new Error(`finalize: ${fin.error.message}`);
+    return d.id;
+  };
+
+  await check("Documents upload through signed links and count towards requirements", async () => {
+    await uploadAs(verifier, "nic_copy", "NIC both sides.pdf");
+    const { data } = await service.from("case_check_requirements").select("status, received_count").eq("case_id", case1).eq("category", "nic_copy").single();
+    return expectEq([data?.status, data?.received_count], ["received", 1], "NIC requirement");
+  });
+
+  await check("Sensitive evidence is hidden from staff without access", async () => {
+    policeDoc = await uploadAs(verifier, "police_report", "police clearance.pdf");
+    const mine = (await verifier.db.from("documents").select("id").eq("case_id", case1)).data?.length ?? 0;
+    const managers = (await ops.db.from("documents").select("id").eq("case_id", case1)).data?.length ?? 0;
+    return expectEq([mine, managers], [1, 2], "documents visible to the officer and the operations manager");
+  });
+
+  await check("A manager waives the rest and sends the case to Pre-QC", async () => {
+    const { data: pending } = await ops.db.from("case_check_requirements").select("id").eq("case_id", case1).eq("status", "pending");
+    for (const r of pending ?? []) {
+      const { error } = await ops.db.rpc("waive_requirement", { p_requirement: r.id, p_reason: "Client confirmed by email (simulation)" });
+      if (error) return error.message;
+    }
+    const { data, error } = await ops.db.rpc("case_transition", { p_case: case1, p_event: "submit_pre_qc" });
+    return error ? error.message : expectEq(data, "pre_qc", "stage");
+  });
+
+  await check("Pre-QC can return the case, then approve it", async () => {
+    const back = await qcOfficer.db.rpc("record_qc_review", { p_case: case1, p_kind: "pre", p_decision: "returned", p_remarks: "NIC copy is blurred" });
+    if (back.error) return back.error.message;
+    const { data: c } = await service.from("cases").select("stage, status_key").eq("id", case1).single();
+    if (c?.stage !== "documents" || c.status_key !== "returned_for_correction") return `after return ${JSON.stringify(c)}`;
+    const again = await ops.db.rpc("case_transition", { p_case: case1, p_event: "submit_pre_qc" });
+    if (again.error) return again.error.message;
+    const ok = await qcOfficer.db.rpc("record_qc_review", { p_case: case1, p_kind: "pre", p_decision: "approved", p_checklist: [{ item: "Readable", ok: true }] });
+    if (ok.error) return ok.error.message;
+    return expectEq((await service.from("cases").select("stage").eq("id", case1).single()).data?.stage, "data_entry", "stage");
+  });
+
+  const goodValues: Record<string, Record<string, unknown>> = {
+    nic: { nic_number: oldNic.display, name_on_nic: candidateName, validation_source: "drp" },
+    education: { candidate_name: candidateName, qualification_level: "degree", qualification: "BSc Computer Science", institution: "University of Moratuwa", student_number: "CS2015001", year_of_completion: 2019 },
+    employment: {
+      candidate_name: candidateName,
+      employers: [{ company: "Dialog Axiata", designation: "Engineer", period: { from: "2019-07-01", to: "2023-06-30" }, employee_code: "D1234", employment_type: "permanent" }],
+    },
+  };
+  await check("Data entry checks every field against the check's form before verification", async () => {
+    const { data: checks } = await dataEntry.db.from("case_checks").select("id, check_type:check_types(key), version:check_type_versions(schema)").eq("case_id", case1);
+    if ((checks?.length ?? 0) !== 3) return "the data entry officer cannot see the case's checks";
+    // First a half-finished form: verification must refuse to start.
+    const first = checks![0];
+    const firstSchema = parseCheckTypeSchema((first.version as { schema: unknown }).schema);
+    const partial = validateCheckValues(firstSchema.fields, { candidate_name: candidateName }, "draft");
+    await dataEntry.db.rpc("save_check_values", { p_check: first.id, p_values: partial.values as never, p_valid: validateCheckValues(firstSchema.fields, partial.values, "submit").ok });
+    const early = await dataEntry.db.rpc("case_transition", { p_case: case1, p_event: "start_verification" });
+    if (!early.error) return "verification started with missing details";
+    for (const k of checks ?? []) {
+      const key = (k.check_type as { key: string }).key;
+      const schema = parseCheckTypeSchema((k.version as { schema: unknown }).schema);
+      const submit = validateCheckValues(schema.fields, goodValues[key] ?? {}, "submit");
+      if (!submit.ok) return `${key} values invalid: ${JSON.stringify(submit.errors)}`;
+      const { error } = await dataEntry.db.rpc("save_check_values", { p_check: k.id, p_values: submit.values as never, p_valid: true });
+      if (error) return error.message;
+    }
+    const { data, error } = await dataEntry.db.rpc("case_transition", { p_case: case1, p_event: "start_verification" });
+    return error ? error.message : expectEq(data, "verification", "stage");
+  });
+
+  const checkId = async (label: string) => (await service.from("case_checks").select("id").eq("case_id", case1).eq("label", label).single()).data?.id ?? "";
+  await check("Verification: results are recorded by the officer, and a red result cannot be marked clear", async () => {
+    const nicCheck = await checkId("NIC verification");
+    const wrong = await verifier.db.rpc("set_check_state", { p_check: nicCheck, p_state: "completed", p_result: "discrepancy" });
+    if (!wrong.error) return "a discrepancy was recorded as completed";
+    const notMine = await dataEntry.db.rpc("set_check_state", { p_check: nicCheck, p_state: "completed", p_result: "clear" });
+    if (!notMine.error) return "the data entry officer recorded a result";
+    const ok = await verifier.db.rpc("set_check_state", { p_check: nicCheck, p_state: "completed", p_result: "clear", p_client_note: "Confirmed with the DRP" });
+    if (ok.error) return ok.error.message;
+    const { data: c } = await service.from("cases").select("status_key").eq("id", case1).single();
+    if (c?.status_key !== "partially_completed") return `status ${c?.status_key}`;
+    const early = await verifier.db.rpc("case_transition", { p_case: case1, p_event: "submit_post_qc" });
+    if (!early.error) return "Post-QC accepted open checks";
+    for (const label of ["Education", "Employment"]) {
+      const r = await verifier.db.rpc("set_check_state", { p_check: await checkId(label), p_state: "completed", p_result: "clear" });
+      if (r.error) return r.error.message;
+    }
+    const proposed = (await service.from("cases").select("proposed_result").eq("id", case1).single()).data?.proposed_result;
+    const moved = await verifier.db.rpc("case_transition", { p_case: case1, p_event: "submit_post_qc" });
+    return moved.error ? moved.error.message : expectEq([proposed, moved.data], ["green", "post_qc"], "proposed result and stage");
+  });
+
+  await check("Post-QC sends a check back, then approves the case for the report", async () => {
+    const employment = await checkId("Employment");
+    const back = await qcOfficer.db.rpc("record_qc_review", { p_case: case1, p_kind: "post", p_decision: "returned", p_remarks: "Second employer not confirmed", p_return_checks: [employment] });
+    if (back.error) return back.error.message;
+    const redo = await verifier.db.rpc("set_check_state", { p_check: employment, p_state: "discrepancy", p_note: "Dates differ by eight months" });
+    if (redo.error) return redo.error.message;
+    const again = await verifier.db.rpc("case_transition", { p_case: case1, p_event: "submit_post_qc" });
+    if (again.error) return again.error.message;
+    const ok = await qcOfficer.db.rpc("record_qc_review", { p_case: case1, p_kind: "post", p_decision: "approved" });
+    if (ok.error) return ok.error.message;
+    const { data: c } = await service.from("cases").select("stage, proposed_result, completed_at").eq("id", case1).single();
+    return expectEq([c?.stage, c?.proposed_result, Boolean(c?.completed_at)], ["report", "red", true], "stage, proposed result, completed");
+  });
+
+  await check("The timeline and stage history record every step", async () => {
+    const events = (await service.from("case_events").select("id").eq("case_id", case1)).data?.length ?? 0;
+    const stages = (await service.from("stage_history").select("id").eq("case_id", case1)).data?.length ?? 0;
+    const returnsNoticed = (await service.from("notifications").select("id").eq("user_id", verifier.id).eq("type", "case.returned")).data?.length ?? 0;
+    return events >= 15 && stages >= 9 && returnsNoticed === 2 ? true : `events ${events}, stage changes ${stages}, owner told of returns ${returnsNoticed}`;
+  });
+
+  await check("Hold and cancel follow permissions", async () => {
+    const viewerHold = await viewer.db.rpc("set_case_hold", { p_case: case2, p_hold: true, p_reason: "test" });
+    if (!viewerHold.error) return "a viewer put a case on hold";
+    const hold = await ops.db.rpc("set_case_hold", { p_case: case2, p_hold: true, p_reason: "Client asked to pause" });
+    if (hold.error) return hold.error.message;
+    const blocked = await ops.db.rpc("case_transition", { p_case: case2, p_event: "submit_pre_qc" });
+    if (!blocked.error || !/on hold/.test(blocked.error.message)) return "a case on hold moved";
+    await ops.db.rpc("set_case_hold", { p_case: case2, p_hold: false });
+    const cancel = await ops.db.rpc("cancel_case", { p_case: case2, p_reason: "Candidate withdrew" });
+    if (cancel.error) return cancel.error.message;
+    return expectEq((await service.from("cases").select("stage").eq("id", case2).single()).data?.stage, "cancelled", "stage");
+  });
+
+  await check("Client portal requests start at intake, for their own company only", async () => {
+    const other = await alphaAdmin.db.rpc("create_case", { p: { client_id: clientB, package_id: packageId("ESSENTIAL"), candidate: { full_name: "Spy" } } });
+    if (!other.error) return "a client created a case for another company";
+    const { data, error } = await alphaAdmin.db.rpc("create_case", { p: { client_id: clientA, package_id: packageId("ESSENTIAL"), candidate: { full_name: `Portal Person ${RUN}` } } });
+    if (error) return error.message;
+    const r = data as { case_id: string; candidate_id: string };
+    made.cases.push(r.case_id);
+    made.candidates.push(r.candidate_id);
+    const { data: c } = await service.from("cases").select("stage, created_via").eq("id", r.case_id).single();
+    return expectEq([c?.stage, c?.created_via], ["intake", "portal"], "stage and source");
+  });
+
+  await check("Search finds cases for staff and nothing for clients", async () => {
+    const staffHits = ((await viewer.db.rpc("search_everything", { p_query: reference })).data ?? []) as { kind: string; id: string }[];
+    const clientHits = (await alphaUser.db.rpc("search_everything", { p_query: reference })).data ?? [];
+    return staffHits.some((h) => h.kind === "case" && h.id === case1) && clientHits.length === 0 ? true : `staff ${staffHits.length}, client ${clientHits.length}`;
+  });
+
+  await check("Check type drafts can be saved and discarded without touching published versions", async () => {
+    const ins = await admin.db.from("check_types").insert({ org_id: ORG_ID, key: `sim_${RUN}`, name: `Sim check ${RUN}` }).select("id").single();
+    if (ins.error) return ins.error.message;
+    made.checkTypes.push(ins.data.id);
+    made.entityIds.push(ins.data.id);
+    const draft = await admin.db.rpc("save_check_type_draft", { p_check_type: ins.data.id, p_schema: { fields: [{ key: "notes", label: "Notes", type: "textarea" }] } });
+    if (draft.error) return draft.error.message;
+    made.entityIds.push(draft.data as string);
+    const viewerTry = await viewer.db.rpc("save_check_type_draft", { p_check_type: ins.data.id, p_schema: { fields: [] } });
+    if (!viewerTry.error) return "a viewer edited a check type";
+    const discard = await admin.db.rpc("discard_check_type_draft", { p_check_type: ins.data.id });
+    if (discard.error) return discard.error.message;
+    return expectEq((await service.from("check_type_versions").select("id").eq("check_type_id", ins.data.id)).data?.length, 0, "versions left");
+  });
+
+  await check("Client-built packages always carry Ontriq's price", async () => {
+    const pkg = await alphaAdmin.db.from("packages").insert({ org_id: ORG_ID, owner_scope: "client", client_id: clientA, name: "Driver onboarding", code: `${TAG}-DRIVER` }).select("id").single();
+    if (pkg.error) return pkg.error.message;
+    made.entityIds.push(pkg.data.id);
+    const nicType = (await service.from("check_types").select("id").eq("org_id", ORG_ID).eq("key", "nic").single()).data?.id ?? "";
+    const listPrice = Math.max(0, ...((await service.from("package_items").select("unit_price, package:packages!inner(owner_scope)").eq("check_type_id", nicType).eq("package.owner_scope", "org")).data ?? []).map((r) => Number(r.unit_price)));
+    const item = await alphaAdmin.db.from("package_items").insert({ org_id: ORG_ID, package_id: pkg.data.id, check_type_id: nicType, unit_price: 1 }).select("id, unit_price").single();
+    if (item.error) return item.error.message;
+    made.entityIds.push(item.data.id);
+    return expectEq(Number(item.data.unit_price), listPrice, "price stored");
+  });
+
+
+  // ---------------------------------------------------------------- Phase 2: candidate link and client portal
+
+  section("Candidate link and client portal");
+  const { hashLinkSecret, newLinkSecret, sealLinkSecret, isCandidateSecretConfigured } = await import("../src/lib/crypto/candidate-token");
+  const relations = by("relations");
+  const alphaViewer = by("alpha-viewer");
+  const sealed = (secret: string) => (isCandidateSecretConfigured() ? sealLinkSecret(secret) : null);
+  const tinyPdf = Buffer.from("%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[]/Count 0>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n");
+  const putFile = async (begun: { bucket: string; path: string }) => {
+    made.objects.push({ bucket: begun.bucket, path: begun.path });
+    const signed = await service.storage.from(begun.bucket).createSignedUploadUrl(begun.path);
+    if (signed.error) return signed.error.message;
+    const sent = await anon().storage.from(begun.bucket).uploadToSignedUrl(begun.path, signed.data.token, tinyPdf, { contentType: "application/pdf" });
+    return sent.error ? sent.error.message : true;
+  };
+  const linkSecret = newLinkSecret();
+  let portalLinkSecret = "";
+  let case3 = "";
+  let linkId = "";
+
+  await check("Staff open a candidate-collected case and issue the candidate's link", async () => {
+    const { data, error } = await admin.db.rpc("create_case", {
+      p: {
+        client_id: clientA,
+        package_id: packageId("STANDARD"),
+        process_type: "candidate_collected",
+        position_title: "Accountant",
+        candidate: { full_name: `Sim Link Candidate ${RUN}`, email: `sim-${RUN}-candidate@${domain}`, preferred_language: "si" },
+      },
+    });
+    if (error) return error.message;
+    const r = data as { case_id: string; candidate_id: string };
+    case3 = r.case_id;
+    made.cases.push(case3);
+    made.candidates.push(r.candidate_id);
+    const issued = await admin.db.rpc("issue_candidate_link", { p_case: case3, p_token_hash: hashLinkSecret(linkSecret), p_token_enc: sealed(linkSecret) as string, p_language: "si", p_days: 14 });
+    if (issued.error) return issued.error.message;
+    linkId = issued.data as string;
+    // Let auto-assignment give the case an owner, who hears about the candidate's activity.
+    await drainJobs({ budgetMs: 30_000, reserveMs: 0, maxJobs: 10, workerId: `sim-${RUN}`, admin: service });
+    const sent = await admin.db.rpc("record_candidate_link_sent", { p_link: linkId, p_channels: ["email"] });
+    if (sent.error) return sent.error.message;
+    const secretColumn = await admin.db.from("candidate_links").select("token_hash").eq("id", linkId);
+    if (!secretColumn.error) return "staff could read the link's secret hash";
+    const viewerTry = await viewer.db.rpc("issue_candidate_link", { p_case: case3, p_token_hash: "0".repeat(64), p_token_enc: "" });
+    return viewerTry.error ? true : "a viewer issued a candidate link";
+  });
+
+  await check("The link opens for the candidate and shows only what they may see", async () => {
+    await admin.db.rpc("add_case_note", { p_case: case3, p_check: null as unknown as string, p_body: `${TAG} INTERNAL NOTE` });
+    const opened = await service.rpc("candidate_open_link", { p_token_hash: hashLinkSecret(linkSecret) });
+    if (opened.error || !(opened.data as { ok: boolean }).ok) return opened.error?.message ?? JSON.stringify(opened.data);
+    const unknown = await service.rpc("candidate_open_link", { p_token_hash: hashLinkSecret(newLinkSecret()) });
+    if ((unknown.data as { ok: boolean }).ok) return "an unknown secret opened a link";
+    const { data: view, error } = await service.rpc("candidate_link_view", { p_link: linkId });
+    if (error) return error.message;
+    const text = JSON.stringify(view);
+    const v = view as { requirements: { category: string; min_count: number }[]; checks: unknown[]; link: { language: string } };
+    if (text.includes("INTERNAL NOTE")) return "an internal note reached the candidate";
+    if (v.requirements.some((r) => ["police_report", "field_verification", "sanction_report"].includes(r.category))) return "staff-only document slots reached the candidate";
+    if (/result_tone|assigned_to/.test(text)) return "results or assignees reached the candidate";
+    const signedIn = await alphaAdmin.db.rpc("candidate_link_view", { p_link: linkId });
+    if (!signedIn.error) return "a signed-in client called the candidate view";
+    // Standard: NIC, certificates and service letters are required; transcript and resignation letters are optional.
+    return expectEq([v.requirements.filter((r) => r.min_count > 0).length, v.requirements.length, v.checks.length, v.link.language], [3, 5, 3, "si"], "required slots, all slots, checks and language");
+  });
+
+  await check("The candidate uploads into a document slot straight to private storage", async () => {
+    const { data: slot } = await service.from("case_check_requirements").select("id").eq("case_id", case3).eq("category", "nic_copy").single();
+    const begun = await service.rpc("candidate_begin_upload", { p_link: linkId, p_requirement: slot!.id, p_category: null as unknown as string, p_filename: "My NIC.pdf", p_mime: "application/pdf", p_size: tinyPdf.length });
+    if (begun.error) return begun.error.message;
+    const b = begun.data as { id: string; bucket: string; path: string };
+    const put = await putFile(b);
+    if (put !== true) return put;
+    const fin = await service.rpc("candidate_finalize_upload", { p_link: linkId, p_document: b.id });
+    if (fin.error) return fin.error.message;
+    const { data: req } = await service.from("case_check_requirements").select("received_count").eq("id", slot!.id).single();
+    const { data: doc } = await service.from("documents").select("uploaded_by_kind, status").eq("id", b.id).single();
+    const told = (await service.from("notifications").select("id").eq("type", "candidate.upload").eq("entity_id", case3)).data?.length ?? 0;
+    return expectEq([req?.received_count, doc?.uploaded_by_kind, doc?.status, told > 0], [1, "candidate", "uploaded", true], "slot count, source, status, owner told");
+  });
+
+  await check("A link can never reach another case", async () => {
+    const { data: other } = await service.from("case_check_requirements").select("id").eq("case_id", case1).limit(1).single();
+    const r = await service.rpc("candidate_begin_upload", { p_link: linkId, p_requirement: other!.id, p_category: null as unknown as string, p_filename: "x.pdf", p_mime: "application/pdf", p_size: 10 });
+    return r.error?.code === "P0002" ? true : `got ${r.error?.code ?? "no error"}`;
+  });
+
+  await check("Staff ask the candidate a question, the candidate answers, staff accept it", async () => {
+    const asked = await relations.db.rpc("create_candidate_request", { p_case: case3, p: { kind: "question", title: "When did you join ABC Ltd?", help: "Month and year" } });
+    if (asked.error) return asked.error.message;
+    made.entityIds.push(asked.data as string);
+    const answered = await service.rpc("candidate_answer_request", { p_link: linkId, p_request: asked.data as string, p_answer: { value: "March 2021" } });
+    if (answered.error) return answered.error.message;
+    const accepted = await admin.db.rpc("review_candidate_request", { p_request: asked.data as string, p_decision: "accept" });
+    if (accepted.error) return accepted.error.message;
+    const msg = await service.rpc("candidate_post_message", { p_link: linkId, p_body: "Uploaded my NIC" });
+    if (msg.error) return msg.error.message;
+    const { data: q } = await service.from("candidate_requests").select("status, answer").eq("id", asked.data as string).single();
+    return expectEq([q?.status, (q?.answer as { value?: string })?.value], ["accepted", "March 2021"], "status and answer");
+  });
+
+  await check("Pre-QC waits for the candidate's consent", async () => {
+    const { data: pending } = await service.from("case_check_requirements").select("id").eq("case_id", case3).eq("status", "pending");
+    for (const r of pending ?? []) await ops.db.rpc("waive_requirement", { p_requirement: r.id, p_reason: "simulation" });
+    const blocked = await ops.db.rpc("case_transition", { p_case: case3, p_event: "submit_pre_qc" });
+    if (!blocked.error || !/consent/.test(blocked.error.message)) return `got ${blocked.error?.message ?? "no error"}`;
+    const signed = await service.rpc("candidate_submit_consent", { p_link: linkId, p_method: "esign", p_signed_name: `Sim Link Candidate ${RUN}`, p_document: null as unknown as string, p_ip: "203.0.113.10", p_user_agent: "simulation" });
+    if (signed.error) return signed.error.message;
+    const { data: consent } = await service.from("consent_forms").select("id").eq("case_id", case3).single();
+    made.entityIds.push(consent!.id);
+    const moved = await ops.db.rpc("case_transition", { p_case: case3, p_event: "submit_pre_qc" });
+    return moved.error ? moved.error.message : expectEq(moved.data, "pre_qc", "stage");
+  });
+
+  await check("Turning the link off ends the candidate's access at once", async () => {
+    const off = await admin.db.rpc("revoke_candidate_link", { p_link: linkId, p_reason: "simulation" });
+    if (off.error) return off.error.message;
+    const view = await service.rpc("candidate_link_view", { p_link: linkId });
+    const reopen = await service.rpc("candidate_open_link", { p_token_hash: hashLinkSecret(linkSecret) });
+    return view.error?.code === "P0002" && (reopen.data as { reason?: string }).reason === "revoked" ? true : `view ${view.error?.code ?? "still works"}, reopen ${JSON.stringify(reopen.data)}`;
+  });
+
+  let case4 = "";
+  let case4Reference = "";
+  let sharedDoc = "";
+  let internalDoc = "";
+  await check("Clients see their own cases through the portal, without internal notes", async () => {
+    const { data, error } = await admin.db.rpc("create_case", {
+      p: { client_id: clientA, package_id: packageId("ESSENTIAL"), process_type: "client_supplied", candidate: { full_name: `Sim Portal Candidate ${RUN}` } },
+    });
+    if (error) return error.message;
+    const r = data as { case_id: string; reference: string; candidate_id: string };
+    case4 = r.case_id;
+    case4Reference = r.reference;
+    made.cases.push(case4);
+    made.candidates.push(r.candidate_id);
+    await admin.db.rpc("add_case_note", { p_case: case4, p_check: null as unknown as string, p_body: `${TAG} INTERNAL NOTE` });
+    const list = await alphaAdmin.db.rpc("portal_cases", { p: { q: RUN } });
+    if (list.error) return list.error.message;
+    const ids = ((list.data as { rows: { id: string }[] }).rows ?? []).map((x) => x.id);
+    if (!ids.includes(case3) || !ids.includes(case4)) return "the client's cases are missing from the portal";
+    const detail = await alphaAdmin.db.rpc("portal_case_detail", { p_case: case3 });
+    if (detail.error) return detail.error.message;
+    const text = JSON.stringify(detail.data);
+    if (text.includes("INTERNAL NOTE")) return "an internal note reached the client";
+    if ((detail.data as { checks: { result_tone: string | null }[] }).checks.some((k) => k.result_tone)) return "results shown before release";
+    const other = await betaUser.db.rpc("portal_case_detail", { p_case: case3 });
+    if (other.error?.code !== "P0002") return "another company opened the case";
+    const direct = (await alphaAdmin.db.from("cases").select("id").in("id", [case3, case4])).data?.length ?? 0;
+    return expectEq(direct, 0, "cases readable directly");
+  });
+
+  await check("Clients upload into a slot Ontriq shared with them, and only there", async () => {
+    const asked = await admin.db.rpc("request_case_document", { p_case: case4, p_check: null as unknown as string, p_category: "cv", p_label: "Latest CV", p_note: "Please send the latest CV" });
+    if (asked.error) return asked.error.message;
+    const detail = await alphaAdmin.db.rpc("portal_case_detail", { p_case: case4 });
+    const slot = (detail.data as { requirements: { id: string; category: string }[] }).requirements.find((x) => x.category === "cv");
+    if (!slot) return "the requested slot is not shown to the client";
+    const viewerTry = await alphaViewer.db.rpc("portal_begin_upload", { p_case: case4, p_requirement: slot.id, p_category: null as unknown as string, p_filename: "cv.pdf", p_mime: "application/pdf", p_size: tinyPdf.length });
+    if (!viewerTry.error) return "a client viewer uploaded";
+    const anyCategory = await alphaAdmin.db.rpc("portal_begin_upload", { p_case: case4, p_requirement: null as unknown as string, p_category: "police_report", p_filename: "x.pdf", p_mime: "application/pdf", p_size: 10 });
+    if (!anyCategory.error) return "a client chose an arbitrary document category";
+    const begun = await alphaAdmin.db.rpc("portal_begin_upload", { p_case: case4, p_requirement: slot.id, p_category: null as unknown as string, p_filename: "cv.pdf", p_mime: "application/pdf", p_size: tinyPdf.length });
+    if (begun.error) return begun.error.message;
+    const b = begun.data as { id: string; bucket: string; path: string };
+    const put = await putFile(b);
+    if (put !== true) return put;
+    const fin = await alphaAdmin.db.rpc("portal_finalize_upload", { p_document: b.id });
+    if (fin.error) return fin.error.message;
+    const { data: req } = await service.from("case_check_requirements").select("received_count").eq("id", slot.id).single();
+    const ownVisible = (await alphaAdmin.db.from("documents").select("id").eq("id", b.id)).data?.length ?? 0;
+    return expectEq([req?.received_count, ownVisible], [1, 1], "slot count and own upload visible");
+  });
+
+  await check("Clients open documents Ontriq shared, never internal ones", async () => {
+    for (const [name, share] of [["shared.pdf", true], ["internal.pdf", false]] as const) {
+      const begun = await admin.db.rpc("begin_document_upload", { p_case: case4, p_check: null as unknown as string, p_category: "other", p_filename: name, p_mime: "application/pdf", p_size: tinyPdf.length });
+      if (begun.error) return begun.error.message;
+      const b = begun.data as { id: string; bucket: string; path: string };
+      const put = await putFile(b);
+      if (put !== true) return put;
+      await admin.db.rpc("finalize_document_upload", { p_document: b.id });
+      if (share) {
+        await admin.db.rpc("set_document_visibility", { p_document: b.id, p_visibility: "client" });
+        sharedDoc = b.id;
+      } else internalDoc = b.id;
+    }
+    const seen = (await alphaAdmin.db.from("documents").select("id").in("id", [sharedDoc, internalDoc])).data?.map((d) => d.id) ?? [];
+    const otherCompany = (await betaUser.db.from("documents").select("id").in("id", [sharedDoc, internalDoc])).data?.length ?? 0;
+    return expectEq([seen.includes(sharedDoc), seen.includes(internalDoc), otherCompany], [true, false, 0], "shared, internal, other company");
+  });
+
+  await check("Client users hear about documents Ontriq needs, by email too", async () => {
+    const { data: notes } = await service.from("notifications").select("id, user_id").eq("type", "portal.documents_needed").eq("entity_id", case4);
+    const toAlpha = (notes ?? []).filter((n) => [alphaAdmin.id, alphaUser.id, alphaViewer.id].includes(n.user_id)).length;
+    const toBeta = (notes ?? []).filter((n) => n.user_id === betaUser.id).length;
+    const emails = (await service.from("jobs").select("id").eq("kind", "notify.email").in("entity_id", (notes ?? []).map((n) => n.id))).data ?? [];
+    made.jobs.push(...emails.map((j) => j.id));
+    return expectEq([toAlpha, toBeta, emails.length], [3, 0, 3], "client A users told, client B told, email copies queued");
+  });
+
+  await check("Staff can't use the portal functions, and visibility settings apply", async () => {
+    const staffTry = await admin.db.rpc("portal_cases", { p: {} });
+    if (staffTry.error?.code !== "42501") return "staff used the portal functions";
+    const hide = await admin.db.from("client_settings").update({ visibility: { show_timeline: false, show_documents: false } }).eq("client_id", clientA);
+    if (hide.error) return hide.error.message;
+    const detail = await alphaAdmin.db.rpc("portal_case_detail", { p_case: case4 });
+    const d = detail.data as { timeline: unknown[]; documents: unknown[] };
+    const hiddenDoc = (await alphaAdmin.db.from("documents").select("id").eq("id", sharedDoc)).data?.length ?? 0;
+    await admin.db.from("client_settings").update({ visibility: {} }).eq("client_id", clientA);
+    return expectEq([d.timeline.length, d.documents.length, hiddenDoc], [0, 0, 0], "timeline, documents, download");
+  });
+
+  await check("Reminders pick up candidates who still owe something", async () => {
+    const secret2 = newLinkSecret();
+    const issued = await admin.db.rpc("issue_candidate_link", { p_case: case4, p_token_hash: hashLinkSecret(secret2), p_token_enc: sealed(secret2) as string, p_language: "en", p_days: 14 });
+    if (issued.error) return issued.error.message;
+    await admin.db.rpc("record_candidate_link_sent", { p_link: issued.data as string, p_channels: ["email"] });
+    portalLinkSecret = secret2;
+    const { data } = await service.rpc("candidate_reminder_candidates");
+    const row = ((data ?? []) as { link_id: string; missing_documents: number; consent_missing: boolean }[]).find((r) => r.link_id === issued.data);
+    return row ? expectEq([row.consent_missing, row.missing_documents > 0], [true, true], "consent and documents owed") : "the link is not in the reminder list";
+  });
+
+  // ---------------------------------------------------------------- the app itself
+
+  const appOrigin = arg("app")?.replace(/\/+$/, "");
+  if (appOrigin) {
+    section(`The app at ${appOrigin} against this backend`);
+    const { createServerClient } = await import("@supabase/ssr");
+    // Session cookies exactly as @supabase/ssr writes them in the app.
+    const cookieHeader = async (db: DB) => {
+      const session = (await db.auth.getSession()).data.session;
+      if (!session) throw new Error("no session");
+      const jar = new Map<string, string>();
+      const ssr = createServerClient(url, publishable, {
+        cookies: {
+          getAll: () => [...jar].map(([name, value]) => ({ name, value })),
+          setAll: (list) => {
+            for (const c of list) {
+              if (c.value) jar.set(c.name, c.value);
+              else jar.delete(c.name);
+            }
+          },
+        },
+      });
+      const { error } = await ssr.auth.setSession({ access_token: session.access_token, refresh_token: session.refresh_token });
+      if (error) throw new Error(error.message);
+      return [...jar].map(([n, v]) => `${n}=${v}`).join("; ");
+    };
+    const get = (path: string, cookie?: string) => fetch(`${appOrigin}${path}`, { redirect: "manual", headers: cookie ? { cookie } : {} });
+    const isRedirect = (res: Response, path: string) =>
+      res.status >= 300 && res.status < 400 && new URL(res.headers.get("location") ?? "/", appOrigin).pathname === path;
+    const streamedRedirect = (html: string, path: string) => html.includes("NEXT_REDIRECT") && html.includes(path);
+    const where = (res: Response) => `HTTP ${res.status}${res.headers.get("location") ? ` → ${res.headers.get("location")}` : ""}`;
+
+    await check("The sign-in page renders with the Ontriq brand", async () => {
+      const res = await get("/login");
+      const html = await res.text();
+      return res.status === 200 && /Ontriq/i.test(html) ? true : where(res);
+    });
+
+    await check("Private pages send signed-out visitors to sign in", async () => {
+      const res = await get("/app/team");
+      return isRedirect(res, "/login") ? true : where(res);
+    });
+
+    await check("The scheduler endpoint refuses callers without the secret", async () => {
+      const res = await fetch(`${appOrigin}/api/jobs/tick`, { method: "POST" });
+      return expectEq(res.status, 401, "status");
+    });
+
+    await check("The scheduler endpoint runs with the secret", async () => {
+      const res = await fetch(`${appOrigin}/api/jobs/tick`, { method: "POST", headers: { authorization: `Bearer ${process.env.CRON_SECRET ?? ""}` } });
+      return res.ok ? true : where(res);
+    });
+
+    await check("The health check passes", async () => {
+      const res = await get("/api/health");
+      const body = await res.text();
+      return res.ok ? true : `${where(res)} ${body.slice(0, 300)}`;
+    });
+
+    await check("An emailed invite link signs the person in and opens account setup", async () => {
+      const email = `sim-${RUN}-invitee2@${domain}`;
+      const link = await service.auth.admin.generateLink({ type: "invite", email, options: { data: { full_name: "Sim Invitee Two" } } });
+      if (link.error) return link.error.message;
+      made.users.push(link.data.user.id);
+      await service.auth.admin.updateUserById(link.data.user.id, { app_metadata: { kind: "staff", org_id: ORG_ID } });
+      const m = await admin.db
+        .from("memberships")
+        .insert({ org_id: ORG_ID, user_id: link.data.user.id, kind: "staff", role_id: roleId("viewer"), status: "invited", invited_by: admin.id })
+        .select("id")
+        .single();
+      if (m.error) return m.error.message;
+      made.entityIds.push(m.data.id);
+      const res = await get(`/auth/confirm?token_hash=${encodeURIComponent(link.data.properties.hashed_token)}&type=invite&next=/accept-invite`);
+      if (!isRedirect(res, "/accept-invite")) return where(res);
+      const cookies = res.headers
+        .getSetCookie()
+        .map((c) => c.split(";")[0])
+        .filter((c) => c.startsWith("sb-"));
+      if (!cookies.length) return "no session cookie was set";
+      const page = await get("/accept-invite", cookies.join("; "));
+      const html = await page.text();
+      return page.status === 200 && /password/i.test(html) && !html.includes("NEXT_REDIRECT") ? true : where(page);
+    });
+
+    await check(mfaOn ? "Staff without a second factor are sent to verify" : "Two-step is off: staff open the app with a password alone", async () => {
+      const db = anon();
+      const s = await db.auth.signInWithPassword({ email: ops.email, password: ops.password });
+      if (s.error) return s.error.message;
+      const cookie = await cookieHeader(db);
+      const res = await get("/app", cookie);
+      const html = await res.text();
+      if (!mfaOn) {
+        const mfaPage = await get("/mfa?next=%2Fapp", cookie);
+        const sendsOn = isRedirect(mfaPage, "/app") || streamedRedirect(await mfaPage.text(), "/app");
+        return res.status === 200 && !html.includes("NEXT_REDIRECT") && sendsOn ? true : `${where(res)}; /mfa forwards: ${sendsOn}`;
+      }
+      if (isRedirect(res, "/mfa")) return true;
+      return streamedRedirect(html, "/mfa") ? true : where(res);
+    });
+
+    await check("Staff with two-step verification open the dashboard", async () => {
+      const res = await get("/app", await cookieHeader(ops.db));
+      const html = await res.text();
+      if (res.status !== 200 || html.includes("NEXT_REDIRECT")) return where(res);
+      return html.includes("Sim ops") ? true : "the dashboard did not show who is signed in";
+    });
+
+    await check("Admins see the whole team on the Team page", async () => {
+      const res = await get("/app/team", await cookieHeader(admin.db));
+      const html = await res.text();
+      const missing = team.filter((p) => p.kind === "staff").map((p) => `Sim ${p.label}`).filter((n) => !html.includes(n));
+      return missing.length ? `${where(res)}, missing ${missing.join(", ")}` : true;
+    });
+
+    await check("The Team page stays closed to a viewer", async () => {
+      const html = await (await get("/app/team", await cookieHeader(viewer.db))).text();
+      return html.includes("Sim relations") ? "the member list was rendered" : true;
+    });
+
+    await check("Admins open Settings", async () => {
+      const res = await get("/app/settings", await cookieHeader(admin.db));
+      const html = await res.text();
+      return res.status === 200 && !html.includes("NEXT_REDIRECT") ? true : where(res);
+    });
+
+    await check("Settings stay closed to a viewer", async () => {
+      const res = await get("/app/settings", await cookieHeader(viewer.db));
+      const html = await res.text();
+      return isRedirect(res, "/app") || streamedRedirect(html, "/app") ? true : where(res);
+    });
+
+    await check("Client users are routed to their own portal", async () => {
+      const cookie = await cookieHeader(alphaUser.db);
+      const res = await get("/app", cookie);
+      if (!isRedirect(res, "/portal")) return `/app gave ${where(res)}`;
+      const html = await (await get("/portal", cookie)).text();
+      if (!html.includes(`${TAG} Alpha Holdings`)) return "the portal did not show their company";
+      return html.includes(`${TAG} Beta Finance`) ? "the portal showed another company" : true;
+    });
+
+    await check("Staff are kept out of the portal", async () => {
+      const res = await get("/portal", await cookieHeader(admin.db));
+      return isRedirect(res, "/app") ? true : where(res);
+    });
+
+    await check("A case document opens only for staff allowed to see it", async () => {
+      if (!policeDoc) return "no document to open";
+      const manager = await get(`/api/files/${policeDoc}`, await cookieHeader(ops.db));
+      const officer = await get(`/api/files/${policeDoc}`, await cookieHeader(verifier.db));
+      const okRedirect = manager.status === 302 && /\/storage\/v1\/object\/sign\//.test(manager.headers.get("location") ?? "");
+      return okRedirect && officer.status === 404 ? true : `manager ${manager.status}, officer ${officer.status}`;
+    });
+
+    await check("The case page opens for its officer", async () => {
+      const res = await get(`/app/cases/${case1}`, await cookieHeader(verifier.db));
+      const html = await res.text();
+      return res.status === 200 && html.includes(reference) && !html.includes("NEXT_REDIRECT") ? true : where(res);
+    });
+
+    await check("Global search answers staff over the API", async () => {
+      const res = await get(`/api/search?q=${encodeURIComponent(reference)}`, await cookieHeader(viewer.db));
+      const body = (await res.json()) as { hits?: { id: string }[] };
+      return res.ok && body.hits?.some((h) => h.id === case1) ? true : `${where(res)} ${JSON.stringify(body).slice(0, 120)}`;
+    });
+
+    await check("A candidate link opens the private page and leaves the address bar", async () => {
+      if (!portalLinkSecret) return "no link to open";
+      const res = await get(`/c/${portalLinkSecret}`);
+      if (!isRedirect(res, "/c/session")) return where(res);
+      const cookie = res.headers.getSetCookie().map((c) => c.split(";")[0]).find((c) => c.startsWith("ontriq_candidate="));
+      if (!cookie) return "no candidate session cookie";
+      const page = await get("/c/session", cookie);
+      const html = await page.text();
+      if (page.status !== 200 || !html.includes(`${TAG} Alpha Holdings`)) return `${where(page)}: the page did not show the client`;
+      const bare = await (await get("/c/session")).text();
+      return bare.includes(`${TAG} Alpha Holdings`) ? "the page opened without a session" : true;
+    });
+
+    await check("An unknown candidate link shows the expired page", async () => {
+      const res = await get(`/c/${newLinkSecret()}`);
+      return res.status >= 300 && res.status < 400 && (res.headers.get("location") ?? "").includes("/c/expired") ? true : where(res);
+    });
+
+    await check("Clients open their case in the portal; other companies can't", async () => {
+      const mine = await get(`/portal/cases/${case4}`, await cookieHeader(alphaAdmin.db));
+      const html = await mine.text();
+      if (mine.status !== 200 || !html.includes(case4Reference)) return where(mine);
+      if (html.includes("INTERNAL NOTE")) return "an internal note reached the portal page";
+      const theirs = await (await get(`/portal/cases/${case4}`, await cookieHeader(betaUser.db))).text();
+      return theirs.includes(case4Reference) ? "another company saw the case" : true;
+    });
+
+    await check("Staff see the candidate panel and the client's portal settings", async () => {
+      const cookie = await cookieHeader(admin.db);
+      const casePage = await (await get(`/app/cases/${case3}`, cookie)).text();
+      if (!casePage.includes("Candidate") || !casePage.includes("Turned off")) return "the case page did not show the candidate link panel";
+      const clientPage = await (await get(`/app/clients/${clientA}`, cookie)).text();
+      const missing = ["Client portal", "They can see", "Sim alpha-admin"].filter((t) => !clientPage.includes(t));
+      return missing.length ? `the client page is missing ${missing.join(", ")}` : true;
+    });
+
+    await check("Every portal page opens for a client admin with their own data", async () => {
+      const cookie = await cookieHeader(alphaAdmin.db);
+      const pages: [string, string][] = [
+        ["/portal", `${TAG} Alpha Holdings`],
+        [`/portal/cases?q=${RUN}`, case4Reference],
+        ["/portal/cases/new", "New request"],
+        ["/portal/packages", "Packages"],
+        ["/portal/templates", "Templates"],
+        ["/portal/reports", "Reports"],
+        ["/portal/team", "Sim alpha-user"],
+        ["/portal/settings", "Settings"],
+      ];
+      const bad: string[] = [];
+      for (const [path, expect] of pages) {
+        const res = await get(path, cookie);
+        const html = await res.text();
+        if (res.status !== 200 || html.includes("NEXT_REDIRECT") || !html.includes(expect)) bad.push(`${path} (${where(res)})`);
+        if (html.includes(`${TAG} Beta Finance`)) bad.push(`${path} showed another company`);
+      }
+      return bad.length ? bad.join("; ") : true;
+    });
+
+    await check("A client viewer can't open team management or new requests", async () => {
+      const cookie = await cookieHeader(alphaViewer.db);
+      const team = await get("/portal/team", cookie);
+      const teamHtml = await team.text();
+      const fresh = await get("/portal/cases/new", cookie);
+      const freshHtml = await fresh.text();
+      const teamOut = isRedirect(team, "/portal") || streamedRedirect(teamHtml, "/portal");
+      const newOut = isRedirect(fresh, "/portal/cases") || streamedRedirect(freshHtml, "/portal/cases");
+      return teamOut && newOut && !teamHtml.includes("Sim alpha-user") ? true : `team ${where(team)}, new request ${where(fresh)}`;
+    });
+
+    await check("The candidate downloads their consent form", async () => {
+      const res = await get(`/c/${portalLinkSecret}`);
+      const cookie = res.headers.getSetCookie().map((c) => c.split(";")[0]).find((c) => c.startsWith("ontriq_candidate="));
+      if (!cookie) return "no candidate session";
+      const pdf = await get("/c/session/consent-form", cookie);
+      const head = Buffer.from(await pdf.arrayBuffer()).subarray(0, 5).toString();
+      return pdf.status === 200 && head === "%PDF-" ? true : `${where(pdf)} ${pdf.headers.get("content-type")}`;
+    });
+
+    await check("Clients open a shared document; internal ones stay closed", async () => {
+      const cookie = await cookieHeader(alphaAdmin.db);
+      const shared = await get(`/api/files/${sharedDoc}`, cookie);
+      const internal = await get(`/api/files/${internalDoc}`, cookie);
+      return shared.status === 302 && internal.status === 404 ? true : `shared ${shared.status}, internal ${internal.status}`;
+    });
+  }
+
+  // ---------------------------------------------------------------- clean-up
+
+  section(keep ? "Leaving the simulation data in place (--keep)" : "Cleaning up everything the simulation created");
+  if (!keep) {
+    await check("Remove case data and reset the case counter", async () => {
+      const ids = made.cases;
+      if (ids.length) {
+        for (const t of ["case_checks", "case_check_requirements", "documents"] as const) {
+          const { data } = await service.from(t).select("id").in("case_id", ids);
+          made.entityIds.push(...(data ?? []).map((r) => r.id));
+        }
+        made.entityIds.push(...ids, ...made.candidates);
+        const { data: jobs } = await service.from("jobs").select("id").in("entity_id", ids);
+        made.jobs.push(...(jobs ?? []).map((j) => j.id));
+        // Email copies of the throwaway people's notifications.
+        const { data: notes } = await service.from("notifications").select("id").in("user_id", made.users);
+        const noteIds = (notes ?? []).map((n) => n.id);
+        for (let i = 0; i < noteIds.length; i += 100) {
+          const { data: nj } = await service.from("jobs").select("id").in("entity_id", noteIds.slice(i, i + 100));
+          made.jobs.push(...(nj ?? []).map((j) => j.id));
+          const { data: no } = await service.from("email_outbox").select("id").eq("entity_type", "notification").in("entity_id", noteIds.slice(i, i + 100));
+          made.outbox.push(...(no ?? []).map((o) => o.id));
+        }
+        await service.from("cases").delete().in("id", ids);
+        await service.from("candidates").delete().in("id", made.candidates);
+      }
+      if (made.checkTypes.length) await service.from("check_types").delete().in("id", made.checkTypes);
+      // Give the numbers back so real cases start where they would have.
+      const year = new Date().getFullYear();
+      const { data: rest } = await service.from("cases").select("reference").eq("org_id", ORG_ID).like("reference", `ONT-${year}-%`);
+      const max = Math.max(0, ...(rest ?? []).map((r) => Number(r.reference.split("-").pop())));
+      if (max === 0) await service.from("case_counters").delete().eq("org_id", ORG_ID).eq("year", year);
+      else await service.from("case_counters").update({ value: max }).eq("org_id", ORG_ID).eq("year", year);
+    });
+    await check("Remove files", async () => {
+      for (const bucket of ["documents", "org-assets", "case-files"]) {
+        const paths = made.objects.filter((o) => o.bucket === bucket).map((o) => o.path);
+        if (paths.length) await service.storage.from(bucket).remove(paths);
+      }
+    });
+    await check("Remove jobs, outbox, AI runs, counters and limits", async () => {
+      await service.from("job_failures").delete().in("job_id", made.jobs);
+      await service.from("jobs").delete().in("id", made.jobs);
+      await service.from("communications").delete().in("email_outbox_id", made.outbox);
+      await service.from("email_outbox").delete().in("id", made.outbox);
+      await service.from("ai_runs").delete().in("id", made.aiRuns);
+      await service.from("document_counters").delete().eq("kind", simKind);
+      await service.from("document_series").delete().eq("kind", simKind);
+      await service.from("rate_limit_hits").delete().like("key", `sim:${RUN}%`);
+      await service.from("job_workers").delete().eq("worker_id", `sim-${RUN}`);
+    });
+    await check("Remove invitations, designations and client companies", async () => {
+      await service.from("invitations").delete().like("email", `%${RUN}%`);
+      await service.from("roles").delete().in("id", made.roles);
+      await service.from("clients").delete().in("id", made.clients);
+    });
+    await check("Remove the throwaway people", async () => {
+      for (const id of made.users) {
+        const { error } = await service.auth.admin.deleteUser(id);
+        if (error && !/not found/i.test(error.message)) return error.message;
+      }
+    });
+    await check("Remove the simulation's audit entries", async () => {
+      await service.from("audit_log").delete().in("actor_id", made.users);
+      const ids = [...made.entityIds, ...made.clients, ...made.roles, ...made.invitations];
+      for (let i = 0; i < ids.length; i += 50) await service.from("audit_log").delete().in("row_id", ids.slice(i, i + 50));
+      // Tables audited under composite keys: document_series (org_id:kind), role_permissions (role_id:permission).
+      await service.from("audit_log").delete().eq("row_id", `${ORG_ID}:${simKind}`);
+      for (const role of made.roles) await service.from("audit_log").delete().like("row_id", `${role}:%`);
+    });
+    await check("Nothing from the simulation is left behind", async () => {
+      const left = {
+        users: (await service.auth.admin.listUsers({ perPage: 1000 })).data.users.filter((u) => u.email?.includes(RUN)).length,
+        clients: (await service.from("clients").select("id").like("code", `${TAG}%`)).data?.length ?? 0,
+        roles: (await service.from("roles").select("id").like("key", `sim_${RUN}%`)).data?.length ?? 0,
+        invitations: (await service.from("invitations").select("id").like("email", `%${RUN}%`)).data?.length ?? 0,
+        jobs: (await service.from("jobs").select("id").in("id", made.jobs)).data?.length ?? 0,
+        audit:
+          ((await service.from("audit_log").select("id").in("actor_id", made.users)).data?.length ?? 0) +
+          ((await service.from("audit_log").select("id").eq("row_id", `${ORG_ID}:${simKind}`)).data?.length ?? 0) +
+          ((await service.from("audit_log").select("id").in("row_id", [...made.clients, ...made.roles, ...made.entityIds].slice(0, 100))).data?.length ?? 0),
+        files: (await service.storage.from("documents").list(`sim/${RUN}`)).data?.length ?? 0,
+        cases: (await service.from("cases").select("id").in("id", made.cases)).data?.length ?? 0,
+        candidates: (await service.from("candidates").select("id").in("id", made.candidates)).data?.length ?? 0,
+        caseFiles: (await Promise.all(made.objects.filter((o) => o.bucket === "case-files").map((o) => service.storage.from("case-files").exists(o.path)))).filter((e) => e.data).length,
+      };
+      return Object.values(left).every((n) => n === 0) ? true : `left behind ${JSON.stringify(left)}`;
+    });
+  }
+
+  // ---------------------------------------------------------------- report
+
+  const failed = results.filter((r) => !r.ok);
+  const areas = [...new Set(results.map((r) => r.area))];
+  console.log(`\n${results.length - failed.length} of ${results.length} checks passed. JWT alg ${jwtAlg || "unknown"}.`);
+  if (failed.length) console.log(`Failed:\n${failed.map((f) => `  - [${f.area}] ${f.name}: ${f.detail}`).join("\n")}`);
+
+  const reportPath = arg("report");
+  if (reportPath) {
+    const lines = [
+      `# Simulation ${TAG}`,
+      "",
+      `Target: \`${new URL(url).host}\`. Run: ${startedAt.toISOString()}. Result: **${results.length - failed.length} of ${results.length} checks passed**.`,
+      "",
+      ...areas.flatMap((a) => [
+        `## ${a}`,
+        "",
+        "| Check | Result |",
+        "|---|---|",
+        ...results.filter((r) => r.area === a).map((r) => `| ${r.name} | ${r.ok ? "Pass" : `**Fail**: ${r.detail?.replace(/\|/g, "/")}`} |`),
+        "",
+      ]),
+    ];
+    mkdirSync(dirname(reportPath), { recursive: true });
+    writeFileSync(reportPath, lines.join("\n"));
+    console.log(`Report written to ${reportPath}`);
+  }
+  process.exit(failed.length ? 1 : 0);
+}
+
+main().catch((error) => {
+  console.error(error instanceof Error ? error.message : error);
+  process.exit(1);
+});
