@@ -30,8 +30,10 @@ jobs:
 
       - name: Database migrations and RLS tests
         run: |
-          echo "/usr/lib/postgresql/16/bin" >> "$GITHUB_PATH"
-          export PATH="/usr/lib/postgresql/16/bin:$PATH"
+          # Whichever Postgres the runner image ships.
+          PG_BIN="$(ls -d /usr/lib/postgresql/*/bin | sort -V | tail -1)"
+          "$PG_BIN/postgres" --version
+          export PATH="$PG_BIN:$PATH"
           npm run db:verify
 
       - name: Build
