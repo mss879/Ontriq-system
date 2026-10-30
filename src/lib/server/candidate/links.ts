@@ -125,6 +125,31 @@ export async function issueCandidateLink(input: { caseId: string; actorId: strin
 }
 
 /** The working URL of the case's active link (staff "copy link"). */
+/**
+ * Send a new case's candidate their link by every channel we have for them,
+ * unless one is already active. Best effort: returns the channels used.
+ * Pass `contact` when the caller already has it (bulk import).
+ */
+export async function autoCandidateLink(caseId: string, actorId: string, contact?: { email: string | null; phone: string | null }): Promise<Channel[]> {
+  try {
+    const supabase = await createClient();
+    const { data: active } = await supabase.from("candidate_links").select("id").eq("case_id", caseId).is("revoked_at", null).maybeSingle();
+    if (active) return [];
+    let cand = contact ?? null;
+    if (!cand) {
+      const { data: c } = await supabase.from("cases").select("candidate:candidates(email, phone)").eq("id", caseId).maybeSingle();
+      cand = (c?.candidate as { email: string | null; phone: string | null } | null) ?? null;
+    }
+    const channels: Channel[] = [...(cand?.email ? (["email"] as const) : []), ...(cand?.phone ? (["sms"] as const) : [])];
+    if (!channels.length) return [];
+    const r = await issueCandidateLink({ caseId, actorId, channels });
+    return r.ok ? r.sent : [];
+  } catch (error) {
+    console.warn("[candidate link] automatic link failed", error);
+    return [];
+  }
+}
+
 export async function activeLinkUrl(linkId: string): Promise<ActionResult<{ url: string; expiresAt: string; language: string }>> {
   const supabase = await createClient();
   const { data: sealed, error } = await supabase.rpc("candidate_link_secret", { p_link: linkId });

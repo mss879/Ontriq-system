@@ -4,6 +4,9 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { CheckCircle2, CircleAlert, Lock, RotateCcw, Save } from "lucide-react";
 import { toast } from "sonner";
 import { saveCheckValues, setCheckState } from "../../../actions";
+import { decideSuggestion, settleFieldSuggestions } from "../../ai-actions";
+import { FieldSuggestions, type FieldSuggestion } from "@/components/ai/field-suggestions";
+import { applyFieldSuggestions, sameValue } from "@/domain/ai/suggestions";
 import { DynamicForm, type FormValues } from "@/components/cases/dynamic-form";
 import { validateCheckValues } from "@/domain/check-types/validate";
 import type { FieldDef } from "@/domain/check-types/schema";
@@ -28,6 +31,8 @@ export function CheckForm({
   editable,
   lockedReason,
   canReopen,
+  suggestions = [],
+  canDecideAi = false,
 }: {
   checkId: string;
   fields: FieldDef[];
@@ -35,8 +40,14 @@ export function CheckForm({
   editable: boolean;
   lockedReason?: string;
   canReopen: boolean;
+  /** Pending values the AI read from the documents. */
+  suggestions?: FieldSuggestion[];
+  canDecideAi?: boolean;
 }) {
   const [values, setValues] = useState<FormValues>(initialValues);
+  // Suggestions put into the form, with the value each replaced (for Undo).
+  const [applied, setApplied] = useState<Map<string, { fieldKey: string; previous: unknown }>>(new Map());
+  const [aiBusy, startAi] = useTransition();
   const [dirty, setDirty] = useState(false);
   const [showErrors, setShowErrors] = useState(false);
   const [serverErrors, setServerErrors] = useState<Record<string, string>>({});
@@ -66,6 +77,42 @@ export function CheckForm({
       setServerErrors({});
       setDirty(false);
       toast.success(r.valid ? "Saved. Ready for verification." : "Saved as a draft");
+      if (applied.size) {
+        // Record how each accepted suggestion ended up: as suggested, or edited before saving.
+        const items = [...applied.entries()].map(([id, a]) => {
+          const s = suggestions.find((x) => x.id === id);
+          const kept = s && sameValue(values[a.fieldKey], s.value);
+          return kept ? { id, decision: "accepted" as const } : { id, decision: "edited" as const, value: values[a.fieldKey] ?? null };
+        });
+        setApplied(new Map());
+        await settleFieldSuggestions(checkId, items);
+      }
+    });
+
+  const acceptSuggestions = (list: FieldSuggestion[]) => {
+    setApplied((prev) => {
+      const next = new Map(prev);
+      for (const s of list) next.set(s.id, { fieldKey: s.fieldKey, previous: values[s.fieldKey] });
+      return next;
+    });
+    setValues((v) => applyFieldSuggestions(v, list) as FormValues);
+    setDirty(true);
+    if (Object.keys(serverErrors).length) setServerErrors({});
+  };
+  const undoSuggestion = (s: FieldSuggestion) => {
+    const a = applied.get(s.id);
+    if (!a) return;
+    setValues((v) => ({ ...v, [a.fieldKey]: a.previous }) as FormValues);
+    setApplied((prev) => {
+      const next = new Map(prev);
+      next.delete(s.id);
+      return next;
+    });
+  };
+  const rejectSuggestion = (s: FieldSuggestion) =>
+    startAi(async () => {
+      const r = await decideSuggestion(s.id, "rejected");
+      if (!r.ok) toast.error(r.error);
     });
 
   const reopen = () =>
@@ -111,6 +158,19 @@ export function CheckForm({
           </Button>
         ) : null}
       </div>
+
+      <FieldSuggestions
+        fields={fields}
+        suggestions={suggestions}
+        values={values}
+        applied={new Set(applied.keys())}
+        editable={editable}
+        canDecide={canDecideAi}
+        busy={pending || aiBusy}
+        onAccept={acceptSuggestions}
+        onUndo={undoSuggestion}
+        onReject={rejectSuggestion}
+      />
 
       <form
         onSubmit={(e) => {

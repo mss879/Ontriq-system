@@ -48,3 +48,6 @@ next-env.d.ts
 # Supabase CLI link cache
 /supabase/.temp/
 /supabase/.branches/
+
+# Demo sign-ins written by scripts/seed-demo.ts (passwords)
+/demo-logins.local.md

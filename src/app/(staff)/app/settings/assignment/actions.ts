@@ -123,3 +123,41 @@ export async function removeLeave(id: string): Promise<ActionResult> {
     return { ok: true };
   });
 }
+
+const share = z.coerce.number().min(0, "0 or more.").max(1, "1 or less.");
+const performanceSchema = z
+  .object({
+    weights: z.object({ throughput: share, timeliness: share, quality: share, responsiveness: share }),
+    autoNudge: z.object({
+      enabled: z.boolean(),
+      overdueItems: z.coerce.number().int("A whole number.").min(1, "At least 1.").max(50, "50 or fewer."),
+      hours: z.coerce.number().int("A whole number.").min(1, "At least 1 hour.").max(168, "A week (168 hours) at most."),
+      escalate: z.boolean(),
+    }),
+  })
+  .refine((v) => v.weights.throughput + v.weights.timeliness + v.weights.quality + v.weights.responsiveness > 0, {
+    path: ["weights"],
+    message: "Give at least one measure some weight.",
+  });
+
+/** Performance score weights and the automatic push rule. */
+export async function savePerformanceRules(input: z.input<typeof performanceSchema>): Promise<ActionResult> {
+  return guarded(async (viewer) => {
+    const parsed = performanceSchema.safeParse(input);
+    if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Check the highlighted fields.", zodFieldErrors(parsed.error.issues));
+    const { weights, autoNudge } = parsed.data;
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("assignment_rules")
+      .update({
+        performance_weights: weights,
+        auto_nudge: { enabled: autoNudge.enabled, overdue_items: autoNudge.overdueItems, hours: autoNudge.hours, escalate: autoNudge.escalate },
+      })
+      .eq("org_id", viewer.orgId)
+      .select("org_id");
+    if (error) return fail(rpcErrorMessage(error));
+    if (!data?.length) return fail("Assignment rules are missing for this organisation.");
+    refresh();
+    return { ok: true };
+  });
+}

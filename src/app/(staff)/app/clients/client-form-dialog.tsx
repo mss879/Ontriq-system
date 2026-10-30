@@ -29,6 +29,7 @@ export type ClientFormValues = {
   address: string;
   slaDays: number;
   paymentTermsDays: number;
+  retentionMonths: number;
   status: "prospect" | "active" | "suspended" | "archived";
   notes: string;
 };
@@ -46,6 +47,7 @@ const EMPTY: ClientFormValues = {
   address: "",
   slaDays: 7,
   paymentTermsDays: 30,
+  retentionMonths: 24,
   status: "active",
   notes: "",
 };
@@ -251,6 +253,17 @@ function ClientForm({ mode, clientId, initial, onDone }: { mode: "create" | "edi
             value={String(values.paymentTermsDays)}
             onChange={(e) => set("paymentTermsDays", Number(e.target.value))}
             errors={errors.paymentTermsDays}
+          />
+          <TextField
+            name="retentionMonths"
+            label="Keep personal data for (months)"
+            type="number"
+            min={6}
+            max={120}
+            value={String(values.retentionMonths)}
+            onChange={(e) => set("retentionMonths", Number(e.target.value))}
+            description="After a case closes, the candidate's details and files are erased automatically. Invoices are kept."
+            errors={errors.retentionMonths}
           />
           <Field className="sm:col-span-2">
             <FieldLabel>Status</FieldLabel>

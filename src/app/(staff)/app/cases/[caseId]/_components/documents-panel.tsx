@@ -18,6 +18,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { ReasonDialog } from "./reason-dialog";
 import { UploadDialog, type UploadTarget } from "./uploader";
 import type { Tone } from "@/domain/workflow/stages";
+import type { DocumentAi } from "@/lib/server/ai/queries";
+import { DocumentAiChip } from "@/components/ai/document-ai-chip";
 
 export type DocPerms = { upload: boolean; review: boolean; waive: boolean; request: boolean; visibility: boolean };
 
@@ -47,6 +49,8 @@ export function DocumentsPanel({
   checks,
   perms,
   closed,
+  ai,
+  canDismissAi = false,
 }: {
   caseId: string;
   /** Show only this check's requirements and files (check page). */
@@ -57,6 +61,9 @@ export function DocumentsPanel({
   checks: { id: string; label: string }[];
   perms: DocPerms;
   closed: boolean;
+  /** What the AI classifier made of each file, by document id. */
+  ai?: Record<string, DocumentAi>;
+  canDismissAi?: boolean;
 }) {
   const [upload, setUpload] = useState<UploadTarget | null>(null);
   const [requesting, setRequesting] = useState(false);
@@ -133,6 +140,9 @@ export function DocumentsPanel({
                 perms={perms}
                 closed={closed}
                 onNewVersion={() => setUpload({ category: d.category, checkId: d.caseCheckId, parentId: d.id, parentName: d.filename })}
+                ai={d.status === "superseded" ? undefined : ai?.[d.id]}
+                typeName={catName}
+                canDismissAi={canDismissAi && !closed}
               />
             ))}
           </ul>
@@ -244,6 +254,9 @@ function FileRow({
   perms,
   closed,
   onNewVersion,
+  ai,
+  typeName,
+  canDismissAi,
 }: {
   d: CaseDocument;
   categoryName: string;
@@ -251,6 +264,9 @@ function FileRow({
   perms: DocPerms;
   closed: boolean;
   onNewVersion: () => void;
+  ai?: DocumentAi;
+  typeName: (key: string) => string;
+  canDismissAi: boolean;
 }) {
   const [pending, start] = useTransition();
   const [rejecting, setRejecting] = useState(false);
@@ -295,6 +311,7 @@ function FileRow({
             From {d.uploadedByKind}
           </ToneChip>
         ) : null}
+        {ai ? <DocumentAiChip ai={ai} typeName={typeName} canDismiss={canDismissAi} /> : null}
         <ToneChip tone={status.tone}>{status.label}</ToneChip>
         {perms.visibility && !superseded && !closed ? (
           <Select value={d.visibility} onValueChange={changeVisibility} disabled={pending}>
@@ -383,13 +400,15 @@ function FileRow({
   );
 }
 
-function RequestDialog({
+export function RequestDialog({
   open,
   onOpenChange,
   caseId,
   checkId,
   categories,
   checks,
+  initial,
+  onSent,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -397,6 +416,9 @@ function RequestDialog({
   checkId?: string;
   categories: { key: string; name: string }[];
   checks: { id: string; label: string }[];
+  /** Start with this document and note (e.g. drafted by the Pre-QC copilot). */
+  initial?: { category?: string; note?: string };
+  onSent?: () => void;
 }) {
   const [formKey, setFormKey] = useState(0);
   return (
@@ -414,9 +436,11 @@ function RequestDialog({
           checkId={checkId}
           categories={categories}
           checks={checks}
+          initial={initial}
           onDone={() => {
             onOpenChange(false);
             setFormKey((k) => k + 1);
+            onSent?.();
           }}
         />
       </DialogContent>
@@ -429,17 +453,19 @@ function RequestForm({
   checkId,
   categories,
   checks,
+  initial,
   onDone,
 }: {
   caseId: string;
   checkId?: string;
   categories: { key: string; name: string }[];
   checks: { id: string; label: string }[];
+  initial?: { category?: string; note?: string };
   onDone: () => void;
 }) {
-  const [category, setCategory] = useState("");
+  const [category, setCategory] = useState(initial?.category && categories.some((c) => c.key === initial.category) ? initial.category : "");
   const [target, setTarget] = useState<string>(checkId ?? "__case__");
-  const [note, setNote] = useState("");
+  const [note, setNote] = useState(initial?.note ?? "");
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
   return (

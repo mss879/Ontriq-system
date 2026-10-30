@@ -220,6 +220,9 @@ const KIND_LABEL: Record<Kind, { label: string; hint: string }> = {
   question: { label: "A question", hint: "Anything else; they answer in their own words." },
 };
 
+/** What to start the form with (e.g. a request the Pre-QC copilot drafted). */
+export type AskPrefill = { kind?: Kind; category?: string; checkId?: string; title?: string; help?: string };
+
 export function AskCandidateDialog({
   open,
   onOpenChange,
@@ -227,6 +230,8 @@ export function AskCandidateDialog({
   checks,
   categories,
   linkActive,
+  initial,
+  onSent,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -234,25 +239,53 @@ export function AskCandidateDialog({
   checks: AskCheck[];
   categories: { key: string; name: string; guide: string }[];
   linkActive: boolean;
+  initial?: AskPrefill;
+  onSent?: () => void;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-h-[90svh] overflow-y-auto sm:max-w-lg">
-        {open ? <AskForm caseId={caseId} checks={checks} categories={categories} linkActive={linkActive} onDone={() => onOpenChange(false)} /> : null}
+        {open ? (
+          <AskForm
+            caseId={caseId}
+            checks={checks}
+            categories={categories}
+            linkActive={linkActive}
+            initial={initial}
+            onDone={() => {
+              onOpenChange(false);
+              onSent?.();
+            }}
+          />
+        ) : null}
       </DialogContent>
     </Dialog>
   );
 }
 
-function AskForm({ caseId, checks, categories, linkActive, onDone }: { caseId: string; checks: AskCheck[]; categories: { key: string; name: string; guide: string }[]; linkActive: boolean; onDone: () => void }) {
+function AskForm({
+  caseId,
+  checks,
+  categories,
+  linkActive,
+  initial,
+  onDone,
+}: {
+  caseId: string;
+  checks: AskCheck[];
+  categories: { key: string; name: string; guide: string }[];
+  linkActive: boolean;
+  initial?: AskPrefill;
+  onDone: () => void;
+}) {
   const askable = checks.filter((c) => c.fields.length > 0);
-  const [kind, setKind] = useState<Kind>("document");
-  const [category, setCategory] = useState("");
-  const [checkId, setCheckId] = useState(WHOLE_CASE);
+  const [kind, setKind] = useState<Kind>(initial?.kind ?? "document");
+  const [category, setCategory] = useState(initial?.category && categories.some((c) => c.key === initial.category) ? initial.category : "");
+  const [checkId, setCheckId] = useState(initial?.checkId ?? WHOLE_CASE);
   const [fieldCheck, setFieldCheck] = useState(askable[0]?.id ?? "");
   const [fieldKey, setFieldKey] = useState("");
-  const [title, setTitle] = useState("");
-  const [help, setHelp] = useState("");
+  const [title, setTitle] = useState(initial?.title ?? "");
+  const [help, setHelp] = useState(initial?.help ?? "");
   const [dueAt, setDueAt] = useState("");
   const [errors, setErrors] = useState<Record<string, string[]>>({});
   const [formError, setFormError] = useState<string | null>(null);

@@ -10,7 +10,9 @@ import { myOpenChecks, QUEUE_LABELS, QUEUE_TABS, queueCases, queueCounts, queueT
 import { QueueList, MyChecks } from "./queue-list";
 import { getCandidateReplies } from "@/lib/server/cases/candidate-queries";
 import { CandidateReplies } from "./candidate-replies";
-import { canAny } from "@/domain/permissions";
+import { can, canAny } from "@/domain/permissions";
+import { getReportQueues } from "@/lib/server/reports/queries";
+import { ReportQueue } from "./report-queues";
 
 export const metadata: Metadata = { title: "My work" };
 
@@ -34,19 +36,22 @@ async function Queues({ searchParams }: Pick<PageProps<"/app/queues">, "searchPa
   const tab: QueueTab = requested && (QUEUE_TABS as readonly string[]).includes(requested) && tabs.includes(requested) ? requested : "mine";
 
   const showReplies = tab === "mine" && canAny(viewer, ["candidates.requests", "cases.update"]);
-  const [counts, cases, checks, staff, replies] = await Promise.all([
+  const showApprove = tab === "mine" && can(viewer, "reports.approve");
+  const showRelease = tab === "mine" && can(viewer, "reports.release");
+  const [counts, cases, checks, staff, replies, reports] = await Promise.all([
     queueCounts(viewer, tabs),
     queueCases(viewer, tab),
     tab === "mine" ? myOpenChecks(viewer.userId) : Promise.resolve([]),
     tab === "unassigned" ? staffOptions() : Promise.resolve([]),
     showReplies ? getCandidateReplies() : Promise.resolve([]),
+    showApprove || showRelease ? getReportQueues(viewer.userId) : Promise.resolve({ toApprove: [], toRelease: [] }),
   ]);
   const label = QUEUE_LABELS[tab];
   const otherChecks = checks.filter((k) => k.caseAssignee !== viewer.userId);
 
   return (
     <div className="space-y-5">
-      <RealtimeRefresh sources={[{ table: "cases" }, { table: "case_checks" }, { table: "candidate_requests" }, { table: "consent_forms" }]} />
+      <RealtimeRefresh sources={[{ table: "cases" }, { table: "case_checks" }, { table: "candidate_requests" }, { table: "consent_forms" }, { table: "report_versions" }]} />
       <nav aria-label="Queues" className="-mx-4 overflow-x-auto px-4 md:mx-0 md:px-0">
         <ul className="flex min-w-max gap-1 rounded-xl bg-muted p-1">
           {tabs.map((t) => (
@@ -78,6 +83,18 @@ async function Queues({ searchParams }: Pick<PageProps<"/app/queues">, "searchPa
 
       {tab === "mine" ? (
         <div className="space-y-6">
+          {showApprove ? (
+            <section className="space-y-3">
+              <h2 className="text-sm font-semibold">Reports to approve</h2>
+              <ReportQueue items={reports.toApprove} kind="approve" />
+            </section>
+          ) : null}
+          {showRelease ? (
+            <section className="space-y-3">
+              <h2 className="text-sm font-semibold">Reports ready to release</h2>
+              <ReportQueue items={reports.toRelease} kind="release" />
+            </section>
+          ) : null}
           <section className="space-y-3">
             <h2 className="text-sm font-semibold">Cases you own</h2>
             <QueueList items={cases} empty="You don't own any active cases." />

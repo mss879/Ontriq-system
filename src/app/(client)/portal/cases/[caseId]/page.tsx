@@ -14,6 +14,7 @@ import { formatBytes, formatDate, formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { PortalCaseDetail } from "@/domain/portal/types";
 import { DocumentSlots } from "./document-slots";
+import { getPortalReport } from "@/lib/server/reports/queries";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 type Params = Pick<PageProps<"/portal/cases/[caseId]">, "params">;
@@ -299,6 +300,7 @@ async function Timeline({ params }: Params) {
 
 async function ReportCard({ params }: Params) {
   const { report, case: c } = await load(params);
+  const file = report.status === "released" ? await getPortalReport(c.id) : null;
   const tone = report.status === "released" ? "success" : report.status === "in_preparation" ? "progress" : "neutral";
   const label = { released: "Released", in_preparation: "In preparation", not_ready: "Not ready yet", cancelled: "Cancelled" }[report.status];
   return (
@@ -309,12 +311,30 @@ async function ReportCard({ params }: Params) {
       </div>
       <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
         {report.status === "released"
-          ? `Ontriq released the report on ${formatDate(report.released_at)}. Until the download appears here, ask your Ontriq contact for a copy.`
+          ? file
+            ? `Released on ${formatDate(file.releasedAt ?? report.released_at)}${file.version > 2 ? " (revised)" : ""}${file.pageCount ? ` · ${file.pageCount} pages` : ""}.`
+            : `Ontriq released the report on ${formatDate(report.released_at)}. If the download doesn't appear, ask your Ontriq contact for a copy.`
           : report.status === "cancelled"
             ? "No report will be issued for a cancelled request."
-            : "Your report will be available here once Ontriq releases it."}
+            : report.status === "in_preparation"
+              ? "Ontriq is preparing and approving the report. You can download it here as soon as it's released."
+              : "Your report will be available here once Ontriq releases it."}
       </p>
       {c.stage === "released" && c.final_result ? <ResultBadge result={c.final_result} prefix="Overall:" className="mt-3" /> : null}
+      {file ? (
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button asChild size="sm">
+            <a href={`/api/reports/${file.versionId}?download=1`}>
+              <Download /> Download PDF
+            </a>
+          </Button>
+          <Button asChild size="sm" variant="outline">
+            <a href={`/api/reports/${file.versionId}`} target="_blank" rel="noreferrer">
+              <Eye /> Open
+            </a>
+          </Button>
+        </div>
+      ) : null}
     </section>
   );
 }

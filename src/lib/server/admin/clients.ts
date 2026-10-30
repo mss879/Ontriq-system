@@ -72,6 +72,7 @@ export type ClientProfile = {
   address: string;
   slaDays: number;
   paymentTermsDays: number;
+  retentionMonths: number;
   status: ClientStatus;
   notes: string | null;
   createdAt: string;
@@ -95,6 +96,7 @@ export const getClientProfile = cache(async (id: string): Promise<ClientProfile 
     address: addressText(c.address),
     slaDays: c.sla_days,
     paymentTermsDays: c.payment_terms_days,
+    retentionMonths: c.retention_months,
     status: c.status as ClientStatus,
     notes: c.notes,
     createdAt: c.created_at,

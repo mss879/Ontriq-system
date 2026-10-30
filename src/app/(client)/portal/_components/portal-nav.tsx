@@ -3,14 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { Boxes, FilePlus2, FileText, FolderOpen, LayoutDashboard, LayoutTemplate, Menu, Settings, Users } from "lucide-react";
+import { Boxes, FilePlus2, FileSignature, FileText, FolderOpen, LayoutDashboard, LayoutTemplate, Menu, Receipt, Settings, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { SignOutButton } from "@/components/auth/sign-out-button";
 import { LogoMark } from "@/components/brand/logo";
 
-export type PortalNavKey = "dashboard" | "cases" | "new" | "packages" | "templates" | "reports" | "team" | "settings";
+export type PortalNavKey = "dashboard" | "cases" | "new" | "packages" | "templates" | "reports" | "quotes" | "invoices" | "team" | "settings";
 
 const ITEMS: Record<PortalNavKey, { href: string; label: string; icon: typeof FolderOpen }> = {
   dashboard: { href: "/portal", label: "Dashboard", icon: LayoutDashboard },
@@ -19,6 +19,8 @@ const ITEMS: Record<PortalNavKey, { href: string; label: string; icon: typeof Fo
   packages: { href: "/portal/packages", label: "Packages", icon: Boxes },
   templates: { href: "/portal/templates", label: "Templates", icon: LayoutTemplate },
   reports: { href: "/portal/reports", label: "Reports", icon: FileText },
+  quotes: { href: "/portal/quotes", label: "Quotes", icon: FileSignature },
+  invoices: { href: "/portal/invoices", label: "Invoices", icon: Receipt },
   team: { href: "/portal/team", label: "Team", icon: Users },
   settings: { href: "/portal/settings", label: "Settings", icon: Settings },
 };

@@ -52,7 +52,21 @@ Verify the sending domain in Resend, then set `RESEND_API_KEY` and `EMAIL_FROM`.
 - Client users get an email copy of portal notifications (`notify.email`) unless they turn it off under Portal → Settings.
 - Before launch, have Ontriq review the Sinhala and Tamil wording (candidate page and emails) and the consent form text.
 
-## 6. Checks after deploy
+## 6. AI
+
+- Set `ANTHROPIC_API_KEY` in Netlify. Every model, effort level, token limit and on/off switch is in Settings → AI, with daily and monthly budgets (a "pause" budget stops non-essential AI calls once reached) and the spend so far. The seeded budget pauses the command assistant at $5 a day and $60 a month.
+- Without the key nothing breaks: uploads, cases and reports work as before, AI jobs finish as skipped, and the AI panels say AI isn't set up.
+- Voice notes for the command assistant: `STT_PROVIDER=openai` and `STT_API_KEY` (optional `STT_MODEL`, `STT_COST_PER_MINUTE`). Without them the mic uses the browser's own dictation where the browser supports it, and recorded notes are not transcribed.
+- Everything the AI produces is a suggestion a person accepts or rejects; the assistant's changes are confirm cards.
+
+## 7. Data protection
+
+- Each client's retention period (default 24 months after a case closes) is on the client form. The nightly `retention.purge` job erases the candidate's personal data and files for cases past it; quotes, invoices and payments are kept.
+- An erasure request: cancel the case if it is still open, then the Super Admin opens the case and uses Erase personal data (two-step verification required; type the reference to confirm). Every erasure is in the audit trail and `system_events`.
+- Two-step verification for staff: Settings → Organisation → Security → "Require two-step verification". It must be on before real candidate data is loaded (it was switched off while the system was being tested).
+- Sign-in, password reset, candidate links, report verification, quotation answers and the assistant are rate limited (`rate_limit_check`). Two-step codes are limited by Supabase Auth itself.
+
+## 8. Checks after deploy
 
 - `GET /api/health` returns `ok: true` (database reachable, scheduler ticked in the last 5 minutes).
 - `npm run simulate -- --env .env.hosted --app https://crm.ontriq.lk` passes (it also drives the live site's routes and pages).

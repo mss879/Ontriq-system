@@ -162,24 +162,38 @@ export function StatusPanel({
   );
 }
 
-type Outcome = "completed" | "discrepancy" | "unable_to_verify";
+export type Outcome = "completed" | "discrepancy" | "unable_to_verify";
+export type OutcomeValues = { outcome: Outcome; result: string; note: string; clientNote: string };
 const OUTCOMES: { key: Outcome; label: string; icon: React.ComponentType<{ className?: string }>; hint: string }[] = [
   { key: "completed", label: "Verified", icon: CheckCircle2, hint: "Confirmed with the source." },
   { key: "discrepancy", label: "Discrepancy", icon: TriangleAlert, hint: "Something doesn't match. Explain it." },
   { key: "unable_to_verify", label: "Unable to verify", icon: HelpCircle, hint: "The source couldn't confirm." },
 ];
 
-function OutcomeForm({ checkId, options, onDone }: { checkId: string; options: ResultOption[]; onDone: () => void }) {
-  const [outcome, setOutcome] = useState<Outcome>("completed");
+/** Record a check's outcome. `initial` pre-fills it (e.g. from a captured reply); the person still confirms. */
+export function OutcomeForm({
+  checkId,
+  options,
+  onDone,
+  initial,
+  description = "A person decides every result, and Post-QC reviews each one before the report.",
+}: {
+  checkId: string;
+  options: ResultOption[];
+  onDone: (values: OutcomeValues) => void;
+  initial?: Partial<OutcomeValues>;
+  description?: string;
+}) {
+  const [outcome, setOutcome] = useState<Outcome>(initial?.outcome ?? "completed");
   const pick = (o: Outcome) =>
     o === "completed"
       ? options.filter((x) => x.tone !== "red" && x.key !== "unable_to_verify" && x.key !== "pending")
       : o === "discrepancy"
         ? options.filter((x) => x.tone === "red")
         : options.filter((x) => x.tone === "amber" && x.key !== "pending").sort((a, b) => Number(b.key === "unable_to_verify") - Number(a.key === "unable_to_verify"));
-  const [result, setResult] = useState<string>(() => pick("completed")[0]?.key ?? "");
-  const [note, setNote] = useState("");
-  const [clientNote, setClientNote] = useState("");
+  const [result, setResult] = useState<string>(() => (initial?.result && pick(initial.outcome ?? "completed").some((o) => o.key === initial.result) ? initial.result : (pick(initial?.outcome ?? "completed")[0]?.key ?? "")));
+  const [note, setNote] = useState(initial?.note ?? "");
+  const [clientNote, setClientNote] = useState(initial?.clientNote ?? "");
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const choices = pick(outcome);
@@ -193,14 +207,14 @@ function OutcomeForm({ checkId, options, onDone }: { checkId: string; options: R
           const r = await setCheckState(checkId, { state: outcome, result: result || undefined, note, clientNote });
           if (r.ok) {
             toast.success("Outcome recorded");
-            onDone();
+            onDone({ outcome, result, note, clientNote });
           } else setError(r.error);
         });
       }}
     >
       <DialogHeader className="mb-4">
         <DialogTitle>Record the outcome</DialogTitle>
-        <DialogDescription>A person decides every result, and Post-QC reviews each one before the report.</DialogDescription>
+        <DialogDescription>{description}</DialogDescription>
       </DialogHeader>
       <div className="space-y-4">
         <div role="radiogroup" aria-label="Outcome" className="grid gap-2 sm:grid-cols-3">

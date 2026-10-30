@@ -174,6 +174,7 @@ export type CaseDetail = {
   dueAt: string | null;
   completedAt: string | null;
   cancelReason: string | null;
+  erasedAt: string | null;
   package: { name: string; code: string | null; tatDays: number | null; items: { checkTypeId: string; name: string; unitPrice: number }[] };
   client: { id: string; name: string; code: string };
   candidate: {
@@ -237,6 +238,7 @@ export const getCase = cache(async (id: string): Promise<CaseDetail | null> => {
     createdVia: c.created_via,
     receivedAt: c.received_at,
     dueAt: c.due_at,
+    erasedAt: c.erased_at,
     completedAt: c.completed_at,
     cancelReason: c.cancel_reason,
     package: {

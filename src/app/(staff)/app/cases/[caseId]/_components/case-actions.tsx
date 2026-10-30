@@ -77,7 +77,11 @@ export function CaseActions({
   if (stage === "report") {
     return (
       <div className="rounded-xl border border-dashed bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
-        Post-QC is complete and the case is ready for its final report. The report builder arrives in Phase 3.
+        Post-QC is complete. Prepare the final report in the{" "}
+        <a href="#report" className="font-medium text-foreground underline-offset-4 hover:underline">
+          Report
+        </a>{" "}
+        section below.
       </div>
     );
   }

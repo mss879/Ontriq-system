@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Ban, ChevronLeft, PauseCircle, RotateCcw, ShieldCheck } from "lucide-react";
+import { Ban, ChevronLeft, PauseCircle, RotateCcw, ShieldCheck, ShieldOff } from "lucide-react";
 import { Page, SectionSkeleton } from "@/components/layout/page";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
 import { PriorityBadge, ProcessTypeBadge, ResultBadge, StagePill, statusLabel, ToneChip } from "@/components/cases/badges";
@@ -15,6 +15,7 @@ import { consentMissing, getCandidatePanel } from "@/lib/server/cases/candidate-
 import { can, type Permission } from "@/domain/permissions";
 import { availableActions } from "@/domain/workflow/transitions-core";
 import { CaseActions } from "./_components/case-actions";
+import { EraseCaseDialog } from "./_components/erase-dialog";
 import { CheckCards } from "./_components/check-cards";
 import { StageRail } from "./_components/stage-rail";
 import { DocumentsPanel } from "./_components/documents-panel";
@@ -22,6 +23,13 @@ import { Timeline } from "./_components/timeline";
 import { AssignmentCard } from "./_components/assignment-card";
 import { CandidateCard, DetailsCard } from "./_components/info-cards";
 import { CandidatePanel } from "./_components/candidate-panel";
+import { ReportPanel } from "./_components/report-panel";
+import { getReleaseRecipients, getReportVersions } from "@/lib/server/reports/queries";
+import { aiItem, getAiStatus, getAiWork, getCaseAi, getDocumentAi } from "@/lib/server/ai/queries";
+import { canDecide, canRerun, RERUN, type RerunCapability } from "@/domain/ai/suggestions";
+import type { ConsistencyResult, PostQcResult, PreQcResult } from "@/lib/ai/prompts";
+import { CaseCopilot } from "@/components/ai/case-copilot";
+import { AiOffNote } from "@/components/ai/ai-badge";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -44,6 +52,12 @@ export default function CasePage({ params }: PageProps<"/app/cases/[caseId]">) {
       </Suspense>
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_21rem]">
         <div className="min-w-0 space-y-6">
+          <Suspense fallback={null}>
+            <Report params={params} />
+          </Suspense>
+          <Suspense fallback={<SectionSkeleton rows={3} />}>
+            <Copilot params={params} />
+          </Suspense>
           <Section title="Checks">
             <Suspense fallback={<SectionSkeleton rows={4} className="shadow-none ring-0" />}>
               <Checks params={params} />
@@ -138,6 +152,7 @@ async function Header({ params }: Params) {
           { table: "candidate_requests", filter: `case_id=eq.${c.id}` },
           { table: "candidate_messages", filter: `case_id=eq.${c.id}` },
           { table: "consent_forms", filter: `case_id=eq.${c.id}` },
+          { table: "report_versions", filter: `case_id=eq.${c.id}` },
         ]}
       />
       <Link href="/app/cases" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
@@ -193,9 +208,15 @@ async function Header({ params }: Params) {
           </span>
         </Banner>
       ) : null}
-      {c.stage === "cancelled" ? (
+      {c.stage === "cancelled" && !c.erasedAt ? (
         <Banner tone="danger" icon={<Ban className="size-4" />} title="Cancelled">
           {c.cancelReason}
+        </Banner>
+      ) : null}
+      {c.erasedAt ? (
+        <Banner tone="warning" icon={<ShieldOff className="size-4" />} title="Personal data erased">
+          The candidate&apos;s details and files were erased on {new Date(c.erasedAt).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "Asia/Colombo" })}. The
+          reference, results and invoices are kept.
         </Banner>
       ) : null}
 
@@ -207,6 +228,11 @@ async function Header({ params }: Params) {
         actions={actions}
         checks={checks.map((k) => ({ id: k.id, label: k.label, state: k.state }))}
       />
+      {closed && !c.erasedAt && viewer.roleKey === "super_admin" ? (
+        <div className="flex justify-end">
+          <EraseCaseDialog caseId={c.id} reference={c.reference} />
+        </div>
+      ) : null}
     </header>
   );
 }
@@ -230,6 +256,115 @@ function Banner({ tone, icon, title, children }: { tone: "warning" | "danger"; i
   );
 }
 
+/** The final report: shown once the case reaches the report stage, or whenever a version exists. */
+async function Report({ params }: Params) {
+  const { caseId } = await params;
+  const [viewer, c] = await Promise.all([getStaffViewer(), loadCase(caseId)]);
+  if (!c || !can(viewer, "reports.preview")) return null;
+  const { versions, draftSummary } = await getReportVersions(caseId);
+  const atReport = c.stage === "report" || c.stage === "approval" || c.stage === "released";
+  if (!atReport && !versions.length) return null;
+  const canRelease = can(viewer, "reports.release");
+  const recipients = canRelease && c.stage === "approval" ? await getReleaseRecipients(c.client.id) : [];
+  return (
+    <Section title="Report" id="report">
+      <ReportPanel
+        caseId={caseId}
+        stage={c.stage}
+        onHold={c.onHold}
+        clientName={c.client.name}
+        versions={versions}
+        summary={draftSummary}
+        recipients={recipients}
+        perms={{
+          preview: can(viewer, "cases.stage.change") || can(viewer, "reports.approve") || c.assignee?.id === viewer.userId,
+          approve: can(viewer, "reports.approve"),
+          release: canRelease,
+          superAdmin: viewer.roleKey === "super_admin",
+        }}
+        viewerId={viewer.userId}
+      />
+    </Section>
+  );
+}
+
+/** The AI copilot: consistency, Pre-QC and Post-QC reviews and drafted remarks, each for a person to decide. */
+async function Copilot({ params }: Params) {
+  const { caseId } = await params;
+  const [viewer, c] = await Promise.all([getStaffViewer(), loadCase(caseId)]);
+  if (!c) return null;
+  const [ai, status, checks, docs] = await Promise.all([getCaseAi(caseId), getAiStatus(), getCaseChecks(caseId), getDocuments(caseId)]);
+  const work = await getAiWork(caseId, [...checks.map((k) => k.id), ...docs.map((d) => d.id)]);
+  const may = (p: string) => can(viewer, p as Permission);
+  const remarks = checks.flatMap((k) => {
+    const item = aiItem<{ text: string }>(ai.checks[k.id]?.remarks);
+    return item ? [{ ...item, checkId: k.id, checkLabel: k.label, current: k.clientNote }] : [];
+  });
+  const data = {
+    consistency: aiItem<ConsistencyResult>(ai.consistency),
+    preqc: aiItem<PreQcResult>(ai.preqc),
+    postqc: aiItem<PostQcResult>(ai.postqc),
+    summary: aiItem<{ text: string }>(ai.summary),
+    remarks,
+  };
+  const working = [...new Set(work.filter((w) => w.entityId === caseId || !w.entityId).map((w) => w.kind))];
+  const has = Boolean(data.consistency || data.preqc || data.postqc || data.summary || remarks.length || working.length);
+  const live = (
+    <RealtimeRefresh
+      sources={[
+        { table: "ai_suggestions", filter: `entity_id=in.(${[caseId, ...checks.map((k) => k.id), ...docs.map((d) => d.id)].slice(0, 100).join(",")})` },
+        { table: "jobs", filter: `entity_id=eq.${caseId}` },
+      ]}
+    />
+  );
+  if (!status.configured && !has) {
+    return (
+      <>
+        {live}
+        <AiOffNote className="px-1" />
+      </>
+    );
+  }
+  const closed = c.stage === "released" || c.stage === "cancelled";
+  const rerun = Object.fromEntries((Object.keys(RERUN) as RerunCapability[]).map((k) => [k, !closed && canRerun(k, c.stage, c.onHold, may)]));
+  const askCandidate = !closed && (may("candidates.requests") || may("cases.update"));
+  const [candidate, categories] = askCandidate ? await Promise.all([getCandidatePanel(caseId), getDocumentCategories()]) : [null, await getDocumentCategories()];
+  return (
+    <Section title="AI copilot" id="ai">
+      {live}
+      <CaseCopilot
+        caseId={caseId}
+        data={data}
+        configured={status.configured}
+        working={working}
+        perms={{
+          rerun,
+          pre: canDecide("case.preqc", may),
+          post: canDecide("case.postqc", may),
+          remarks: canDecide("report.narrative", may),
+          askCandidate,
+          requestClient: !closed && may("cases.update"),
+        }}
+        remarksLocked={["approval", "released", "cancelled"].includes(c.stage)}
+        candidate={
+          candidate
+            ? {
+                checks: checks.map((k) => ({
+                  id: k.id,
+                  label: k.label,
+                  fields: k.schema.fields.filter((f) => f.type !== "repeatable_group").map((f) => ({ key: f.key, label: f.label, type: f.type, help: f.help ?? undefined })),
+                })),
+                categories: categories.filter((cat) => !STAFF_ONLY_CATEGORIES.has(cat.key)),
+                linkActive: candidate.link?.state === "active",
+              }
+            : null
+        }
+        request={{ categories, checks: checks.map((k) => ({ id: k.id, label: k.label })) }}
+      />
+    </Section>
+  );
+}
+
 async function Checks({ params }: Params) {
   const { caseId } = await params;
   const c = await loadCase(caseId);
@@ -243,8 +378,14 @@ async function Documents({ params }: Params) {
   const [viewer, c] = await Promise.all([getStaffViewer(), loadCase(caseId)]);
   if (!c) return null;
   const [reqs, docs, categories, checks] = await Promise.all([getRequirements(caseId), getDocuments(caseId), getDocumentCategories(), getCaseChecks(caseId)]);
+  const docAi = await getDocumentAi(
+    caseId,
+    docs.map((d) => d.id),
+  );
   return (
     <DocumentsPanel
+      ai={docAi}
+      canDismissAi={can(viewer, "cases.update") || can(viewer, "qc.pre")}
       caseId={caseId}
       requirements={reqs}
       documents={docs}

@@ -17,6 +17,8 @@ function navKeys(viewer: Viewer): PortalNavKey[] {
   keys.push("packages");
   if (can(viewer, "portal.templates.manage") || can(viewer, "portal.cases.create")) keys.push("templates");
   keys.push("reports");
+  if (can(viewer, "portal.quotes.accept")) keys.push("quotes");
+  if (can(viewer, "portal.invoices.view")) keys.push("invoices");
   if (can(viewer, "portal.users.manage")) keys.push("team");
   keys.push("settings");
   return keys;

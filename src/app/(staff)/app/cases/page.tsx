@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import type { Metadata } from "next";
-import { Plus } from "lucide-react";
+import { Download, Plus, Upload } from "lucide-react";
 import { Page, PageHeader, SectionSkeleton } from "@/components/layout/page";
 import { Button } from "@/components/ui/button";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
@@ -20,7 +20,7 @@ export default function CasesPage({ searchParams }: PageProps<"/app/cases">) {
   return (
     <Page className="max-w-7xl">
       <Suspense fallback={<PageHeader eyebrow="Workspace" title="Cases" description={DESCRIPTION} />}>
-        <CasesHeader />
+        <CasesHeader searchParams={searchParams} />
       </Suspense>
       <Suspense fallback={<CasesSkeleton />}>
         <CasesContent searchParams={searchParams} />
@@ -29,22 +29,43 @@ export default function CasesPage({ searchParams }: PageProps<"/app/cases">) {
   );
 }
 
-async function CasesHeader() {
-  const viewer = await getStaffViewer();
+async function CasesHeader({ searchParams }: Pick<PageProps<"/app/cases">, "searchParams">) {
+  const [viewer, params] = await Promise.all([getStaffViewer(), searchParams]);
   if (!can(viewer, "cases.read") && !can(viewer, "cases.read_assigned")) redirect("/app");
+  // The export uses the same filters as the list on screen.
+  const exportQuery = new URLSearchParams();
+  for (const key of ["q", "stage", "client", "assignee", "priority", "due"]) {
+    const v = params[key];
+    const value = Array.isArray(v) ? v[0] : v;
+    if (value) exportQuery.set(key, value);
+  }
   return (
     <PageHeader
       eyebrow="Workspace"
       title="Cases"
       description={DESCRIPTION}
       actions={
-        can(viewer, "cases.create") ? (
-          <Button asChild variant="brand" size="lg" className="h-9 px-3.5">
-            <Link href="/app/cases/new">
-              <Plus /> New case
-            </Link>
+        <>
+          <Button asChild variant="outline" size="lg" className="h-9 px-3">
+            <a href={`/api/exports/cases${exportQuery.size ? `?${exportQuery}` : ""}`} download>
+              <Download /> Export CSV
+            </a>
           </Button>
-        ) : null
+          {can(viewer, "cases.create") ? (
+            <>
+              <Button asChild variant="outline" size="lg" className="h-9 px-3">
+                <Link href="/app/cases/import">
+                  <Upload /> Import
+                </Link>
+              </Button>
+              <Button asChild variant="brand" size="lg" className="h-9 px-3.5">
+                <Link href="/app/cases/new">
+                  <Plus /> New case
+                </Link>
+              </Button>
+            </>
+          ) : null}
+        </>
       }
     />
   );

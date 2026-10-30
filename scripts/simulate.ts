@@ -1193,8 +1193,13 @@ async function main() {
     const issued = await admin.db.rpc("issue_candidate_link", { p_case: case3, p_token_hash: hashLinkSecret(linkSecret), p_token_enc: sealed(linkSecret) as string, p_language: "si", p_days: 14 });
     if (issued.error) return issued.error.message;
     linkId = issued.data as string;
-    // Let auto-assignment give the case an owner, who hears about the candidate's activity.
-    await drainJobs({ budgetMs: 30_000, reserveMs: 0, maxJobs: 10, workerId: `sim-${RUN}`, admin: service });
+    // Let auto-assignment give the case an owner, who hears about the candidate's activity
+    // (the queue also holds the AI reading of earlier uploads, so drain until it is done).
+    for (let i = 0; i < 5; i++) {
+      await drainJobs({ budgetMs: 30_000, reserveMs: 0, maxJobs: 25, workerId: `sim-${RUN}`, admin: service });
+      const { data: owner } = await service.from("cases").select("assigned_to").eq("id", case3).single();
+      if (owner?.assigned_to) break;
+    }
     const sent = await admin.db.rpc("record_candidate_link_sent", { p_link: linkId, p_channels: ["email"] });
     if (sent.error) return sent.error.message;
     const secretColumn = await admin.db.from("candidate_links").select("token_hash").eq("id", linkId);
@@ -1378,6 +1383,256 @@ async function main() {
     const { data } = await service.rpc("candidate_reminder_candidates");
     const row = ((data ?? []) as { link_id: string; missing_documents: number; consent_missing: boolean }[]).find((r) => r.link_id === issued.data);
     return row ? expectEq([row.consent_missing, row.missing_documents > 0], [true, true], "consent and documents owed") : "the link is not in the reminder list";
+  });
+
+
+  // ---------------------------------------------------------------- Phase 3: reports, quotations, invoices
+
+  section("Final report, quotations, invoices and payments");
+  const { currentSnapshot } = await import("../src/jobs/report/load");
+  const money = { quotes: [] as string[], invoices: [] as string[], numbered: false };
+  // Document numbers must stay gap-free. With real quotations or invoices present, skip the numbered steps.
+  const liveDocs =
+    ((await service.from("invoices").select("id", { count: "exact", head: true })).count ?? 0) +
+    ((await service.from("quotes").select("id", { count: "exact", head: true })).count ?? 0);
+  money.numbered = liveDocs === 0;
+  let finalId = "";
+  let draftId = "";
+  let quoteId = "";
+  let invoiceId = "";
+
+  await check("Ontriq drafts the report: the real render job builds the PDF with its fingerprint", async () => {
+    const viewerTry = await dataEntry.db.rpc("request_report_draft", { p_case: case1 });
+    if (!viewerTry.error) return "someone without report access made a draft";
+    const { data, error } = await admin.db.rpc("request_report_draft", { p_case: case1 });
+    if (error) return error.message;
+    draftId = data as string;
+    await drainJobs({ budgetMs: 120_000, reserveMs: 0, maxJobs: 10, workerId: `sim-${RUN}`, admin: service });
+    const { data: v } = await service.from("report_versions").select("status, storage_path, sha256, page_count, snapshot_hash, error").eq("id", draftId).single();
+    if (v?.status !== "ready") return `draft ${v?.status}: ${v?.error ?? ""}`;
+    if (v.storage_path) made.objects.push({ bucket: "reports", path: v.storage_path });
+    const file = await service.storage.from("reports").download(v.storage_path!);
+    const head = file.data ? Buffer.from(await file.data.arrayBuffer()).subarray(0, 5).toString() : "";
+    return head === "%PDF-" && (v.page_count ?? 0) >= 2 && /^[0-9a-f]{64}$/.test(v.sha256 ?? "") ? true : `pdf ${head}, pages ${v.page_count}`;
+  });
+
+  await check("Approval checks the case didn't change after the draft, and a green result needs every check clear", async () => {
+    const sent = await verifier.db.rpc("submit_report", { p_case: case1 });
+    if (sent.error) return sent.error.message;
+    const wrong = await ops.db.rpc("approve_report", { p_case: case1, p_draft: draftId, p_final_result: "red", p_current_hash: "0".repeat(64) });
+    if (!wrong.error || !/changed/.test(wrong.error.message)) return "approved a draft against a changed case";
+    const { hash } = await currentSnapshot(service, case1);
+    const green = await ops.db.rpc("approve_report", { p_case: case1, p_draft: draftId, p_final_result: "green", p_current_hash: hash });
+    if (!green.error) return "approved green with a discrepancy on the case";
+    const ok = await ops.db.rpc("approve_report", { p_case: case1, p_draft: draftId, p_final_result: "red", p_current_hash: hash });
+    if (ok.error) return ok.error.message;
+    finalId = ok.data as string;
+    await drainJobs({ budgetMs: 120_000, reserveMs: 0, maxJobs: 10, workerId: `sim-${RUN}`, admin: service });
+    const { data: f } = await service.from("report_versions").select("status, storage_path").eq("id", finalId).single();
+    if (f?.storage_path) made.objects.push({ bucket: "reports", path: f.storage_path });
+    return expectEq(f?.status, "ready", "final status");
+  });
+
+  await check("A second person releases it; the client can download it and the public can verify it", async () => {
+    const self = await ops.db.rpc("release_report", { p_case: case1, p_recipients: [] });
+    if (!self.error) return "the approver released their own report";
+    const rel = await admin.db.rpc("release_report", { p_case: case1, p_recipients: [alphaAdmin.id] });
+    if (rel.error) return rel.error.message;
+    const mine = await alphaAdmin.db.rpc("report_download", { p_version: finalId });
+    const theirs = await betaUser.db.rpc("report_download", { p_version: finalId });
+    const draft = await alphaAdmin.db.rpc("report_download", { p_version: draftId });
+    const v = (await service.rpc("verify_report", { p_version: finalId })).data as { status?: string } | null;
+    return mine.data && theirs.error && draft.error && v?.status === "valid" ? true : `client ${Boolean(mine.data)}, other ${!theirs.error}, draft ${!draft.error}, verify ${v?.status}`;
+  });
+
+  await check("Per-case billing drafts the invoice on release, priced from the case", async () => {
+    await drainJobs({ budgetMs: 60_000, reserveMs: 0, maxJobs: 10, workerId: `sim-${RUN}`, admin: service });
+    const { data: inv } = await service.from("invoices").select("id, status, net_total").eq("source_key", `case:${case1}`).maybeSingle();
+    if (!inv) return "no invoice draft after release";
+    invoiceId = inv.id;
+    money.invoices.push(inv.id);
+    return expectEq(inv.status, "draft", "status");
+  });
+
+  if (money.numbered) {
+    await check("A quotation is confirmed, rendered, sent and accepted by the client; it sets their prices", async () => {
+      const nicType = (await service.from("check_types").select("id").eq("org_id", ORG_ID).eq("key", "nic").single()).data!.id;
+      const q = await relations.db.from("quotes").insert({ org_id: ORG_ID, client_id: clientA, title: `${TAG} services`, intro: "Thank you." }).select("id").single();
+      if (q.error) return q.error.message;
+      quoteId = q.data.id;
+      money.quotes.push(quoteId);
+      const item = await relations.db.from("quote_items").insert({ org_id: ORG_ID, quote_id: quoteId, kind: "check", check_type_id: nicType, description: "NIC verification", quantity: 1, unit_price: 2500, discount_pct: 20 });
+      if (item.error) return item.error.message;
+      const conf = await relations.db.rpc("confirm_quote", { p_quote: quoteId });
+      if (conf.error) return conf.error.message;
+      await drainJobs({ budgetMs: 60_000, reserveMs: 0, maxJobs: 10, workerId: `sim-${RUN}`, admin: service });
+      const sent = await relations.db.rpc("mark_quote_sent", { p_quote: quoteId, p_to: [] });
+      if (sent.error) return sent.error.message;
+      const other = await betaUser.db.rpc("portal_quote", { p_quote: quoteId });
+      if (!other.error) return "another company opened the quotation";
+      const acc = await alphaAdmin.db.rpc("portal_accept_quote", { p_quote: quoteId, p_name: "Sim Alpha Admin", p_ip: "203.0.113.7" });
+      if (acc.error) return acc.error.message;
+      const { data: doc } = await service.from("generated_documents").select("status, storage_path").eq("entity_id", quoteId).eq("kind", "quote").single();
+      if (doc?.storage_path) made.objects.push({ bucket: "documents", path: doc.storage_path });
+      const price = (await service.rpc("contracted_price", { p_client: clientA, p_check: nicType, p_package: null as unknown as string })).data;
+      return expectEq([doc?.status, Number(price)], ["ready", 2000], "PDF and contracted NIC price");
+    });
+
+    await check("The invoice is confirmed, sent, paid by an uploaded slip, and the statement balances", async () => {
+      // Packages may not be priced yet on this project: finance prices any zero line on the draft, as the invoice screen does.
+      const { data: lines } = await admin.db.from("invoice_items").select("id, unit_price").eq("invoice_id", invoiceId);
+      for (const l of lines ?? []) {
+        if (Number(l.unit_price) > 0) continue;
+        const priced = await admin.db.from("invoice_items").update({ unit_price: 2500 }).eq("id", l.id).eq("invoice_id", invoiceId);
+        if (priced.error) return `pricing the draft: ${priced.error.message}`;
+      }
+      const conf = await admin.db.rpc("confirm_invoice", { p_invoice: invoiceId });
+      if (conf.error) return conf.error.message;
+      await drainJobs({ budgetMs: 60_000, reserveMs: 0, maxJobs: 10, workerId: `sim-${RUN}`, admin: service });
+      const sent = await admin.db.rpc("mark_invoice_sent", { p_invoice: invoiceId, p_to: [] });
+      if (sent.error) return sent.error.message;
+      const viewerTry = await alphaViewer.db.rpc("portal_invoices");
+      if (!viewerTry.error) return "a client viewer opened invoices";
+      const { data: inv } = await alphaAdmin.db.rpc("portal_invoice", { p_invoice: invoiceId });
+      const total = Number((inv as { total?: number } | null)?.total ?? 0);
+      const begun = await alphaAdmin.db.rpc("portal_begin_slip", { p_invoice: invoiceId, p_filename: "slip.pdf", p_mime: "application/pdf", p_size: tinyPdf.length });
+      if (begun.error) return begun.error.message;
+      const b = begun.data as { id: string; bucket: string; path: string };
+      const put = await putFile(b);
+      if (put !== true) return put;
+      const fin = await alphaAdmin.db.rpc("portal_finalize_slip", { p_slip: b.id });
+      if (fin.error) return fin.error.message;
+      const pay = await relations.db.rpc("record_payment", { p_invoice: invoiceId, p_amount: total, p_method: "bank_transfer", p_reference: `SIM-${RUN}`, p_slip: b.id });
+      if (pay.error) return pay.error.message;
+      await drainJobs({ budgetMs: 60_000, reserveMs: 0, maxJobs: 10, workerId: `sim-${RUN}`, admin: service });
+      const { data: after } = await service.from("invoices").select("status, balance").eq("id", invoiceId).single();
+      const st = await alphaAdmin.db.rpc("client_statement", { p_client: clientA, p_from: "2020-01-01", p_to: "2100-01-01" });
+      const theirs = await betaUser.db.rpc("client_statement", { p_client: clientA, p_from: "2020-01-01", p_to: "2100-01-01" });
+      return expectEq([after?.status, Number(after?.balance), Number((st.data as { closing?: number } | null)?.closing), Boolean(theirs.error)], ["paid", 0, 0, true], "status, balance, statement closing, other company refused");
+    });
+  } else {
+    await check("Live quotations or invoices exist: numbered quotation and invoice steps skipped to keep numbers gap-free", () => true);
+  }
+
+  // ---------------------------------------------------------------- Phase 4 and 5
+
+  section("AI review, performance and nudges, the assistant, analytics and data protection");
+  const extra = { suggestions: [] as string[] };
+
+  await check("Uploads queued the AI document reading, and it finishes cleanly with or without an AI key", async () => {
+    const docs = ((await service.from("documents").select("id").in("case_id", made.cases)).data ?? []).map((d) => d.id);
+    if (!docs.length) return "no documents to check";
+    const { data: jobs } = await service.from("jobs").select("id, status").eq("kind", "ai.classify_document").in("entity_id", docs);
+    if (!jobs?.length) return "no AI reading was queued for the uploads";
+    made.jobs.push(...jobs.map((j) => j.id));
+    await drainJobs({ budgetMs: 60_000, reserveMs: 0, maxJobs: 20, workerId: `sim-${RUN}`, admin: service });
+    const { data: after } = await service.from("jobs").select("status").in("id", jobs.map((j) => j.id));
+    const bad = (after ?? []).filter((j) => !["done", "succeeded", "completed"].includes(String(j.status)));
+    return bad.length ? `jobs not finished: ${bad.map((b) => b.status).join(", ")}` : true;
+  });
+
+  await check("AI suggestions wait for the right person: QC decides the Pre-QC review, data entry can't, nobody edits one directly", async () => {
+    const { data: sug, error } = await service
+      .from("ai_suggestions")
+      .insert({ org_id: ORG_ID, capability: "case.preqc", entity_type: "case", entity_id: case1, value: { summary: `${TAG} review`, checklist: [], requests: [] } })
+      .select("id")
+      .single();
+    if (error || !sug) return error?.message ?? "no suggestion";
+    extra.suggestions.push(sug.id);
+    const forged = await qcOfficer.db.from("ai_suggestions").update({ value: { summary: "forged" } }).eq("id", sug.id).select("id");
+    if (forged.data?.length) return "a staff member rewrote an AI suggestion";
+    const wrong = await dataEntry.db.rpc("decide_ai_suggestion", { p_suggestion: sug.id, p_decision: "accepted" });
+    if (!wrong.error) return "data entry decided a Pre-QC review";
+    const client = await alphaAdmin.db.rpc("decide_ai_suggestion", { p_suggestion: sug.id, p_decision: "accepted" });
+    if (!client.error) return "a client decided an AI suggestion";
+    const ok = await qcOfficer.db.rpc("decide_ai_suggestion", { p_suggestion: sug.id, p_decision: "accepted" });
+    if (ok.error) return ok.error.message;
+    const twice = await qcOfficer.db.rpc("decide_ai_suggestion", { p_suggestion: sug.id, p_decision: "rejected" });
+    return twice.error ? true : "a suggestion was decided twice";
+  });
+
+  await check("Managers see the leaderboard; officers see only their own work", async () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10);
+    const board = await ops.db.rpc("performance_board", { p_from: weekAgo, p_to: today });
+    if (board.error) return board.error.message;
+    if (!((board.data ?? []) as { user_id: string }[]).some((r) => r.user_id === verifier.id)) return "the verifier is missing from the leaderboard";
+    const officerBoard = await verifier.db.rpc("performance_board", { p_from: weekAgo, p_to: today });
+    if (!officerBoard.error) return "an officer opened the leaderboard";
+    const own = await verifier.db.rpc("my_open_items", {});
+    if (own.error) return own.error.message;
+    const other = await verifier.db.rpc("my_open_items", { p_user: dataEntry.id });
+    return other.error ? true : "an officer read a colleague's work";
+  });
+
+  await check("A manager pushes an officer, who acknowledges and replies; others can't push", async () => {
+    const denied = await dataEntry.db.rpc("send_nudge", { p_to: verifier.id, p_message: "Hurry" });
+    if (!denied.error) return "data entry pushed a colleague";
+    const sent = await ops.db.rpc("send_nudge", { p_to: verifier.id, p_message: `${TAG}: a couple of items are running late. What help do you need?`, p_channels: ["in_app", "email"] });
+    if (sent.error) return sent.error.message;
+    const id = sent.data as string;
+    const notice = await verifier.db.from("notifications").select("id, urgent").eq("entity_id", id).maybeSingle();
+    if (!notice.data?.urgent) return "the officer got no urgent notice";
+    const stranger = await qcOfficer.db.rpc("acknowledge_nudge", { p_nudge: id });
+    if (!stranger.error) return "someone else acknowledged the push";
+    const ack = await verifier.db.rpc("acknowledge_nudge", { p_nudge: id, p_reply: "On it today." });
+    if (ack.error) return ack.error.message;
+    const reply = await ops.db.from("notifications").select("id").eq("entity_id", id).eq("type", "nudge.reply");
+    const { data: emailJobs } = await service.from("jobs").select("id").eq("kind", "notify.email").in("entity_id", [notice.data.id]);
+    made.jobs.push(...(emailJobs ?? []).map((j) => j.id));
+    return reply.data?.length ? true : "the manager didn't hear the reply";
+  });
+
+  await check("Conversations with the assistant are private, and only the Super Admin gets the command assistant", async () => {
+    const mine = await admin.db.from("assistant_threads").insert({ org_id: ORG_ID, user_id: admin.id, kind: "staff", title: `${TAG} thread` }).select("id").single();
+    if (mine.error) return mine.error.message;
+    const command = await admin.db.from("assistant_threads").insert({ org_id: ORG_ID, user_id: admin.id, kind: "command", title: "x" }).select("id");
+    if (!command.error) return "an admin opened a command conversation";
+    const superCmd = await superAdmin.db.from("assistant_threads").insert({ org_id: ORG_ID, user_id: superAdmin.id, kind: "command", title: `${TAG} command` }).select("id").single();
+    if (superCmd.error) return superCmd.error.message;
+    const peek = await verifier.db.from("assistant_threads").select("id").eq("id", mine.data.id);
+    if (peek.data?.length) return "someone read another person's conversation";
+    const write = await admin.db.from("assistant_messages").insert({ org_id: ORG_ID, thread_id: mine.data.id, user_id: admin.id, role: "assistant", content: [] }).select("id");
+    if (!write.error) return "a person wrote the assistant's reply themselves";
+    const voice = await admin.db.rpc("begin_voice_note", { p_thread: mine.data.id, p_mime: "audio/webm", p_duration: 5 });
+    return voice.error ? true : "an admin started a command voice note";
+  });
+
+  await check("Analytics: operations for managers, money for finance only", async () => {
+    const from = new Date(Date.now() - 30 * 86_400_000).toISOString().slice(0, 10);
+    const to = new Date().toISOString().slice(0, 10);
+    const opsView = await ops.db.rpc("analytics_operations", { p_from: from, p_to: to });
+    if (opsView.error) return opsView.error.message;
+    const opsMoney = await ops.db.rpc("analytics_revenue", { p_from: from, p_to: to });
+    if (!opsMoney.error) return "an operations manager read revenue";
+    const finance = await by("relations").db.rpc("analytics_revenue", { p_from: from, p_to: to });
+    if (finance.error) return finance.error.message;
+    const officer = await verifier.db.rpc("analytics_operations", { p_from: from, p_to: to });
+    if (!officer.error) return "an officer opened analytics";
+    const client = await alphaAdmin.db.rpc("analytics_operations", { p_from: from, p_to: to });
+    return client.error ? true : "a client opened analytics";
+  });
+
+  await check("Only a case's owner, a stage manager or an approver can generate its report draft", async () => {
+    const r = await viewer.db.rpc("request_report_draft", { p_case: case1 });
+    return r.error ? true : "the read-only viewer generated a report draft";
+  });
+
+  await check("Erasing a cancelled case removes its personal data but keeps a candidate another case needs", async () => {
+    const denied = await admin.db.rpc("erase_case", { p_case: case2, p_reason: "Candidate asked for deletion" });
+    if (!denied.error) return "an admin erased personal data";
+    const { data: live } = await service.from("cases").select("id").in("id", made.cases).not("stage", "in", "(released,cancelled)").limit(1).maybeSingle();
+    if (!live) return "no case in progress to try";
+    const open = await superAdmin.db.rpc("erase_case", { p_case: live.id, p_reason: "Candidate asked for deletion" });
+    if (!open.error) return "a case still in progress was erased";
+    const r = await superAdmin.db.rpc("erase_case", { p_case: case2, p_reason: `${TAG} erasure request` });
+    if (r.error) return r.error.message;
+    const c = (await service.from("cases").select("candidate_name, erased_at, reference, candidate_id").eq("id", case2).single()).data;
+    if (c?.candidate_name !== "Erased candidate" || !c.erased_at) return "the case still shows the candidate";
+    const shared = (await service.from("candidates").select("full_name, erased_at").eq("id", c.candidate_id).single()).data;
+    if (shared?.erased_at || shared?.full_name !== candidateName) return "the candidate shared with a live case was erased";
+    const logged = await service.from("system_events").select("id").eq("kind", "data.erased").contains("context", { case_id: case2 });
+    return logged.data?.length ? true : "the erasure was not recorded";
   });
 
   // ---------------------------------------------------------------- the app itself
@@ -1623,11 +1878,83 @@ async function main() {
       return pdf.status === 200 && head === "%PDF-" ? true : `${where(pdf)} ${pdf.headers.get("content-type")}`;
     });
 
+
+    await check("The public verify page confirms a released report", async () => {
+      const res = await get(`/verify/${finalId}`);
+      const html = await res.text();
+      return res.status === 200 && html.includes(reference) && !html.includes("NEXT_REDIRECT") ? true : where(res);
+    });
+
+    await check("Report and invoice PDFs open for the client and stay closed to others", async () => {
+      const mine = await get(`/api/reports/${finalId}`, await cookieHeader(alphaAdmin.db));
+      const theirs = await get(`/api/reports/${finalId}`, await cookieHeader(betaUser.db));
+      if (mine.status !== 302 || theirs.status !== 404) return `report: client ${mine.status}, other ${theirs.status}`;
+      if (!money.numbered) return true;
+      const { data: doc } = await service.from("generated_documents").select("id").eq("entity_id", invoiceId).eq("kind", "invoice").eq("status", "ready").maybeSingle();
+      if (!doc) return "the invoice PDF was not ready";
+      const inv = await get(`/api/documents/${doc.id}`, await cookieHeader(alphaAdmin.db));
+      const other = await get(`/api/documents/${doc.id}`, await cookieHeader(betaUser.db));
+      const statement = await get(`/api/statements/${clientA}?from=2020-01-01&to=2100-01-01`, await cookieHeader(alphaAdmin.db));
+      return inv.status === 302 && other.status === 404 && statement.status === 200 && statement.headers.get("content-type") === "application/pdf"
+        ? true
+        : `invoice ${inv.status}, other ${other.status}, statement ${statement.status}`;
+    });
+
     await check("Clients open a shared document; internal ones stay closed", async () => {
       const cookie = await cookieHeader(alphaAdmin.db);
       const shared = await get(`/api/files/${sharedDoc}`, cookie);
       const internal = await get(`/api/files/${internalDoc}`, cookie);
       return shared.status === 302 && internal.status === 404 ? true : `shared ${shared.status}, internal ${internal.status}`;
+    });
+
+    await check("Phase 4 and 5 pages open for the right people", async () => {
+      const bad: string[] = [];
+      const page = async (who: Person, path: string, expect: string) => {
+        const res = await get(path, await cookieHeader(who.db));
+        const html = await res.text();
+        if (res.status !== 200 || html.includes("NEXT_REDIRECT") || !html.includes(expect)) bad.push(`${who.label} ${path} (${where(res)})`);
+      };
+      await page(ops, "/app/team/performance", "Sim verifier");
+      await page(verifier, "/app/team/performance", "scorecard");
+      await page(ops, "/app/analytics", "Operations");
+      await page(superAdmin, "/app/command", "Command");
+      await page(admin, "/app/cases/import", "Import");
+      const officer = await get("/app/analytics", await cookieHeader(verifier.db));
+      const officerHtml = await officer.text();
+      if (!(isRedirect(officer, "/app") || streamedRedirect(officerHtml, "/app"))) bad.push(`verifier /app/analytics (${where(officer)})`);
+      const cmd = await get("/app/command", await cookieHeader(admin.db));
+      const cmdHtml = await cmd.text();
+      if (!(isRedirect(cmd, "/app") || streamedRedirect(cmdHtml, "/app"))) bad.push(`admin /app/command (${where(cmd)})`);
+      return bad.length ? bad.join("; ") : true;
+    });
+
+    await check("The cases CSV export works for staff and is refused to clients", async () => {
+      const csv = await get(`/api/exports/cases?stage=all&q=${encodeURIComponent(reference)}`, await cookieHeader(admin.db));
+      const body = await csv.text();
+      if (csv.status !== 200 || !/text\/csv/.test(csv.headers.get("content-type") ?? "") || !body.includes(reference)) return `admin ${where(csv)}`;
+      const client = await get("/api/exports/cases", await cookieHeader(alphaUser.db));
+      return client.status === 403 || isRedirect(client, "/portal") ? true : `client ${where(client)}`;
+    });
+
+    await check("Ask Ontriq answers over its stream (or says AI isn't set up) and stores the conversation", async () => {
+      const res = await fetch(`${appOrigin}/api/assistant/chat`, {
+        method: "POST",
+        headers: { cookie: await cookieHeader(verifier.db), "content-type": "application/json" },
+        body: JSON.stringify({ kind: "staff", text: "Which of my cases are overdue?" }),
+      });
+      const text = await res.text();
+      if (res.status !== 200 || !text.includes("event: thread") || !text.includes("event: done")) return `HTTP ${res.status} ${text.slice(0, 120)}`;
+      const { data: runs } = await service.from("ai_runs").select("id").eq("created_by", verifier.id);
+      made.aiRuns.push(...(runs ?? []).map((r) => r.id));
+      const stored = await verifier.db.from("assistant_messages").select("role").order("created_at");
+      const roles = (stored.data ?? []).map((m) => m.role);
+      if (!roles.includes("user") || !roles.includes("assistant")) return `stored ${roles.join(",")}`;
+      const command = await fetch(`${appOrigin}/api/assistant/chat`, {
+        method: "POST",
+        headers: { cookie: await cookieHeader(verifier.db), "content-type": "application/json" },
+        body: JSON.stringify({ kind: "command", text: "Show unpaid invoices" }),
+      });
+      return command.status === 403 ? true : `an officer reached the command assistant (HTTP ${command.status})`;
     });
   }
 
@@ -1635,6 +1962,47 @@ async function main() {
 
   section(keep ? "Leaving the simulation data in place (--keep)" : "Cleaning up everything the simulation created");
   if (!keep) {
+    await check("Remove quotations, invoices, payments and reset document numbers", async () => {
+      const inv = money.invoices;
+      if (inv.length) {
+        const pays = (await service.from("payments").select("id, slip_id").in("invoice_id", inv)).data ?? [];
+        const notes = (await service.from("credit_notes").select("id").in("invoice_id", inv)).data ?? [];
+        const slips = (await service.from("payment_slips").select("id").eq("client_id", clientA)).data ?? [];
+        const items = (await service.from("invoice_items").select("id").in("invoice_id", inv)).data ?? [];
+        made.entityIds.push(...inv, ...pays.map((p) => p.id), ...notes.map((n) => n.id), ...slips.map((x) => x.id), ...items.map((x) => x.id));
+        const gd = (await service.from("generated_documents").select("id, storage_path").in("entity_id", [...inv, ...pays.map((p) => p.id), ...notes.map((n) => n.id)])).data ?? [];
+        made.entityIds.push(...gd.map((g) => g.id));
+        for (const g of gd) if (g.storage_path) made.objects.push({ bucket: "documents", path: g.storage_path });
+        await service.from("payments").delete().in("invoice_id", inv);
+        await service.from("credit_notes").delete().in("invoice_id", inv);
+        await service.from("payment_slips").delete().eq("client_id", clientA);
+        await service.from("invoices").delete().in("id", inv);
+        await service.from("generated_documents").delete().in("id", gd.map((g) => g.id));
+        const jobs = (await service.from("jobs").select("id").in("entity_id", gd.map((g) => g.id))).data ?? [];
+        made.jobs.push(...jobs.map((j) => j.id));
+      }
+      if (money.quotes.length) {
+        const items = (await service.from("quote_items").select("id").in("quote_id", money.quotes)).data ?? [];
+        const prices = (await service.from("client_price_lists").select("id").in("source_quote_id", money.quotes)).data ?? [];
+        const gd = (await service.from("generated_documents").select("id, storage_path").in("entity_id", money.quotes)).data ?? [];
+        made.entityIds.push(...money.quotes, ...items.map((x) => x.id), ...prices.map((x) => x.id), ...gd.map((g) => g.id));
+        for (const g of gd) if (g.storage_path) made.objects.push({ bucket: "documents", path: g.storage_path });
+        const jobs = (await service.from("jobs").select("id").in("entity_id", gd.map((g) => g.id))).data ?? [];
+        made.jobs.push(...jobs.map((j) => j.id));
+        await service.from("client_price_lists").delete().in("source_quote_id", money.quotes);
+        await service.from("generated_documents").delete().in("id", gd.map((g) => g.id));
+        await service.from("quotes").delete().in("id", money.quotes);
+      }
+      const reports = (await service.from("report_versions").select("id, storage_path, job_id").in("case_id", made.cases)).data ?? [];
+      made.entityIds.push(...reports.map((r) => r.id));
+      made.jobs.push(...(reports.map((r) => r.job_id).filter(Boolean) as string[]));
+      for (const r of reports) if (r.storage_path) made.objects.push({ bucket: "reports", path: r.storage_path });
+      if (money.numbered) {
+        // Give the numbers back: nothing real exists in these series (checked before numbering).
+        const year = new Date().getFullYear();
+        for (const kind of ["quote", "invoice", "receipt", "credit_note"]) await service.from("document_counters").delete().eq("org_id", ORG_ID).eq("kind", kind).eq("year", year);
+      }
+    });
     await check("Remove case data and reset the case counter", async () => {
       const ids = made.cases;
       if (ids.length) {
@@ -1666,10 +2034,22 @@ async function main() {
       else await service.from("case_counters").update({ value: max }).eq("org_id", ORG_ID).eq("year", year);
     });
     await check("Remove files", async () => {
-      for (const bucket of ["documents", "org-assets", "case-files"]) {
+      for (const bucket of ["documents", "org-assets", "case-files", "reports"]) {
         const paths = made.objects.filter((o) => o.bucket === bucket).map((o) => o.path);
         if (paths.length) await service.storage.from(bucket).remove(paths);
       }
+    });
+    await check("Remove AI suggestions, pushes, conversations and erasure records", async () => {
+      const ids = made.cases;
+      if (extra.suggestions.length) await service.from("ai_suggestions").delete().in("id", extra.suggestions);
+      if (ids.length) {
+        await service.from("ai_suggestions").delete().eq("entity_type", "case").in("entity_id", ids);
+        await service.from("system_events").delete().eq("kind", "data.erased").in("context->>case_id", ids);
+      }
+      await service.from("nudges").delete().in("to_user", made.users);
+      await service.from("assistant_threads").delete().in("user_id", made.users);
+      await service.from("assistant_memories").delete().in("user_id", made.users);
+      for (const u of made.users) await service.from("rate_limit_hits").delete().like("key", `assistant:${u}%`);
     });
     await check("Remove jobs, outbox, AI runs, counters and limits", async () => {
       await service.from("job_failures").delete().in("job_id", made.jobs);

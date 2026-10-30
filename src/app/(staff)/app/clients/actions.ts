@@ -69,6 +69,7 @@ const clientSchema = z.object({
   address: optional(400),
   slaDays: z.coerce.number().int().min(1, "At least 1 day.").max(120, "At most 120 days."),
   paymentTermsDays: z.coerce.number().int().min(0).max(180, "At most 180 days."),
+  retentionMonths: z.coerce.number().int().min(6, "At least 6 months.").max(120, "At most 120 months.").default(24),
   status: z.enum(["prospect", "active", "suspended", "archived"]),
   notes: optional(2000),
 });
@@ -102,6 +103,7 @@ function row(v: z.output<typeof clientSchema>) {
     address: v.address ? { text: v.address } : {},
     sla_days: v.slaDays,
     payment_terms_days: v.paymentTermsDays,
+    retention_months: v.retentionMonths,
     status: v.status,
     notes: v.notes,
   };

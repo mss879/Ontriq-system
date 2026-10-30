@@ -23,6 +23,8 @@ import { CheckAccessCard } from "./check-access-card";
 import { PortalUsersCard } from "./portal-users-card";
 import { PortalSettingsCard } from "./portal-settings-card";
 import { ClientPackagesCard } from "./client-packages-card";
+import { ClientQuotesSection } from "./quotes-section";
+import { ClientBillingSection } from "./billing-section";
 
 export const metadata: Metadata = { title: "Client" };
 
@@ -49,10 +51,16 @@ export default function ClientPage({ params }: PageProps<"/app/clients/[clientId
           <Suspense fallback={<SectionSkeleton rows={4} />}>
             <ClientPackages params={params} />
           </Suspense>
+          <Suspense fallback={<SectionSkeleton rows={4} />}>
+            <ClientQuotesSection params={params} />
+          </Suspense>
         </div>
         <div className="min-w-0 space-y-6">
           <Suspense fallback={<SectionSkeleton rows={6} />}>
             <Profile params={params} />
+          </Suspense>
+          <Suspense fallback={<SectionSkeleton rows={5} />}>
+            <ClientBillingSection params={params} />
           </Suspense>
           <Suspense fallback={<SectionSkeleton rows={8} />}>
             <PortalSettings params={params} />
@@ -115,6 +123,7 @@ async function ClientHeader(props: Props) {
                 address: client.address,
                 slaDays: client.slaDays,
                 paymentTermsDays: client.paymentTermsDays,
+                retentionMonths: client.retentionMonths,
                 status: client.status,
                 notes: client.notes ?? "",
               }}

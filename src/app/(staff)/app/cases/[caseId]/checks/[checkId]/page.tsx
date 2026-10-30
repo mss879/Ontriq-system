@@ -11,13 +11,17 @@ import { getStaffViewer } from "@/lib/server/viewer";
 import { getCase, getCaseChecks, getDocuments, getRequirements, getTimeline, staffOptions } from "@/lib/server/cases/queries";
 import { getDocumentCategories } from "@/lib/server/cases/detail-queries";
 import { formatDate, formatDateTime } from "@/lib/format";
-import { can } from "@/domain/permissions";
+import { can, type Permission } from "@/domain/permissions";
 import { isTerminalCheck, STAGE_LABELS } from "@/domain/workflow/stages";
 import { CheckIcon } from "../../_components/check-cards";
 import { DocumentsPanel } from "../../_components/documents-panel";
 import { Timeline } from "../../_components/timeline";
 import { CheckForm } from "./check-form";
 import { CheckAssignment, StatusPanel } from "./status-panel";
+import { aiItem, getAiStatus, getAiWork, getCaseAi, getDocumentAi } from "@/lib/server/ai/queries";
+import { canDecide } from "@/domain/ai/suggestions";
+import type { OutreachResult, ResponseResult } from "@/lib/ai/prompts";
+import { CheckAiPanel } from "@/components/ai/check-ai-panel";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 type Params = Pick<PageProps<"/app/cases/[caseId]/checks/[checkId]">, "params">;
@@ -95,6 +99,8 @@ async function Header({ params }: Params) {
           { table: "documents", filter: `case_id=eq.${c.id}` },
           { table: "case_check_requirements", filter: `case_id=eq.${c.id}` },
           { table: "case_events", filter: `case_id=eq.${c.id}` },
+          { table: "ai_suggestions", filter: `entity_id=eq.${check.id}` },
+          { table: "jobs", filter: `entity_id=eq.${check.id}` },
         ]}
       />
       <nav aria-label="Breadcrumb" className="flex flex-wrap items-center gap-1 text-sm text-muted-foreground">
@@ -153,6 +159,8 @@ async function Form({ params }: Params) {
         : terminal
           ? "The outcome is recorded, so the details are locked. Reopen the check to change them."
           : undefined;
+  const ai = await getCaseAi(caseId);
+  const suggestions = (ai.checks[check.id]?.extract ?? []).flatMap((s) => (s.fieldKey ? [{ id: s.id, fieldKey: s.fieldKey, value: s.value, confidence: s.confidence, rationale: s.rationale }] : []));
   return (
     <CheckForm
       key={check.id}
@@ -162,6 +170,8 @@ async function Form({ params }: Params) {
       editable={editable}
       lockedReason={lockedReason}
       canReopen={terminal && c.stage === "verification" && canVerify && !c.onHold}
+      suggestions={suggestions}
+      canDecideAi={canDecide("document.extract", (p) => can(viewer, p as Permission))}
     />
   );
 }
@@ -171,8 +181,14 @@ async function Documents({ params }: Params) {
   const [viewer, data] = await Promise.all([getStaffViewer(), load(caseId, checkId)]);
   if (!data) return null;
   const [reqs, docs, categories] = await Promise.all([getRequirements(caseId), getDocuments(caseId), getDocumentCategories()]);
+  const docAi = await getDocumentAi(
+    caseId,
+    docs.map((d) => d.id),
+  );
   return (
     <DocumentsPanel
+      ai={docAi}
+      canDismissAi={can(viewer, "cases.update") || can(viewer, "qc.pre")}
       caseId={caseId}
       checkId={checkId}
       requirements={reqs}
@@ -224,6 +240,7 @@ async function Side({ params }: Params) {
         canVerify={canVerify}
         canWaive={manager || can(viewer, "qc.post")}
       />
+      <CheckAi caseId={caseId} checkId={checkId} canVerify={canVerify} />
       <CheckAssignment checkId={check.id} assignee={check.assignee} staff={staff} canAssign={canAssign} closed={closed} />
       <section className="rounded-2xl bg-card p-5 shadow-soft ring-1 ring-foreground/[0.07]">
         <h2 className="mb-2 text-sm font-semibold">About this check</h2>
@@ -243,5 +260,33 @@ async function Side({ params }: Params) {
         </dl>
       </section>
     </>
+  );
+}
+
+/** Outreach draft, reply capture and drafted remarks for this check. */
+async function CheckAi({ caseId, checkId, canVerify }: { caseId: string; checkId: string; canVerify: boolean }) {
+  const [viewer, data, ai, status] = await Promise.all([getStaffViewer(), load(caseId, checkId), getCaseAi(caseId), getAiStatus()]);
+  if (!data) return null;
+  const { c, check } = data;
+  const work = await getAiWork(caseId, [check.id]);
+  const mine = ai.checks[check.id];
+  const closed = c.stage === "released" || c.stage === "cancelled";
+  return (
+    <CheckAiPanel
+      checkId={check.id}
+      checkLabel={check.label}
+      configured={status.configured}
+      working={work.filter((w) => w.entityId === check.id).map((w) => w.kind)}
+      outreach={aiItem<OutreachResult>(mine?.outreach)}
+      response={aiItem<Partial<ResponseResult>>(mine?.response)}
+      remarks={aiItem<{ text: string }>(mine?.remarks)}
+      currentRemarks={check.clientNote}
+      options={check.schema.result.options}
+      canVerify={canVerify && !c.onHold}
+      canRecord={canVerify && c.stage === "verification" && check.valuesValid && !isTerminalCheck(check.state) && !c.onHold}
+      canRemarks={canDecide("report.narrative", (p) => can(viewer, p as Permission))}
+      remarksLocked={["approval", "released", "cancelled"].includes(c.stage)}
+      closed={closed}
+    />
   );
 }

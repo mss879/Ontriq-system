@@ -11,13 +11,13 @@ Built with Next.js 16 (App Router, Cache Components), Supabase (Postgres, Auth, 
 | 0 | Foundation: sign-in with two-step verification, roles and designations, team invitations, settings and branding, audit trail, background jobs, email outbox, cost model | Done |
 | 1 | Case engine: check types, packages, request templates, cases and checks, documents, Pre-QC/Post-QC, auto-assignment, search | Done |
 | 2 | Client portal and candidate link | Done |
-| 3 | Reports, quotations, invoicing | Planned |
-| 4 | AI layer, command assistant, performance and nudges | Planned |
-| 5 | Polish, analytics, UAT | Planned |
+| 3 | Reports with QR verification, quotations, invoicing, payments and slips, statements, branding | Done |
+| 4 | AI layer (document reading, extraction, consistency, Pre-QC/Post-QC copilots, outreach, reply capture, narrative), Ask Ontriq and the Super Admin command assistant with voice, performance and nudges | Done (live AI checks wait for `ANTHROPIC_API_KEY`) |
+| 5 | Analytics, CSV exports, bulk import, keyboard shortcuts, retention and erasure, security review, browser smoke tests | Done (UAT with Ontriq and measured AI costs still to come) |
 
 The full plan, cost model and feature list live in `docs/`.
 
-**Hosted backend:** Supabase project `ontriq-system` (ref `shceiblsjtvwlnkjhkof`, Tokyo) with migrations 0001–0026 applied and invitation-only auth. Keys live in the git-ignored `.env.hosted`. The latest end-to-end run is in `docs/verification/`. See `docs/runbook.md` for deploying.
+**Hosted backend:** Supabase project `ontriq-system` (ref `shceiblsjtvwlnkjhkof`, Tokyo) with invitation-only auth (see `docs/verification/` for which migrations are live). Keys live in the git-ignored `.env.hosted`. The latest end-to-end run is in `docs/verification/`. See `docs/runbook.md` for deploying.
 
 ## Quick start (no Docker needed)
 

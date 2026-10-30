@@ -14,7 +14,7 @@ import { parseCheckTypeSchema } from "@/domain/check-types/schema";
 import { validateCheckValues } from "@/domain/check-types/validate";
 import { CHECK_STATES } from "@/domain/workflow/stages";
 import { isValidPhoneNumber } from "libphonenumber-js";
-import { issueCandidateLink, type Channel } from "@/lib/server/candidate/links";
+import { autoCandidateLink, type Channel } from "@/lib/server/candidate/links";
 
 /**
  * Case actions. Each one confirms the caller, validates input, then calls the
@@ -178,24 +178,6 @@ export async function transitionCase(caseId: string, event: (typeof EVENTS)[numb
     refresh();
     return { ok: true };
   });
-}
-
-/** Send the candidate their link by every channel we have for them, unless one is already active. Best effort. */
-async function autoCandidateLink(caseId: string, actorId: string): Promise<Channel[]> {
-  try {
-    const supabase = await createClient();
-    const { data: active } = await supabase.from("candidate_links").select("id").eq("case_id", caseId).is("revoked_at", null).maybeSingle();
-    if (active) return [];
-    const { data: c } = await supabase.from("cases").select("candidate:candidates(email, phone)").eq("id", caseId).maybeSingle();
-    const cand = c?.candidate as { email: string | null; phone: string | null } | null;
-    const channels: Channel[] = [...(cand?.email ? (["email"] as const) : []), ...(cand?.phone ? (["sms"] as const) : [])];
-    if (!channels.length) return [];
-    const r = await issueCandidateLink({ caseId, actorId, channels });
-    return r.ok ? r.sent : [];
-  } catch (error) {
-    console.warn("[candidate link] automatic link failed", error);
-    return [];
-  }
 }
 
 export async function setCaseHold(caseId: string, hold: boolean, reason?: string): Promise<ActionResult> {
