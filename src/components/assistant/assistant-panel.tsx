@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/link";
 import { usePathname } from "next/navigation";
 import { Check, ChevronDown, MessageSquarePlus, Sparkles, SquareTerminal, X } from "lucide-react";
 import type { ThreadSummary } from "@/lib/ai/assistant/types";

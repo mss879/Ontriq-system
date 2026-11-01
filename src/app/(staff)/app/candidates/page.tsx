@@ -1,8 +1,9 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { UserRound } from "lucide-react";
+import { AddCandidateDialog } from "./add-candidate-dialog";
 import { Page, PageHeader, SectionSkeleton } from "@/components/layout/page";
 import { ListFilters } from "@/components/admin/list-filters";
 import { one, pageParam, Pagination } from "@/components/admin/pagination";
@@ -13,8 +14,9 @@ import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getStaffViewer } from "@/lib/server/viewer";
 import { CANDIDATE_PAGE_SIZE, listCandidates } from "@/lib/server/admin/candidates";
+import { clientOptions } from "@/lib/server/cases/queries";
 import { formatDate } from "@/lib/format";
-import { canAny } from "@/domain/permissions";
+import { can, canAny } from "@/domain/permissions";
 
 export const metadata: Metadata = { title: "Candidates" };
 
@@ -24,7 +26,12 @@ export default function CandidatesPage({ searchParams }: PageProps<"/app/candida
       <PageHeader
         eyebrow="Directory"
         title="Candidates"
-        description="Everyone Ontriq has verified. People are matched by NIC, so an old and a new card number find the same person."
+        description="Everyone Ontriq has verified or added. People are matched by NIC, so an old and a new card number find the same person."
+        actions={
+          <Suspense fallback={null}>
+            <AddCandidate />
+          </Suspense>
+        }
       />
       <Suspense fallback={null}>
         <ListFilters placeholder="Search by name, NIC or email" />
@@ -34,6 +41,13 @@ export default function CandidatesPage({ searchParams }: PageProps<"/app/candida
       </Suspense>
     </Page>
   );
+}
+
+async function AddCandidate() {
+  const viewer = await getStaffViewer();
+  if (!can(viewer, "candidates.manage")) return null;
+  const clients = await clientOptions();
+  return <AddCandidateDialog clients={clients.map((c) => ({ id: c.id, name: c.name }))} />;
 }
 
 async function CandidateList({ searchParams }: Pick<PageProps<"/app/candidates">, "searchParams">) {
@@ -52,7 +66,7 @@ async function CandidateList({ searchParams }: Pick<PageProps<"/app/candidates">
               <UserRound />
             </EmptyMedia>
             <EmptyTitle>{q ? "Nobody matches" : "No candidates yet"}</EmptyTitle>
-            <EmptyDescription>{q ? "Try a full NIC number or part of the name." : "Candidates appear here when their first case is created."}</EmptyDescription>
+            <EmptyDescription>{q ? "Try a full NIC number or part of the name." : "Candidates appear here when their first case is created, or when someone adds them."}</EmptyDescription>
           </EmptyHeader>
         </Empty>
       </Surface>
@@ -74,7 +88,7 @@ async function CandidateList({ searchParams }: Pick<PageProps<"/app/candidates">
           key={c.id}
           href={`/app/candidates/${c.id}`}
           title={c.fullName}
-          subtitle={[c.nic, c.district].filter(Boolean).join(" · ") || "No NIC yet"}
+          subtitle={[c.nic, c.caseCount ? c.district : c.addedFor && `For ${c.addedFor}`].filter(Boolean).join(" · ") || "No NIC yet"}
           aside={
             <span className="text-muted-foreground tabular-nums">
               {c.caseCount} {c.caseCount === 1 ? "case" : "cases"}
@@ -101,7 +115,7 @@ async function CandidateList({ searchParams }: Pick<PageProps<"/app/candidates">
                   <PersonAvatar id={c.id} name={c.fullName} />
                   <span className="min-w-0">
                     <span className="block truncate font-medium group-hover:underline">{c.fullName}</span>
-                    <span className="block truncate text-xs text-muted-foreground">{c.district ?? ""}</span>
+                    <span className="block truncate text-xs text-muted-foreground">{!c.caseCount && c.addedFor ? `For ${c.addedFor}` : (c.district ?? "")}</span>
                   </span>
                 </Link>
               </TableCell>

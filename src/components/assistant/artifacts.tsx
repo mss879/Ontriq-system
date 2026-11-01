@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/link";
 import { ArrowDown, ArrowUp, ArrowUpRight, ChevronsUpDown } from "lucide-react";
 import type { Artifact } from "@/lib/ai/assistant/types";
 import { cn } from "@/lib/utils";

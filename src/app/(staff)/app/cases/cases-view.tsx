@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/link";
 import { FolderSearch, FolderPlus } from "lucide-react";
 import { Pagination } from "@/components/admin/pagination";
 import { Button } from "@/components/ui/button";

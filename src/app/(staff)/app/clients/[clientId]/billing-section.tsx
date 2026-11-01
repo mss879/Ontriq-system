@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { Receipt } from "lucide-react";
 import { Surface, SurfaceHeader } from "@/components/admin/surface";
 import { InvoiceStatusChip } from "@/components/billing/invoice-status";

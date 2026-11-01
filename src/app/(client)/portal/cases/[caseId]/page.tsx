@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
-import Link from "next/link";
+import Link from "@/components/link";
 import { notFound } from "next/navigation";
 import { Ban, CheckCircle2, ChevronLeft, CircleDashed, Download, Eye, FileCheck2, FileText, Hourglass, Mail, PauseCircle, UserRound } from "lucide-react";
 import { Page, SectionSkeleton } from "@/components/layout/page";

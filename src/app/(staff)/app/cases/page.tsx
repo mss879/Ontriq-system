@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import Link from "next/link";
+import Link from "@/components/link";
 import type { Metadata } from "next";
 import { Download, Plus, Upload } from "lucide-react";
 import { Page, PageHeader, SectionSkeleton } from "@/components/layout/page";

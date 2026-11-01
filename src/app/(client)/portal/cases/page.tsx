@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import Link from "next/link";
+import Link from "@/components/link";
 import type { Metadata } from "next";
 import { FilePlus2, SearchX } from "lucide-react";
 import { Pagination } from "@/components/admin/pagination";

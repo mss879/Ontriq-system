@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { Lock } from "lucide-react";
 import { LogoLockup } from "@/components/brand/logo";
 import { ThemeToggle } from "@/components/layout/theme-toggle";

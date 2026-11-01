@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
-import Link from "next/link";
+import Link from "@/components/link";
 import { notFound, redirect } from "next/navigation";
 import { ArrowLeft, FilePlus2, FolderKanban } from "lucide-react";
 import { Page, SectionSkeleton, Eyebrow } from "@/components/layout/page";

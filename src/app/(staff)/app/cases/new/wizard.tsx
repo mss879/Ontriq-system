@@ -108,6 +108,7 @@ export function NewCaseWizard({
   templates,
   initialClientId,
   initialTemplateId,
+  initialCandidate,
 }: {
   clients: ClientOption[];
   canAddClient: boolean;
@@ -116,6 +117,17 @@ export function NewCaseWizard({
   templates: CatalogTemplate[];
   initialClientId?: string;
   initialTemplateId?: string;
+  initialCandidate?: {
+    id: string;
+    fullName: string;
+    nic: string | null;
+    email: string | null;
+    phone: string | null;
+    address: string | null;
+    district: string | null;
+    preferredLanguage: string;
+    caseCount: number;
+  };
 }) {
   const router = useRouter();
   // A client added here stays at the top of the list, where the person just saw it appear.
@@ -137,14 +149,25 @@ export function NewCaseWizard({
       instructions: "",
       internalNotes: "",
       extraChecks: [],
-      candidate: { fullName: "", nic: "", email: "", phone: "", address: "", district: "", preferredLanguage: "en" },
+      candidate: initialCandidate
+        ? {
+            id: initialCandidate.id,
+            fullName: initialCandidate.fullName,
+            nic: initialCandidate.nic ?? "",
+            email: initialCandidate.email ?? "",
+            phone: initialCandidate.phone ?? "",
+            address: initialCandidate.address ?? "",
+            district: initialCandidate.district ?? "",
+            preferredLanguage: (initialCandidate.preferredLanguage as Form["candidate"]["preferredLanguage"]) ?? "en",
+          }
+        : { fullName: "", nic: "", email: "", phone: "", address: "", district: "", preferredLanguage: "en" },
     };
     const t = templates.find((x) => x.id === initialTemplateId);
     return t ? applyTemplate(base, t) : base;
   });
   const [step, setStep] = useState(initialTemplateId ? (initialClientId || templates.find((x) => x.id === initialTemplateId)?.clientId ? 2 : 1) : 0);
   const [errors, setErrors] = useState<Errors>({});
-  const [existing, setExisting] = useState<Existing | null>(null);
+  const [existing, setExisting] = useState<Existing | null>(initialCandidate ?? null);
   const [lookup, setLookup] = useState<{ nic: string; state: "idle" | "looking" | "done" }>({ nic: "", state: "idle" });
   const [creating, startCreate] = useTransition();
   const [, startLookup] = useTransition();

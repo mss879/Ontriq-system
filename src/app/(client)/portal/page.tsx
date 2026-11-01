@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import Link from "next/link";
+import Link from "@/components/link";
 import type { Metadata } from "next";
 import { AlarmClock, ArrowRight, Boxes, CheckCircle2, ClipboardList, FilePlus2, FileWarning, Inbox, LayoutTemplate, ShieldCheck, Timer } from "lucide-react";
 import { Page, SectionSkeleton } from "@/components/layout/page";

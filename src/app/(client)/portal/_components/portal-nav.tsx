@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
 import { Boxes, FilePlus2, FileSignature, FileText, FolderOpen, LayoutDashboard, LayoutTemplate, Menu, Receipt, Settings, Users } from "lucide-react";

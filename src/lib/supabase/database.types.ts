@@ -1044,6 +1044,7 @@ export type Database = {
       };
       candidates: {
         Row: {
+          added_for_client_id: string | null;
           address: string | null;
           created_at: string;
           created_by: string | null;
@@ -1063,6 +1064,7 @@ export type Database = {
         };
         ComputedFields: never;
         Insert: {
+          added_for_client_id?: string | null;
           address?: string | null;
           created_at?: string;
           created_by?: string | null;
@@ -1081,6 +1083,7 @@ export type Database = {
           updated_at?: string;
         };
         Update: {
+          added_for_client_id?: string | null;
           address?: string | null;
           created_at?: string;
           created_by?: string | null;
@@ -1099,6 +1102,13 @@ export type Database = {
           updated_at?: string;
         };
         Relationships: [
+          {
+            foreignKeyName: "candidates_added_for_client_id_fkey";
+            columns: ["added_for_client_id"];
+            isOneToOne: false;
+            referencedRelation: "clients";
+            referencedColumns: ["id"];
+          },
           {
             foreignKeyName: "candidates_org_id_fkey";
             columns: ["org_id"];
@@ -5680,6 +5690,7 @@ export type Database = {
     Functions: {
       accept_my_invitation: { Args: Record<PropertyKey, never>; Returns: boolean };
       acknowledge_nudge: { Args: { p_nudge: string; p_reply?: string }; Returns: undefined };
+      add_candidate: { Args: { p: Json }; Returns: Json };
       add_case_check: {
         Args: { p_case: string; p_check_type: string; p_label?: string };
         Returns: string;

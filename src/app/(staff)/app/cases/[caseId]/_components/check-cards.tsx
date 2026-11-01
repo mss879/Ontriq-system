@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { Briefcase, ChevronRight, ClipboardCheck, Globe, GraduationCap, IdCard, MapPin, Shield, Sparkles, Users } from "lucide-react";
 import type { CaseCheck } from "@/lib/server/cases/queries";
 import { missingDetails } from "@/domain/ai/extraction";

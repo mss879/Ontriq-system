@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { ArrowRight, FileSignature, MessageCircleReply } from "lucide-react";
 import type { CandidateReply } from "@/lib/server/cases/candidate-queries";
 import { RelativeTime } from "@/components/cases/sla-badge";

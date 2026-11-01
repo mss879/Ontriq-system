@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/link";
 import { useActionState } from "react";
 import { MailCheck } from "lucide-react";
 import { requestPasswordReset } from "../actions";

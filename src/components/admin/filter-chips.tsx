@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { X } from "lucide-react";
 
 export type FilterChip = { key: string; label: string; href: string };

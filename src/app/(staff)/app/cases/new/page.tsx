@@ -1,10 +1,11 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
-import Link from "next/link";
+import Link from "@/components/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { Page, PageHeader, SectionSkeleton } from "@/components/layout/page";
 import { getStaffViewer } from "@/lib/server/viewer";
+import { getCandidate, getCandidateCases } from "@/lib/server/admin/candidates";
 import { clientOptions, getCatalog } from "@/lib/server/cases/queries";
 import { can } from "@/domain/permissions";
 import { NewCaseWizard } from "./wizard";
@@ -38,6 +39,10 @@ async function Wizard({ searchParams }: Pick<PageProps<"/app/cases/new">, "searc
   const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) || undefined;
   const clientId = one(params.client);
   const templateId = one(params.template);
+  // Started from a candidate's page: the person is already on file.
+  const candidateId = one(params.candidate);
+  const candidate = candidateId && /^[0-9a-f-]{36}$/.test(candidateId) ? await getCandidate(candidateId) : null;
+  const caseCount = candidate ? (await getCandidateCases(candidate.id)).length : 0;
 
   return (
     <NewCaseWizard
@@ -48,6 +53,7 @@ async function Wizard({ searchParams }: Pick<PageProps<"/app/cases/new">, "searc
       templates={catalog.templates.filter((t) => t.isActive)}
       initialClientId={clients.some((c) => c.id === clientId) ? clientId : undefined}
       initialTemplateId={catalog.templates.some((t) => t.id === templateId) ? templateId : undefined}
+      initialCandidate={candidate && !candidate.erased ? { ...candidate, caseCount } : undefined}
     />
   );
 }

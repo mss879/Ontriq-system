@@ -147,12 +147,3 @@ export async function acceptInvitation(_prev: ActionResult | null, formData: For
   if (membership.kind === "staff" && membership.mfa_required) redirect("/mfa?next=/app&setup=1");
   redirect(membership.kind === "client" ? "/portal" : "/app");
 }
-
-// ---------------------------------------------------------------------------
-// Sign out (the client then hard-navigates so no screen state survives)
-// ---------------------------------------------------------------------------
-export async function signOut(): Promise<ActionResult> {
-  const supabase = await createClient();
-  await supabase.auth.signOut();
-  return { ok: true };
-}

@@ -1,18 +1,19 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
-import Link from "next/link";
+import Link from "@/components/link";
 import { notFound, redirect } from "next/navigation";
-import { ArrowLeft, IdCard } from "lucide-react";
+import { ArrowLeft, FilePlus2, IdCard } from "lucide-react";
 import { Eyebrow, Page, SectionSkeleton } from "@/components/layout/page";
 import { Surface, SurfaceHeader, TH } from "@/components/admin/surface";
 import { ChecksProgress, ResultBadge, shownResult, StagePill } from "@/components/cases/badges";
 import { statusLabeller } from "@/lib/server/cases/status-catalog";
 import { PersonAvatar } from "@/components/cases/person";
+import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getStaffViewer } from "@/lib/server/viewer";
 import { getCandidate, getCandidateCases } from "@/lib/server/admin/candidates";
 import { formatDate, formatPlainDate } from "@/lib/format";
-import { canAny } from "@/domain/permissions";
+import { can, canAny } from "@/domain/permissions";
 import { parseNic } from "@/domain/nic-core";
 
 export const metadata: Metadata = { title: "Candidate" };
@@ -48,6 +49,7 @@ async function Candidate({ params }: Pick<PageProps<"/app/candidates/[candidateI
     ["Address", candidate.address],
     ["District", candidate.district],
     ["Language", LANGUAGES[candidate.preferredLanguage] ?? candidate.preferredLanguage],
+    ["Added for", candidate.addedFor?.name],
     ["First seen", formatDate(candidate.createdAt)],
   ];
 
@@ -55,7 +57,7 @@ async function Candidate({ params }: Pick<PageProps<"/app/candidates/[candidateI
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
         <PersonAvatar id={candidate.id} name={candidate.fullName} size="lg" className="size-14 rounded-2xl text-base" />
-        <div className="min-w-0 space-y-1.5">
+        <div className="min-w-0 flex-1 space-y-1.5">
           <Eyebrow>Candidate</Eyebrow>
           <h1 className="font-display text-[1.75rem] leading-tight font-semibold tracking-tight">{candidate.fullName}</h1>
           <p className="text-sm text-muted-foreground">
@@ -63,13 +65,20 @@ async function Candidate({ params }: Pick<PageProps<"/app/candidates/[candidateI
             {candidate.nic ? ` · NIC ${candidate.nic}` : ""}
           </p>
         </div>
+        {can(viewer, "cases.create") && !candidate.erased ? (
+          <Button asChild className="shrink-0 self-start sm:self-center">
+            <Link href={`/app/cases/new?candidate=${candidate.id}${candidate.addedFor ? `&client=${candidate.addedFor.id}` : ""}`}>
+              <FilePlus2 /> Start a case
+            </Link>
+          </Button>
+        ) : null}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <Surface className="min-w-0">
           <SurfaceHeader title="Cases" description="Every verification Ontriq has run for this person, newest first." />
           {cases.length === 0 ? (
-            <p className="px-5 py-6 text-sm text-muted-foreground">No cases you can see.</p>
+            <p className="px-5 py-6 text-sm text-muted-foreground">{candidate.addedFor ? "No case yet." : "No cases you can see."}</p>
           ) : (
             <Table>
               <TableHeader>

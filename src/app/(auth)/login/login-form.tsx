@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/link";
 import { useActionState } from "react";
 import { AlertCircle } from "lucide-react";
 import { signIn } from "../actions";

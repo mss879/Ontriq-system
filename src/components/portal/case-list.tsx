@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { ChevronRight, Download, FileWarning } from "lucide-react";
 import { ChecksProgress, ResultBadge, PriorityBadge } from "@/components/cases/badges";
 import { formatShortDate } from "@/lib/format";

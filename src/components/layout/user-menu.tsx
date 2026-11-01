@@ -1,7 +1,6 @@
 "use client";
 
 import { ChevronsUpDown, LogOut, ShieldCheck } from "lucide-react";
-import { signOut } from "@/app/(auth)/actions";
 import { PersonAvatar } from "@/components/cases/person";
 import {
   DropdownMenu,
@@ -12,7 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar";
-import { hardNavigate } from "@/lib/client/hard-navigate";
+import { signOutNow } from "@/lib/client/sign-out";
 
 export function UserMenu({ viewer }: { viewer: { userId: string; fullName: string; email: string; roleName: string; aal: string } }) {
   return (
@@ -43,12 +42,7 @@ export function UserMenu({ viewer }: { viewer: { userId: string; fullName: strin
               {viewer.aal === "aal2" ? "Two-step verification on" : "Two-step verification off"}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onSelect={async () => {
-                await signOut();
-                hardNavigate("/login");
-              }}
-            >
+            <DropdownMenuItem onSelect={signOutNow}>
               <LogOut /> Sign out
             </DropdownMenuItem>
           </DropdownMenuContent>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState, useTransition } from "react";
-import Link from "next/link";
+import Link from "@/components/link";
 import { AlertTriangle, CheckCircle2, Download, FileSpreadsheet, Mail, Plus, RotateCcw, Upload, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";

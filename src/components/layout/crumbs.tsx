@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, createContext, use, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
+import Link from "@/components/link";
 import { usePathname } from "next/navigation";
 import { ChevronRight } from "lucide-react";
 import { SETTINGS_NAV, STAFF_NAV } from "./nav";

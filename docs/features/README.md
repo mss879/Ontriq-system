@@ -49,6 +49,8 @@ Each feature is one migration file.
 - [Candidate report](0047-candidate-report.md) — `0047_candidate_report.sql`
 - [Requirements check fixes](0048-audit-fixes.md) — `0048_audit_fixes.sql`
 - [Final audit fixes](0049-final-audit-fixes.md) — `0049_final_audit_fixes.sql`
+- [Add a candidate by hand](0050-add-candidate.md) — `0050_add_candidate.sql`
+- [Speed on the live site](0051-faster-queue-depth.md) — `0051_faster_queue_depth.sql`
 
 ## Notes from Phase 0
 

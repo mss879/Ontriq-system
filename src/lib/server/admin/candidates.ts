@@ -16,6 +16,7 @@ export type CandidateListItem = {
   phone: string | null;
   district: string | null;
   caseCount: number;
+  addedFor: string | null;
   createdAt: string;
 };
 
@@ -25,7 +26,7 @@ export async function listCandidates(filters: { q?: string; page?: number }): Pr
   const from = (page - 1) * CANDIDATE_PAGE_SIZE;
   let query = supabase
     .from("candidates")
-    .select("id, full_name, nic, email, phone, district, created_at, cases(count)", { count: "exact" })
+    .select("id, full_name, nic, email, phone, district, created_at, cases(count), added_for:clients!candidates_added_for_client_id_fkey(name)", { count: "exact" })
     .order("created_at", { ascending: false });
   if (filters.q) {
     const term = filters.q.replace(/[%_,()]/g, " ").trim();
@@ -42,6 +43,7 @@ export async function listCandidates(filters: { q?: string; page?: number }): Pr
     phone: c.phone,
     district: c.district,
     caseCount: Array.isArray(c.cases) ? Number((c.cases[0] as { count?: number } | undefined)?.count ?? 0) : 0,
+    addedFor: c.added_for?.name ?? null,
     createdAt: c.created_at,
   }));
   return { items, total: count ?? items.length };
@@ -58,12 +60,14 @@ export type CandidateProfile = {
   address: string | null;
   district: string | null;
   preferredLanguage: string;
+  addedFor: { id: string; name: string } | null;
+  erased: boolean;
   createdAt: string;
 };
 
 export const getCandidate = cache(async (id: string): Promise<CandidateProfile | null> => {
   const supabase = await createRequestClient();
-  const { data: c } = await supabase.from("candidates").select("*").eq("id", id).maybeSingle();
+  const { data: c } = await supabase.from("candidates").select("*, added_for:clients!candidates_added_for_client_id_fkey(id, name)").eq("id", id).maybeSingle();
   if (!c) return null;
   return {
     id: c.id,
@@ -76,6 +80,8 @@ export const getCandidate = cache(async (id: string): Promise<CandidateProfile |
     address: c.address,
     district: c.district,
     preferredLanguage: c.preferred_language,
+    addedFor: c.added_for ?? null,
+    erased: c.erased_at !== null,
     createdAt: c.created_at,
   };
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/link";
 import { cn } from "@/lib/utils";
 import { ChecksProgress, PriorityBadge, stageColor, statusNote, ToneChip } from "@/components/cases/badges";
 import { PersonAvatar } from "@/components/cases/person";

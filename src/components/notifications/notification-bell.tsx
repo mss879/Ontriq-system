@@ -1,7 +1,7 @@
 "use client";
 
 import { useOptimistic, useTransition } from "react";
-import Link from "next/link";
+import Link from "@/components/link";
 import { Bell, BellRing, CheckCheck, FileCheck2, FileSignature, FolderOpen, ListChecks, Megaphone, Receipt, RotateCcw, type LucideIcon } from "lucide-react";
 import { markNotificationsRead } from "@/app/(staff)/app/notification-actions";
 import type { NotificationItem } from "@/lib/server/admin/notifications";

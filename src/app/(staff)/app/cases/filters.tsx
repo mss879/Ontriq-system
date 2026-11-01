@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import Link from "next/link";
+import Link from "@/components/link";
 import { useRouter } from "next/navigation";
 import { KanbanSquare, Rows3, Search } from "lucide-react";
 import { cn } from "@/lib/utils";

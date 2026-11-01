@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import Link from "next/link";
+import Link from "@/components/link";
 import { LogoMark, Wordmark } from "@/components/brand/logo";
 import { CommandProvider } from "@/components/command/command-context";
 import { CommandTrigger } from "@/components/command/command-trigger";

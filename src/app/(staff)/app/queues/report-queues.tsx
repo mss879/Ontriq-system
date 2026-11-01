@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { ArrowRight, FileCheck2, Send } from "lucide-react";
 import type { ReportQueueItem } from "@/lib/server/reports/queries";
 import { ResultBadge } from "@/components/cases/badges";

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import Link from "next/link";
+import Link from "@/components/link";
 import { ArrowRight, Scale } from "lucide-react";
 import { toast } from "sonner";
 import { applyRebalance, proposeRebalance } from "@/app/(staff)/app/team/performance/actions";

@@ -1,23 +1,20 @@
 "use client";
 
-import { useTransition } from "react";
-import { signOut } from "@/app/(auth)/actions";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { hardNavigate } from "@/lib/client/hard-navigate";
+import { signOutNow } from "@/lib/client/sign-out";
 
-/** Signs out, then hard-navigates so no preserved screen state survives. */
+/** Signs out with a full page load, so no preserved screen state survives. */
 export function SignOutButton({ children, ...props }: React.ComponentProps<typeof Button>) {
-  const [pending, start] = useTransition();
+  const [pending, setPending] = useState(false);
   return (
     <Button
       type="button"
       disabled={pending}
-      onClick={() =>
-        start(async () => {
-          await signOut();
-          hardNavigate("/login");
-        })
-      }
+      onClick={() => {
+        setPending(true);
+        signOutNow();
+      }}
       {...props}
     >
       {children ?? "Sign out"}

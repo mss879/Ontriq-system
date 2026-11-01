@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import { FileSignature } from "lucide-react";
 import { Surface, SurfaceHeader, TH } from "@/components/admin/surface";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";

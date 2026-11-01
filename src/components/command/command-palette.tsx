@@ -17,11 +17,10 @@ import {
   CommandList,
   CommandSeparator,
 } from "@/components/ui/command";
-import { signOut } from "@/app/(auth)/actions";
 import { STAFF_NAV, visibleNav } from "@/components/layout/nav";
 import { useCommand } from "./command-context";
 import { paletteFilter } from "./palette-filter";
-import { hardNavigate } from "@/lib/client/hard-navigate";
+import { signOutNow } from "@/lib/client/sign-out";
 
 type Hit = { kind: "case" | "candidate" | "client"; id: string; title: string; subtitle: string; href: string };
 
@@ -153,8 +152,7 @@ export function CommandPalette({ viewer }: { viewer: { permissions: string[]; ro
             keywords={["log out", "logout"]}
             onSelect={() =>
               run(async () => {
-                await signOut();
-                hardNavigate("/login");
+                signOutNow();
               })
             }
           >

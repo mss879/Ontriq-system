@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/link";
 import type { LucideIcon } from "lucide-react";
 import { SURFACE } from "@/components/admin/surface";
 import { Sparkline } from "@/components/performance/sparkline";

@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import Link from "next/link";
+import Link from "@/components/link";
 import { Activity, Bot, CircleDollarSign, FileCheck2 } from "lucide-react";
 import { BarList, CHART_COLORS, Donut, LineChart } from "@/components/charts/charts";
 import { KpiSkeleton, KpiTile } from "@/components/charts/kpi";

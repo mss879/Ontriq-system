@@ -5,6 +5,13 @@ import nextTs from "eslint-config-next/typescript";
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
+  {
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: ["src/components/link.tsx"],
+    rules: {
+      "no-restricted-imports": ["error", { paths: [{ name: "next/link", message: "Use @/components/link, which doesn't load every visible link in advance." }] }],
+    },
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:

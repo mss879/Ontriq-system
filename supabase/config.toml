@@ -6,8 +6,8 @@ project_id = "ontriq-crm"
 [auth]
 # Update to the Netlify URL at go-live. The app builds its own confirm links
 # (/auth/confirm?token_hash=…), so these only matter for Supabase-sent mail.
-site_url = "http://localhost:3000"
-additional_redirect_urls = ["http://localhost:3000/**", "http://localhost:3100/**"]
+site_url = "https://ontriq-system.netlify.app"
+additional_redirect_urls = ["https://ontriq-system.netlify.app/**", "http://localhost:3000/**", "http://localhost:3100/**"]
 # Nobody signs themselves up: staff and client users arrive by invitation only.
 enable_signup = false
 # Matches the app's own rule in src/app/(auth)/actions.ts.
