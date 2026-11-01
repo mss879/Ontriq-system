@@ -6,6 +6,9 @@
 [build.environment]
   NODE_VERSION = "22"
   NEXT_TELEMETRY_DISABLED = "1"
+  # Next.js keeps the Server Actions key in this server-only manifest. It never
+  # reaches the browser, so the scan skips this one file and checks all others.
+  SECRETS_SCAN_OMIT_PATHS = "**/server-reference-manifest.js,**/server-reference-manifest.json"
 
 [functions]
   node_bundler = "esbuild"

@@ -2,7 +2,7 @@
 
 State on 1 November 2026, after the client requirements audit and the independent audits of the finished build.
 
-**Verdict:** every requirement in the client's two documents is built and tested. The line-by-line result is in [the requirements audit](verification/requirements-audit-2026-10-31.md). The final work, migrations 0044 to 0049, has run on the local stack only, so it needs pushing to the hosted database and a hosted simulation before a client demonstration or UAT. It is not yet ready for real candidate data: the items under "Before real data" come first. The AI features have run against the real models, on invented documents: see `docs/verification/ai-evaluation-2026-10-31.md`.
+**Verdict:** every requirement in the client's two documents is built and tested. The line-by-line result is in [the requirements audit](verification/requirements-audit-2026-10-31.md). Migrations 0044 to 0049 are on the hosted database as of 1 November 2026. They were rehearsed on the hosted data first, but they still need a hosted simulation before UAT. It is not yet ready for real candidate data: the items under "Before real data" come first. The AI features have run against the real models, on invented documents: see `docs/verification/ai-evaluation-2026-10-31.md`.
 
 ## What was verified
 
@@ -29,7 +29,7 @@ The hosted run on record predates migrations 0044 to 0049. The local stack has n
 
 | Item | Who | Notes |
 |---|---|---|
-| Push migrations 0044 to 0049, then run the hosted simulation | Developer | The hosted project stops at 0043. `npm run simulate -- --app … --report docs/verification/simulation-<date>.md` proves live updates and the password rule, which the local stack can't. |
+| Run the hosted simulation | Developer | The hosted project has every migration through 0049. `npm run simulate -- --app … --report docs/verification/simulation-<date>.md` proves live updates and the password rule, which the local stack can't. |
 | Make the GitHub repository private | Owner | It is public. It holds no keys, but it does hold the project reference, the cost document and how the system works. |
 | Remove the demo data | Developer | `npx tsx scripts/seed-demo.ts --env .env.hosted --clean`, then delete `demo-logins.local.md`. Removes the sample clients, cases, sign-ins and prices, and resets numbering. |
 | Turn two-step verification on for staff | Super Admin | Settings → Organisation → Security. It is off so the system could be tested and demonstrated. |

@@ -71,7 +71,8 @@ if (fresh) {
 // Migrations (apply any not yet applied, in order) and seed on first run.
 const appliedPath = path.join(DIR, "applied.json");
 const applied = new Set<string>(existsSync(appliedPath) ? JSON.parse(readFileSync(appliedPath, "utf8")) : []);
-for (const file of readdirSync("supabase/migrations").filter((f) => f.endsWith(".sql")).sort()) {
+// iCloud can leave a copy such as "0044_name 2.sql", which must never run.
+for (const file of readdirSync("supabase/migrations").filter((f) => /^\d{4}_\w+\.sql$/.test(f)).sort()) {
   if (applied.has(file)) continue;
   psqlFile(path.join("supabase/migrations", file));
   applied.add(file);

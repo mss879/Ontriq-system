@@ -52,7 +52,7 @@ Password sign-in, refresh, sign-out, email links (`invite`, `recovery`, `magicli
 
 Storage is emulated too (`scripts/local-stack/storage-emulator.ts`, files under `~/.ontriq/local-stack/storage`): signed upload URLs from the browser, signed downloads, service uploads, exists, info, list, remove and public reads, with each bucket's size limit and allowed file types taken from `storage.buckets`. Realtime is not emulated, so the stack sets `NEXT_PUBLIC_REALTIME=off` and screens skip live refresh locally; reload to see other people's changes.
 
-The hosted project stops at migration 0043 until 0044 to 0049 are pushed. `npm run simulate` checks a backend end to end (see the runbook).
+The hosted project has every migration through 0049. `npm run simulate` checks a backend end to end (see the runbook).
 
 To run everything against the local stack:
 

@@ -51,3 +51,6 @@ next-env.d.ts
 
 # Demo sign-ins written by scripts/seed-demo.ts (passwords)
 /demo-logins.local.md
+
+# Copies iCloud leaves beside a file
+* 2.*
