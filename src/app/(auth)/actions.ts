@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { z } from "zod";
+import { passwordSchema } from "@/domain/password";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { appOrigin, serviceRoleKey } from "@/lib/env";
@@ -13,13 +14,6 @@ import { emailBrand } from "@/lib/server/email-brand";
 import { safeNextPath } from "@/domain/safe-redirect";
 
 type Membership = { kind: "staff" | "client"; status: "active" | "invited"; mfa_required: boolean; org_name: string } | null;
-
-const passwordSchema = z
-  .string()
-  .min(10, "Use at least 10 characters.")
-  .max(128, "That password is too long.")
-  .regex(/[A-Za-z]/, "Include at least one letter.")
-  .regex(/[0-9]/, "Include at least one number.");
 
 // ---------------------------------------------------------------------------
 // Sign in
@@ -36,7 +30,8 @@ export async function signIn(_prev: ActionResult | null, formData: FormData): Pr
   const { email, password, next } = parsed.data;
 
   const ip = await clientIp();
-  if (!(await rateLimit(`login:ip:${ip}`, 600, 30)) || !(await rateLimit(`login:email:${email}`, 600, 8))) {
+  const allowed = await Promise.all([rateLimit(`login:ip:${ip}`, 600, 30), rateLimit(`login:email:${email}`, 600, 8)]);
+  if (!allowed.every(Boolean)) {
     return fail("Too many sign-in attempts. Wait a few minutes and try again.");
   }
 

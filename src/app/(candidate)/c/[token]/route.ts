@@ -1,5 +1,6 @@
-import { connection, NextResponse, type NextRequest } from "next/server";
+import { connection, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { redirectTo } from "@/lib/server/redirect";
 import { writeCandidateSession } from "@/lib/server/candidate/session";
 import { clientIp, rateLimit } from "@/lib/server/request-meta";
 import { hashLinkSecret, isCandidateSecretConfigured, looksLikeLinkSecret } from "@/lib/crypto/candidate-token";
@@ -12,10 +13,10 @@ const HEADERS = { "Cache-Control": "private, no-store", "Referrer-Policy": "no-r
  * browser on to /c/session, so the secret leaves the address bar and history.
  * Visits are counted and rate limited per address.
  */
-export async function GET(request: NextRequest, ctx: RouteContext<"/c/[token]">) {
+export async function GET(_request: NextRequest, ctx: RouteContext<"/c/[token]">) {
   await connection();
   const { token } = await ctx.params;
-  const go = (path: string) => NextResponse.redirect(new URL(path, request.url), { status: 303, headers: HEADERS });
+  const go = (path: string) => redirectTo(path, 303, HEADERS);
 
   if (!(await rateLimit(`candidate-open:${await clientIp()}`, 600, 30))) return go("/c/expired?reason=busy");
   if (!looksLikeLinkSecret(token)) return go("/c/expired?reason=unknown");

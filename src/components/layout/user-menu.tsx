@@ -1,6 +1,7 @@
 "use client";
 
-import { ChevronsUpDown, LogOut, ShieldCheck } from "lucide-react";
+import { ChevronsUpDown, KeyRound, LogOut, ShieldCheck } from "lucide-react";
+import Link from "@/components/link";
 import { PersonAvatar } from "@/components/cases/person";
 import {
   DropdownMenu,
@@ -42,6 +43,11 @@ export function UserMenu({ viewer }: { viewer: { userId: string; fullName: strin
               {viewer.aal === "aal2" ? "Two-step verification on" : "Two-step verification off"}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
+            <DropdownMenuItem asChild>
+              <Link href="/reset-password">
+                <KeyRound /> Change password
+              </Link>
+            </DropdownMenuItem>
             <DropdownMenuItem onSelect={signOutNow}>
               <LogOut /> Sign out
             </DropdownMenuItem>

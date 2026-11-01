@@ -13,3 +13,7 @@ On the live site a dashboard left alone sent 29 background requests in six secon
 ## Keep in mind
 
 Netlify's functions run in Tokyo, beside the database. If they go back to Ohio, every database call crosses the Pacific.
+
+## Redirects on Netlify
+
+A route handler's `request.url` can carry the deploy's own address, not the site's. A redirect built from it left the site, and the session cookie set on the site didn't follow. Sign-out, invite and reset links, and candidate links now send a relative address through `redirectTo` in `src/lib/server/redirect.ts`. Use it for any new redirect in a route handler.

@@ -3,6 +3,7 @@
 import { useActionState, useState } from "react";
 import { Check, Copy, MailCheck, UserPlus } from "lucide-react";
 import { inviteMember } from "./actions";
+import { CreateLoginForm } from "./create-login-form";
 import { TextField } from "@/components/forms/text-field";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -10,33 +11,50 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type RoleOption = { id: string; name: string; description: string };
 
 export function InviteDialog({ roles, defaultOpen }: { roles: RoleOption[]; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(Boolean(defaultOpen));
   const [formKey, setFormKey] = useState(0);
+  const [mode, setMode] = useState("invite");
+  const modeSwitch = (
+    <Tabs value={mode} onValueChange={setMode} className="mb-5">
+      <TabsList className="grid w-full grid-cols-2">
+        <TabsTrigger value="invite">Send an invite</TabsTrigger>
+        <TabsTrigger value="create">Create a login</TabsTrigger>
+      </TabsList>
+    </Tabs>
+  );
   return (
     <Dialog
       open={open}
       onOpenChange={(next) => {
         setOpen(next);
-        if (!next) setFormKey((k) => k + 1);
+        if (!next) {
+          setFormKey((k) => k + 1);
+          setMode("invite");
+        }
       }}
     >
       <DialogTrigger asChild>
         <Button size="lg" className="h-9 px-3.5">
-          <UserPlus /> Invite member
+          <UserPlus /> Add member
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-md">
-        <InviteForm key={formKey} roles={roles} onDone={() => setOpen(false)} />
+        {mode === "create" ? (
+          <CreateLoginForm key={formKey} roles={roles} onDone={() => setOpen(false)} modeSwitch={modeSwitch} />
+        ) : (
+          <InviteForm key={formKey} roles={roles} onDone={() => setOpen(false)} modeSwitch={modeSwitch} />
+        )}
       </DialogContent>
     </Dialog>
   );
 }
 
-function InviteForm({ roles, onDone }: { roles: RoleOption[]; onDone: () => void }) {
+function InviteForm({ roles, onDone, modeSwitch }: { roles: RoleOption[]; onDone: () => void; modeSwitch: React.ReactNode }) {
   const [state, action, pending] = useActionState(inviteMember, null);
   const [roleId, setRoleId] = useState<string>("");
   const [copied, setCopied] = useState(false);
@@ -84,6 +102,7 @@ function InviteForm({ roles, onDone }: { roles: RoleOption[]; onDone: () => void
         <DialogTitle>Invite a team member</DialogTitle>
         <DialogDescription>Choose their designation. You can change it later.</DialogDescription>
       </DialogHeader>
+      {modeSwitch}
       <FieldGroup>
         {state && !state.ok && !fieldErrors ? (
           <Alert variant="destructive">

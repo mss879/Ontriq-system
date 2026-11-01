@@ -10,6 +10,7 @@ import { AuthError, authErrorMessage, friendlyDbError } from "@/lib/server/error
 import { fail, zodFieldErrors, type ActionResult } from "@/lib/server/action-result";
 import { queueEmail } from "@/lib/server/jobs/enqueue";
 import { inviteEmail } from "@/domain/email/templates";
+import { passwordSchema } from "@/domain/password";
 import { emailBrand } from "@/lib/server/email-brand";
 
 type InviteResult = ActionResult<{ devLink?: string }>;
@@ -147,6 +148,57 @@ export async function resendInvite(membershipId: string): Promise<InviteResult> 
   refresh();
   const devLink = process.env.NODE_ENV !== "production" && !process.env.RESEND_API_KEY ? link.url : undefined;
   return { ok: true, devLink };
+}
+
+const createMemberSchema = inviteSchema.extend({ password: passwordSchema });
+
+/** A working login on the spot, for someone already confirmed: no invitation, no email. */
+export async function createMember(input: z.input<typeof createMemberSchema>): Promise<ActionResult<{ email: string }>> {
+  const viewer = await guard();
+  if ("ok" in viewer) return viewer as ActionResult<{ email: string }>;
+  if (!serviceRoleKey()) return fail("Creating logins needs the Supabase service key. Add SUPABASE_SECRET_KEY to the environment.");
+
+  const parsed = createMemberSchema.safeParse(input);
+  if (!parsed.success) return fail("Check the highlighted fields.", zodFieldErrors(parsed.error.issues));
+  const { email, fullName, roleId, password } = parsed.data;
+
+  const supabase = await createClient();
+  const { data: role } = await supabase.from("roles").select("id, key, kind").eq("id", roleId).maybeSingle();
+  if (!role || role.kind !== "staff") return fail("Choose a staff designation.", { roleId: ["Choose a staff designation."] });
+  if (role.key === "super_admin" && viewer.roleKey !== "super_admin") return fail("Only a Super Admin can add another Super Admin.");
+
+  const admin = createAdminClient();
+  const created = await admin.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+    user_metadata: { full_name: fullName },
+    app_metadata: { kind: "staff", org_id: viewer.orgId },
+  });
+  if (created.error || !created.data.user) {
+    if (created.error?.code === "email_exists") return fail("Check the highlighted fields.", { email: ["That email already has an account."] });
+    if (created.error?.code === "weak_password") return fail("Check the highlighted fields.", { password: ["Choose a stronger password."] });
+    return fail("We couldn't create this login. Check the details and try again.");
+  }
+  const userId = created.data.user.id;
+  await admin.from("profiles").update({ full_name: fullName }).eq("id", userId);
+
+  // As the signed-in admin, so the role rules and the audit log apply. No half-made account is left behind.
+  const { error: membershipError } = await supabase.from("memberships").insert({
+    org_id: viewer.orgId,
+    user_id: userId,
+    kind: "staff",
+    role_id: role.id,
+    status: "active",
+    invited_by: viewer.userId,
+  });
+  if (membershipError) {
+    await admin.auth.admin.deleteUser(userId);
+    return fail(friendlyDbError(membershipError));
+  }
+
+  refresh();
+  return { ok: true, email };
 }
 
 const roleChangeSchema = z.object({ membershipId: z.uuid(), roleId: z.uuid() });
