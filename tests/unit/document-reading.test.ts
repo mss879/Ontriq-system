@@ -36,24 +36,24 @@ describe("which check a file feeds", () => {
   const all = ["police", "edu", "nic"];
 
   it("uses the check the file was uploaded to", () => {
-    expect(checksToFill({ case_check_id: "edu", category: "other" }, "police_report", reqs, all)).toEqual(["edu"]);
+    expect(checksToFill({ case_check_id: "edu", category: "other" }, ["police_report"], reqs, all)).toEqual(["edu"]);
   });
 
   it("matches the slot's category", () => {
-    expect(checksToFill({ case_check_id: null, category: "police_report" }, null, reqs, all)).toEqual(["police"]);
+    expect(checksToFill({ case_check_id: null, category: "police_report" }, [], reqs, all)).toEqual(["police"]);
   });
 
   it("follows what the AI says a general upload really is", () => {
-    expect(checksToFill({ case_check_id: null, category: "other" }, "police_report", reqs, all)).toEqual(["police"]);
+    expect(checksToFill({ case_check_id: null, category: "other" }, ["police_report"], reqs, all)).toEqual(["police"]);
   });
 
   it("offers one PDF of everything to every check", () => {
-    expect(checksToFill({ case_check_id: null, category: "other" }, "other", reqs, all)).toEqual(all);
-    expect(checksToFill({ case_check_id: null, category: "cv" }, null, reqs, all)).toEqual(all);
+    expect(checksToFill({ case_check_id: null, category: "other" }, ["other"], reqs, all)).toEqual(all);
+    expect(checksToFill({ case_check_id: null, category: "cv" }, [], reqs, all)).toEqual(all);
   });
 
   it("leaves other files alone when nothing asks for them", () => {
-    expect(checksToFill({ case_check_id: null, category: "gn_certificate" }, null, reqs, all)).toEqual([]);
+    expect(checksToFill({ case_check_id: null, category: "gn_certificate" }, [], reqs, all)).toEqual([]);
   });
 });
 

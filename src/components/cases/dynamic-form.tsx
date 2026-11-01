@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { DISTRICTS } from "@/domain/districts";
+import { DISTRICT_CHOICES } from "@/domain/districts";
 import { parseNic } from "@/domain/nic-core";
 import { formatPlainDate } from "@/lib/format";
 import type { FieldDef } from "@/domain/check-types/schema";
@@ -235,7 +235,7 @@ function ScalarField({
     }
     case "select":
     case "district": {
-      const options = field.type === "district" ? DISTRICTS.map((d) => ({ value: d, label: d })) : (field.options ?? []);
+      const options = field.type === "district" ? DISTRICT_CHOICES.map((d) => ({ value: d, label: d })) : (field.options ?? []);
       control = (
         <Select value={str || NONE} onValueChange={(v) => onChange(v === NONE ? undefined : v)} disabled={readOnly}>
           <SelectTrigger id={id} className="w-full" aria-invalid={invalid || undefined}>
@@ -291,7 +291,7 @@ function ScalarField({
             onChange={(e) => onChange(e.target.value.toUpperCase())}
             disabled={readOnly}
             aria-invalid={invalid || undefined}
-            placeholder="853400937V or 198534000937"
+            placeholder={field.placeholder ?? "853400937V or 198534000937"}
             autoComplete="off"
             className="font-mono tracking-wide"
           />

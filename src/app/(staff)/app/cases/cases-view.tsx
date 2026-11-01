@@ -26,6 +26,7 @@ export function CasesView({
   views,
   canAssign,
   canCreate,
+  statuses,
 }: {
   view: "table" | "board";
   query: string;
@@ -40,13 +41,14 @@ export function CasesView({
   viewerId: string;
   canAssign: boolean;
   canCreate: boolean;
+  statuses: { key: string; label: string }[];
 }) {
   const filtered = hasFilters(query);
   const page = filters.page ?? 1;
 
   return (
     <div className="space-y-4">
-      <CasesFilters query={query} filters={filters} view={view} staff={staff} clients={clients} />
+      <CasesFilters query={query} filters={filters} view={view} staff={staff} clients={clients} statuses={statuses} />
       <SavedViews views={views} query={query} view={view} />
 
       {items.length === 0 ? (

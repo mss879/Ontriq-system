@@ -77,6 +77,11 @@ export async function importCases(input: ImportInput): Promise<ActionResult<{ re
     const results = await mapLimited(rows, 4, async (row): Promise<ImportLineResult> => {
       const name = row.values.full_name ?? "";
       if (row.errors.length) return { line: row.line, name, ok: false, error: row.errors.join(" ") };
+      // A row that leaves out the contact only works for someone already on file who can be reached.
+      if (v.processType === "candidate_collected" && !row.values.email && !row.values.phone) {
+        const { data: known } = await supabase.from("candidates").select("email, phone").eq("nic_canonical", row.nic?.canonical ?? "").maybeSingle();
+        if (!known?.email && !known?.phone) return { line: row.line, name, ok: false, error: "Ontriq collects from this candidate, so the row needs an email or phone number." };
+      }
       const fields = caseFields(row);
       const candidate = candidatePayload(row);
       const { data, error } = await supabase.rpc("create_case", {
@@ -90,7 +95,9 @@ export async function importCases(input: ImportInput): Promise<ActionResult<{ re
           position_title: fields.position_title ?? defaults.position_title ?? null,
           department: fields.department ?? defaults.department ?? null,
           client_reference: fields.client_reference,
-          instructions: defaults.instructions ?? null,
+          instructions: fields.instructions ?? null,
+          // A template's instructions were written by staff, so they stay with the team.
+          internal_notes: fields.internal_notes ?? defaults.instructions ?? null,
           created_via: "import",
           candidate,
         },

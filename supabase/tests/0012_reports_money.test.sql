@@ -114,6 +114,8 @@ end $$;
 reset role;
 update public.case_checks set state = 'completed', result = 'clear', result_tone = 'green', values_valid = true, completed_at = now()
  where case_id = current_setting('t.case')::uuid;
+-- No files in this fixture, so its slots are waived: submit_report refuses evidence missing from the report (0048).
+update public.case_check_requirements set status = 'waived' where case_id = current_setting('t.case')::uuid;
 update public.cases set stage = 'report', status_key = 'final_report_in_progress' where id = current_setting('t.case')::uuid;
 
 set local role authenticated;

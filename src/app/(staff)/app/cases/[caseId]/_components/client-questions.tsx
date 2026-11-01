@@ -87,7 +87,11 @@ export function ClientQuestions({ caseId, questions, canAsk, clientName }: { cas
         placeholder="e.g. What was the candidate's employee number at your company?"
         confirmLabel="Send question"
         success="Question sent"
-        onSubmit={(text) => askClient(caseId, text)}
+        onSubmit={async (text) => {
+          const r = await askClient(caseId, text);
+          if (r.ok && r.warning) toast.warning(r.warning);
+          return r;
+        }}
       />
     </div>
   );

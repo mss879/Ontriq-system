@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { ArrowRight, Ban, CheckCircle2, ChevronDown, Pause, Play, RotateCcw, ShieldCheck, Undo2 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { recordQcReview, setCaseHold, transitionCase, cancelCase } from "../../actions";
 import { cn } from "@/lib/utils";
@@ -13,6 +14,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { CHECK_STATE_LABELS, type CheckState, type ProcessType, type Stage } from "@/domain/workflow/stages";
 import type { ActionAvailability, CaseAction } from "@/domain/workflow/transitions-core";
+import type { QcChecklists } from "@/domain/workflow/settings";
 import { ReasonDialog } from "./reason-dialog";
 
 const ICONS: Partial<Record<CaseAction, React.ComponentType<{ className?: string }>>> = {
@@ -43,14 +45,23 @@ export function CaseActions({
   stage,
   processType,
   actions,
+  revising,
   checks,
+  checklists,
+  filesWithoutOriginalNote,
 }: {
   caseId: string;
   stage: Stage;
   processType: ProcessType;
   actions: ActionAvailability[];
+  /** A released report is being revised: stopping leaves it standing. */
+  revising: boolean;
   checks: { id: string; label: string; state: CheckState }[];
+  checklists: QcChecklists;
+  /** Files nobody has marked as an original or a copy (the flowchart's Pre-QC). */
+  filesWithoutOriginalNote: number;
 }) {
+  const router = useRouter();
   const [pending, start] = useTransition();
   const [dialog, setDialog] = useState<CaseAction | null>(null);
 
@@ -66,8 +77,10 @@ export function CaseActions({
           : (TRANSITION_EVENTS as readonly string[]).includes(a.action)
             ? await transitionCase(caseId, a.action as (typeof TRANSITION_EVENTS)[number])
             : { ok: false as const, error: "Unknown action." };
-      if (result.ok) toast.success(SUCCESS[a.action] ?? "Done");
-      else toast.error(result.error);
+      if (!result.ok) return void toast.error(result.error);
+      toast.success(SUCCESS[a.action] ?? "Done");
+      // Data entry's part is over, and the case has left their list.
+      if ("left" in result && result.left) router.push("/app/queues");
     });
   };
 
@@ -75,21 +88,22 @@ export function CaseActions({
   const secondary = actions.filter((a) => a.emphasis !== "primary");
   const blocked = primary.find((a) => !a.allowed && a.reason);
 
-  if (stage === "report") {
-    return (
+  // The report stage does its work in the Report section. Hold, resume and cancel stay here.
+  const reportNote =
+    stage === "report" && !actions.some((a) => a.action === "resume") ? (
       <div className="rounded-xl border border-dashed bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
-        Post-QC is complete. Prepare the final report in the{" "}
+        Post-QC is complete. The final report is prepared in the{" "}
         <a href="#report" className="font-medium text-foreground underline-offset-4 hover:underline">
           Report
         </a>{" "}
         section below.
       </div>
-    );
-  }
-  if (!actions.length) return null;
+    ) : null;
+  if (!actions.length) return reportNote;
 
   return (
     <div className="space-y-2">
+      {reportNote}
       <div className="flex flex-wrap items-center gap-2">
         {primary.map((a) => {
           const Icon = ICONS[a.action];
@@ -157,7 +171,7 @@ export function CaseActions({
         open={dialog === "hold"}
         onOpenChange={(o) => setDialog(o ? "hold" : null)}
         title="Put the case on hold"
-        description="Work pauses and the clock stops counting against the team. The client sees the case as on hold."
+        description="Work on the case stops and nothing more goes out. The clock stops counting against the team. The client sees the case as on hold, and they and the candidate can still send in what was asked for."
         placeholder="e.g. Client asked us to pause until the candidate accepts the offer."
         confirmLabel="Put on hold"
         success="Case on hold"
@@ -167,21 +181,28 @@ export function CaseActions({
         open={dialog === "return_to_documents"}
         onOpenChange={(o) => setDialog(o ? "return_to_documents" : null)}
         title="Send back to document collection"
-        description="Use this when a document is missing or wrong. The case shows as returned for correction."
-        placeholder="e.g. The service letter is for a different employer."
+        description={`Use this when a document is missing or wrong. The ${processType === "candidate_collected" ? "candidate" : "client"} reads what you write here, so say what is needed.`}
+        label="What is missing or wrong"
+        placeholder="e.g. The service letter is for a different employer. Please send the one from your last employer."
         confirmLabel="Send back"
         success="Sent back to documents"
-        onSubmit={(reason) => transitionCase(caseId, "return_to_documents", reason)}
+        onSubmit={async (reason) => {
+          const r = await transitionCase(caseId, "return_to_documents", reason);
+          if (r.ok && r.warning) toast.warning(r.warning);
+          // Data entry's part is over here too.
+          if (r.ok && r.left) router.push("/app/queues");
+          return r;
+        }}
       />
       <ReasonDialog
         open={dialog === "cancel"}
         onOpenChange={(o) => setDialog(o ? "cancel" : null)}
-        title="Cancel this case"
-        description="Cancelling closes the case for good. It stays in the records with your reason."
-        placeholder="e.g. The candidate withdrew."
-        confirmLabel="Cancel case"
+        title={revising ? "Stop the revision" : "Cancel this case"}
+        description={revising ? "The released report stands, and the case goes back to released." : "Cancelling closes the case for good. It stays in the records with your reason."}
+        placeholder={revising ? "e.g. The client confirmed no change is needed." : "e.g. The candidate withdrew."}
+        confirmLabel={revising ? "Stop the revision" : "Cancel case"}
         destructive
-        success="Case cancelled"
+        success={revising ? "Revision stopped" : "Case cancelled"}
         onSubmit={(reason) => cancelCase(caseId, reason)}
       />
       <QcDialog
@@ -191,13 +212,12 @@ export function CaseActions({
         caseId={caseId}
         processType={processType}
         checks={checks}
+        checklist={dialog === "post_qc_review" ? checklists.post : checklists.pre}
+        filesWithoutOriginalNote={filesWithoutOriginalNote}
       />
     </div>
   );
 }
-
-const PRE_ITEMS = ["Every required document is in", "Documents are readable and complete", "Names, NIC and dates match across documents", "Copy or original requirements are met"];
-const POST_ITEMS = ["Each finding matches its evidence", "Discrepancies are explained with reasons", "Nothing is still pending"];
 
 function QcDialog({
   open,
@@ -206,6 +226,8 @@ function QcDialog({
   caseId,
   processType,
   checks,
+  checklist,
+  filesWithoutOriginalNote,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
@@ -213,6 +235,8 @@ function QcDialog({
   caseId: string;
   processType: ProcessType;
   checks: { id: string; label: string; state: CheckState }[];
+  checklist: string[];
+  filesWithoutOriginalNote: number;
 }) {
   const [formKey, setFormKey] = useState(0);
   return (
@@ -230,6 +254,8 @@ function QcDialog({
           caseId={caseId}
           processType={processType}
           checks={checks}
+          checklist={checklist}
+          filesWithoutOriginalNote={filesWithoutOriginalNote}
           onDone={() => {
             onOpenChange(false);
             setFormKey((k) => k + 1);
@@ -245,20 +271,25 @@ function QcForm({
   caseId,
   processType,
   checks,
+  checklist,
+  filesWithoutOriginalNote,
   onDone,
 }: {
   kind: "pre" | "post";
   caseId: string;
   processType: ProcessType;
   checks: { id: string; label: string; state: CheckState }[];
+  checklist: string[];
+  filesWithoutOriginalNote: number;
   onDone: () => void;
 }) {
-  const items = kind === "pre" ? [...PRE_ITEMS, ...(processType === "candidate_collected" ? ["Signed consent form received"] : [])] : POST_ITEMS;
+  const items = kind === "pre" && processType === "candidate_collected" ? [...checklist, "Signed consent form received"] : checklist;
   const [ticks, setTicks] = useState<boolean[]>(() => items.map(() => false));
   const [decision, setDecision] = useState<"approved" | "returned">("approved");
   const [remarks, setRemarks] = useState("");
   const [message, setMessage] = useState("");
   const [returnIds, setReturnIds] = useState<string[]>([]);
+  const [returnTo, setReturnTo] = useState<"verification" | "data_entry">("verification");
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const unticked = ticks.filter((t) => !t).length;
@@ -267,6 +298,7 @@ function QcForm({
     if (decision === "returned" && !remarks.trim()) return setError("Say what needs correcting.");
     if (kind === "post" && decision === "returned" && returnIds.length === 0) return setError("Choose the checks that need more work.");
     if (kind === "pre" && decision === "returned" && !message.trim()) return setError("Say what you need sent or corrected.");
+    if (decision === "approved" && unticked > 0 && !remarks.trim()) return setError("Say in the remarks why you are approving with items unticked.");
     start(async () => {
       const r = await recordQcReview(caseId, {
         kind,
@@ -274,10 +306,12 @@ function QcForm({
         checklist: items.map((item, i) => ({ item, ok: ticks[i] })),
         remarks: remarks.trim() || undefined,
         returnCheckIds: decision === "returned" ? returnIds : [],
+        returnTo,
         message: decision === "returned" && message.trim() ? message.trim() : undefined,
       });
       if (r.ok) {
         toast.success(decision === "approved" ? (kind === "pre" ? "Pre-QC approved: on to data entry" : "Post-QC approved: ready for the report") : "Returned for correction");
+        if (r.warning) toast.warning(r.warning);
         onDone();
       } else setError(r.error);
     });
@@ -295,7 +329,7 @@ function QcForm({
         <DialogDescription>
           {kind === "pre"
             ? "Check the documents before data entry. Approving sends the case to data entry; returning sends it back to document collection."
-            : "Check the findings before the report. Approving sends the case to the final report; returning reopens the checks you pick."}
+            : "Check the findings before the report. Approving sends the case to the final report; returning reopens the checks you pick, at verification or data entry."}
         </DialogDescription>
       </DialogHeader>
       <div className="space-y-5">
@@ -333,6 +367,29 @@ function QcForm({
         </div>
 
         {kind === "post" && decision === "returned" ? (
+          <div role="radiogroup" aria-label="Where the case goes back to" className="grid grid-cols-2 gap-2">
+            {(
+              [
+                ["verification", "Back to verification", "The finding or evidence needs more work."],
+                ["data_entry", "Back to data entry", "The details themselves are wrong."],
+              ] as const
+            ).map(([to, title, hint]) => (
+              <button
+                key={to}
+                type="button"
+                role="radio"
+                aria-checked={returnTo === to}
+                onClick={() => setReturnTo(to)}
+                className={cn("rounded-xl border px-3 py-2 text-left text-sm transition-colors outline-none focus-visible:ring-3 focus-visible:ring-ring/50", returnTo === to ? "border-brand-blue/50 bg-brand-blue/5 dark:border-brand-sky/50 dark:bg-brand-sky/10" : "hover:bg-muted")}
+              >
+                <span className="block font-medium">{title}</span>
+                <span className="block text-xs text-muted-foreground">{hint}</span>
+              </button>
+            ))}
+          </div>
+        ) : null}
+
+        {kind === "post" && decision === "returned" ? (
           <fieldset className="space-y-2">
             <legend className="mb-1 text-sm font-medium">Checks that need more work</legend>
             {checks.map((c) => (
@@ -347,7 +404,7 @@ function QcForm({
 
         <div className="space-y-1.5">
           <label htmlFor="qc-remarks" className="text-sm font-medium">
-            Remarks {decision === "approved" ? <span className="font-normal text-muted-foreground">(optional)</span> : null}
+            Remarks {decision === "approved" && unticked === 0 ? <span className="font-normal text-muted-foreground">(optional)</span> : null}
           </label>
           <Textarea
             id="qc-remarks"
@@ -373,9 +430,14 @@ function QcForm({
           </div>
         ) : null}
 
+        {kind === "pre" && filesWithoutOriginalNote > 0 ? (
+          <p className="text-sm text-muted-foreground">
+            {filesWithoutOriginalNote} {filesWithoutOriginalNote === 1 ? "file isn't" : "files aren't"} marked as an original or a copy yet. Mark them under Documents.
+          </p>
+        ) : null}
         {decision === "approved" && unticked > 0 ? (
           <p className="text-sm text-warning-foreground dark:text-warning">
-            {unticked} checklist {unticked === 1 ? "item isn't" : "items aren't"} ticked. You can still approve; the review records what you ticked.
+            {unticked} checklist {unticked === 1 ? "item isn't" : "items aren't"} ticked. To approve anyway, say why in the remarks: the review records it.
           </p>
         ) : null}
         {error ? (

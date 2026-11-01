@@ -8,13 +8,15 @@
  */
 import { isValidPhoneNumber } from "libphonenumber-js";
 import { parseNic } from "../nic-core";
-import { DISTRICTS } from "../districts";
+import { DISTRICT_CHOICES } from "../districts";
 import { BULK_COLUMNS, parseCsv } from "../portal/bulk-core";
 
 export const IMPORT_COLUMNS = [
   ...BULK_COLUMNS,
   { key: "address", label: "Address", required: false, aliases: ["address", "home address", "permanent address", "residential address"] },
   { key: "preferred_language", label: "Language", required: false, aliases: ["language", "preferred language", "lang"] },
+  { key: "instructions", label: "Instructions from the client", required: false, aliases: ["instructions", "client instructions"] },
+  { key: "internal_notes", label: "Notes for the team", required: false, aliases: ["notes", "team notes", "internal notes"] },
 ] as const;
 export type ImportKey = (typeof IMPORT_COLUMNS)[number]["key"];
 
@@ -38,6 +40,8 @@ const MAX_LEN: Partial<Record<ImportKey, number>> = {
   department: 120,
   client_reference: 80,
   address: 400,
+  instructions: 2000,
+  internal_notes: 2000,
 };
 
 export function mapImportHeaders(headers: string[]): (ImportKey | null)[] {
@@ -109,7 +113,7 @@ export function validateRecords(records: ImportRecord[], opts: { processType: "c
     if (values.phone && !isValidPhoneNumber(values.phone, "LK")) errors.push(`Phone "${values.phone}" isn't a valid number.`);
 
     if (values.district) {
-      const hit = DISTRICTS.find((d) => d.toLowerCase() === values.district!.toLowerCase());
+      const hit = DISTRICT_CHOICES.find((d) => d.toLowerCase() === values.district!.toLowerCase());
       if (hit) values.district = hit;
       else errors.push(`District "${values.district}" isn't one of Sri Lanka's 25 districts.`);
     }
@@ -118,8 +122,10 @@ export function validateRecords(records: ImportRecord[], opts: { processType: "c
       if (lang) values.preferred_language = lang;
       else errors.push(`Language "${values.preferred_language}" should be English, Sinhala or Tamil.`);
     }
+    // Spec 2.2: Type 2 starts by contacting the candidate. A NIC may match someone already on file: the import checks.
     if (opts.processType === "candidate_collected" && !values.email && !values.phone) {
-      warnings.push("No email or phone: the candidate link can't be sent; share it from the case.");
+      if (nic) warnings.push("No email or phone: this only works if the NIC matches a candidate already on file.");
+      else errors.push("Ontriq collects from this candidate, so the row needs an email or phone number.");
     }
     return { line: r.line, values, nic, errors, warnings };
   });
@@ -149,9 +155,15 @@ export function candidatePayload(row: ImportRow) {
 
 /** The per-case fields from the row (position, department, the client's own reference). */
 export function caseFields(row: ImportRow) {
-  return { position_title: row.values.position_title ?? null, department: row.values.department ?? null, client_reference: row.values.client_reference ?? null };
+  return {
+    position_title: row.values.position_title ?? null,
+    department: row.values.department ?? null,
+    client_reference: row.values.client_reference ?? null,
+    instructions: row.values.instructions ?? null,
+    internal_notes: row.values.internal_notes ?? null,
+  };
 }
 
 export function importTemplateCsv(): string {
-  return `${IMPORT_COLUMNS.map((c) => c.label).join(",")}\r\nNimal Perera,853400937V,nimal@example.com,0771234567,Accountant,Finance,EMP-1042,Colombo,"12 Temple Road, Colombo 05",English\r\n`;
+  return `${IMPORT_COLUMNS.map((c) => c.label).join(",")}\r\nNimal Perera,853400937V,nimal@example.com,0771234567,Accountant,Finance,EMP-1042,Colombo,"12 Temple Road, Colombo 05",English,,\r\n`;
 }

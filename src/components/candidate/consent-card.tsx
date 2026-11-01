@@ -29,12 +29,15 @@ export function ConsentCard({
   candidateName,
   orgName,
   clientName,
+  uploadsOpen,
 }: {
   lang: CandidateLang;
   consent: ConsentData;
   candidateName: string;
   orgName: string;
   clientName: string;
+  /** Signing closes with verification, like uploads. */
+  uploadsOpen: boolean;
 }) {
   const t = candidateDict(lang);
   const pad = useRef<SignaturePadHandle>(null);
@@ -88,6 +91,8 @@ export function ConsentCard({
       </div>
     );
   }
+
+  if (!uploadsOpen) return <p className="rounded-2xl border border-dashed p-5 text-sm text-muted-foreground">{t.documents.closed}</p>;
 
   const picked = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.currentTarget.files ?? []);
@@ -154,11 +159,11 @@ export function ConsentCard({
           </a>
         </Button>
         <p className="pt-1 text-xs font-medium text-muted-foreground">{t.consent.uploadSigned}</p>
-        <div className="grid grid-cols-2 gap-2">
-          <Button type="button" variant="outline" className="h-11 text-[14px]" disabled={uploading} onClick={() => camera.current?.click()}>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" className="h-11 min-w-fit flex-1 text-[14px]" disabled={uploading} onClick={() => camera.current?.click()}>
             {uploading ? <Spinner /> : <Camera />} {t.documents.takePhoto}
           </Button>
-          <Button type="button" variant="outline" className="h-11 text-[14px]" disabled={uploading} onClick={() => picker.current?.click()}>
+          <Button type="button" variant="outline" className="h-11 min-w-fit flex-1 text-[14px]" disabled={uploading} onClick={() => picker.current?.click()}>
             <FolderOpen /> {t.documents.chooseFile}
           </Button>
         </div>

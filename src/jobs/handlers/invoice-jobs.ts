@@ -1,9 +1,9 @@
-import { z } from "zod";
 import { NonRetryableError, type JobHandler } from "../types";
 import { nextInvoiceReminder } from "../../domain/pricing/invoice-core";
 import { invoiceReminderEmail } from "../../domain/email/commercial-templates";
 import { DEFAULT_BRAND } from "../../domain/email/layout";
 import { fileBlock, isAiConfigured, runStructured } from "../../lib/ai/claude";
+import { SLIP_SYSTEM, SLIP_VERSION, SlipSchema } from "../../lib/ai/prompts";
 
 const originOf = () => (process.env.APP_ORIGIN ?? process.env.URL ?? "http://localhost:3000").replace(/\/+$/, "");
 
@@ -53,18 +53,6 @@ export const invoiceReminders: JobHandler = async (_job, { admin }) => {
   return { sent };
 };
 
-const SlipSchema = z.object({
-  is_payment_slip: z.boolean().describe("True if this is a bank slip, transfer confirmation or cheque deposit receipt"),
-  amount: z.number().nullable().describe("The amount paid, as a number without commas"),
-  currency: z.string().nullable(),
-  paid_on: z.string().nullable().describe("Payment date as YYYY-MM-DD"),
-  bank: z.string().nullable(),
-  reference: z.string().nullable().describe("Transaction or reference number"),
-  payer: z.string().nullable(),
-  confidence: z.enum(["high", "medium", "low"]),
-  notes: z.string().nullable().describe("Anything staff should check, in one short sentence"),
-});
-
 /** ai.slip_read: read a payment slip so finance can match it in one click. Staff always confirm. */
 export const aiSlipRead: JobHandler = async (job, { admin }) => {
   const slipId = (job.payload as { slip_id?: string } | null)?.slip_id;
@@ -82,12 +70,12 @@ export const aiSlipRead: JobHandler = async (job, { admin }) => {
     await admin.from("payment_slips").update({ ai_extraction: { skipped: "file type not readable" } }).eq("id", slip.id);
     return { skipped: "unreadable" };
   }
-  const result = await runStructured(admin, "payment.slip", { orgId: slip.org_id, clientId: slip.client_id, jobId: job.id, source: "jobs/ai-slip-read", promptVersion: "slip-v1" }, {
-    system:
-      "You read payment slips and bank transfer confirmations for a Sri Lankan company's finance team. Extract only what is printed. If a value is not visible, return null. Never guess an amount.",
+  const result = await runStructured(admin, "payment.slip", { orgId: slip.org_id, clientId: slip.client_id, jobId: job.id, source: "jobs/ai-slip-read", promptVersion: SLIP_VERSION }, {
+    system: SLIP_SYSTEM,
     content: [block, { type: "text", text: "Read this payment slip." }],
     schema: SlipSchema,
   });
+  if (!result.ok && result.reason === "unavailable") throw new Error(result.message);
   await admin
     .from("payment_slips")
     .update({ ai_extraction: result.ok ? { ...result.data, model: result.model } : { skipped: result.message } })

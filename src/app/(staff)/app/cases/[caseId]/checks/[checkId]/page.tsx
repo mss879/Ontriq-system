@@ -20,7 +20,10 @@ import { CheckForm } from "./check-form";
 import { CheckAssignment, StatusPanel } from "./status-panel";
 import { aiItem, getAiStatus, getAiWork, getCaseAi, getDocumentAi } from "@/lib/server/ai/queries";
 import { canDecide } from "@/domain/ai/suggestions";
+import { documentsLocked, remarksLocked, uploadsOpen } from "@/lib/server/cases/document-lock";
 import { fixedAnnexureCategories } from "@/domain/reports/compile-core";
+import { identityMismatches } from "@/domain/check-types/identity";
+import { validateCheckValues } from "@/domain/check-types/validate";
 import { recordOptions } from "@/domain/check-types/records";
 import { ContactLog } from "../../_components/contact-log";
 import type { OutreachResult, ResponseResult } from "@/lib/ai/prompts";
@@ -150,11 +153,15 @@ async function Form({ params }: Params) {
   const terminal = isTerminalCheck(check.state);
   const working = ["intake", "documents", "pre_qc", "data_entry", "verification"].includes(c.stage);
   const mayEdit = can(viewer, "cases.update") && (can(viewer, "checks.data_entry") || can(viewer, "checks.verify"));
-  const editable = mayEdit && working && !terminal && !c.onHold;
   const manager = can(viewer, "cases.stage.change") || can(viewer, "cases.assign");
+  // During verification a check belongs to its officer (public.save_check_values).
+  const someoneElses = c.stage === "verification" && Boolean(check.assignee) && check.assignee?.id !== viewer.userId && c.assignee?.id !== viewer.userId && !manager;
+  const editable = mayEdit && working && !terminal && !c.onHold && !someoneElses;
   const canVerify = can(viewer, "checks.verify") && (check.assignee?.id === viewer.userId || c.assignee?.id === viewer.userId || manager);
   const lockedReason = !mayEdit
     ? "You can read these details. Editing needs data entry or verification access."
+    : someoneElses
+      ? `This check is ${check.assignee?.name ?? "another officer"}'s during verification.`
     : c.onHold
       ? "The case is on hold. Resume it to edit."
       : !working
@@ -164,19 +171,27 @@ async function Form({ params }: Params) {
           : undefined;
   const ai = await getCaseAi(caseId);
   const suggestions = (ai.checks[check.id]?.extract ?? []).flatMap((s) => (s.fieldKey ? [{ id: s.id, fieldKey: s.fieldKey, value: s.value, confidence: s.confidence, rationale: s.rationale }] : []));
+  const mismatches = identityMismatches(check.schema.fields, check.values, { nic: c.candidate.nic, dateOfBirth: c.candidate.dateOfBirth });
   return (
+    <>
+    {mismatches.map((note) => (
+      <p key={note} className="mb-3 rounded-xl border border-warning/40 bg-warning/10 px-4 py-2.5 text-sm text-warning-foreground dark:text-warning">
+        {note}
+      </p>
+    ))}
     <CheckForm
       key={check.id}
       checkId={check.id}
       fields={check.schema.fields}
       stage={c.stage}
-      initialValues={check.values}
+      initialValues={"candidate_name" in check.values || !check.schema.fields.some((f) => f.key === "candidate_name") ? check.values : { ...check.values, candidate_name: c.candidate.fullName }}
       editable={editable}
       lockedReason={lockedReason}
       canReopen={terminal && c.stage === "verification" && canVerify && !c.onHold}
       suggestions={suggestions}
       canDecideAi={canDecide("document.extract", (p) => can(viewer, p as Permission))}
     />
+    </>
   );
 }
 
@@ -203,12 +218,18 @@ async function Documents({ params }: Params) {
       records={recordOptions(data.check.schema.fields, data.check.values)}
       perms={{
         upload: can(viewer, "cases.update") || can(viewer, "candidates.manage"),
+        details: can(viewer, "cases.update") || can(viewer, "qc.pre") || can(viewer, "qc.post"),
         review: can(viewer, "cases.update") || can(viewer, "qc.pre"),
         waive: can(viewer, "cases.stage.change") || can(viewer, "qc.pre"),
-        request: can(viewer, "cases.update"),
+        request: can(viewer, "cases.update") && uploadsOpen(data.c.stage),
         visibility: can(viewer, "documents.manage_visibility"),
+        toReport: data.c.stage === "post_qc" && can(viewer, "qc.post"),
       }}
       closed={data.c.stage === "released" || data.c.stage === "cancelled"}
+      erased={Boolean(data.c.erasedAt)}
+      locked={documentsLocked(data.c, can(viewer, "qc.post") || can(viewer, "cases.stage.change"))}
+      uploadsOpen={uploadsOpen(data.c.stage)}
+      candidateCollected={data.c.processType === "candidate_collected"}
     />
   );
 }
@@ -231,10 +252,11 @@ async function Contacts({ params }: Params) {
 
 async function Notes({ params }: Params) {
   const { caseId, checkId } = await params;
-  const data = await load(caseId, checkId);
+  const [viewer, data] = await Promise.all([getStaffViewer(), load(caseId, checkId)]);
   if (!data) return null;
   const events = await getTimeline(caseId, 200);
-  return <Timeline caseId={caseId} checkId={checkId} events={events} checks={data.checks.map((k) => ({ id: k.id, label: k.label }))} canNote />;
+  const canNote = can(viewer, "cases.update") || can(viewer, "checks.verify") || can(viewer, "qc.pre") || can(viewer, "qc.post");
+  return <Timeline caseId={caseId} checkId={checkId} events={events} checks={data.checks.map((k) => ({ id: k.id, label: k.label }))} canNote={canNote} />;
 }
 
 async function Actions({ params }: Params) {
@@ -247,6 +269,8 @@ async function Actions({ params }: Params) {
   return (
     <>
       <StatusPanel
+        caseId={caseId}
+        processType={c.processType}
         checkId={check.id}
         state={check.state}
         result={check.result}
@@ -256,8 +280,11 @@ async function Actions({ params }: Params) {
         stage={c.stage}
         onHold={c.onHold}
         valuesValid={check.valuesValid}
+        entryReady={check.valuesValid || validateCheckValues(check.schema.fields, check.values, "entry").ok}
         canVerify={canVerify}
-        canWaive={manager || can(viewer, "qc.post")}
+        // A recorded discrepancy is corrected, not waived (public.set_check_state).
+        canWaive={(manager || can(viewer, "qc.post")) && !check.discrepancyAt && !["yes", "true"].includes(String(check.values.sanctions_found ?? "").trim().toLowerCase())}
+        canWord={!c.onHold && ["verification", "post_qc", "report"].includes(c.stage) && (can(viewer, "qc.post") || can(viewer, "cases.stage.change") || (c.stage === "verification" && canVerify))}
       />
       <CheckAi caseId={caseId} checkId={checkId} canVerify={canVerify} />
     </>
@@ -317,8 +344,8 @@ async function CheckAi({ caseId, checkId, canVerify }: { caseId: string; checkId
       options={check.schema.result.options}
       canVerify={canVerify && !c.onHold}
       canRecord={canVerify && c.stage === "verification" && check.valuesValid && !isTerminalCheck(check.state) && !c.onHold}
-      canRemarks={canDecide("report.narrative", (p) => can(viewer, p as Permission))}
-      remarksLocked={["approval", "released", "cancelled"].includes(c.stage)}
+      canRemarks={canDecide("report.narrative", (p) => can(viewer, p as Permission)) && (can(viewer, "qc.post") || can(viewer, "cases.stage.change") || canVerify)}
+      remarksLocked={remarksLocked(c, can(viewer, "qc.post") || can(viewer, "cases.stage.change"))}
       closed={closed}
     />
   );

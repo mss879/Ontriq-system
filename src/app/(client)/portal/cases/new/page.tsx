@@ -27,7 +27,7 @@ export default function NewRequestPage({ searchParams }: PageProps<"/portal/case
 async function Content({ searchParams }: Pick<PageProps<"/portal/cases/new">, "searchParams">) {
   const [viewer, sp] = await Promise.all([getClientViewer(), searchParams]);
   if (!can(viewer, "portal.cases.create")) redirect("/portal/cases");
-  const [templates, packages, settings] = await Promise.all([portalTemplates(), portalPackages(), portalSettings(viewer.clientId ?? "")]);
+  const [templates, packages, settings] = await Promise.all([portalTemplates(), portalPackages(), portalSettings()]);
   const usable = packages.filter((p) => p.is_active);
   const usableIds = new Set(usable.map((p) => p.id));
   const live = templates.filter((t) => t.is_active && usableIds.has(t.package_id));

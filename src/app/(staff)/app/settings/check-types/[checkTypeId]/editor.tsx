@@ -7,7 +7,6 @@ import {
   ArchiveRestore,
   ArrowDown,
   ArrowUp,
-  Eye,
   FileText,
   Layers,
   ListPlus,
@@ -22,6 +21,7 @@ import {
 import { toast } from "sonner";
 import { discardDraft, publishCheckType, saveDraft, setCheckTypeArchived, updateCheckTypeDetails } from "../actions";
 import type { CheckTypeEditorData } from "@/lib/server/admin/settings";
+import { canRead } from "@/domain/ai/extraction";
 import { checkTypeSchema, FIELD_TYPE_LABELS, FIELD_TYPES, type CheckTypeSchema, type FieldDef, type FieldType } from "@/domain/check-types/schema";
 import { Eyebrow } from "@/components/layout/page";
 import { Surface, SurfaceHeader } from "@/components/admin/surface";
@@ -360,7 +360,7 @@ export function CheckTypeEditor({ data, categories }: { data: CheckTypeEditorDat
 }
 
 function Visibility({ v }: { v: FieldDef["visibility"] }) {
-  const items = [v.client ? { icon: Users, label: "Client sees" } : null, v.report ? { icon: FileText, label: "In report" } : null, v.candidate ? { icon: Eye, label: "Candidate sees" } : null].filter(
+  const items = [v.client ? { icon: Users, label: "Client sees" } : null, v.report ? { icon: FileText, label: "In report" } : null].filter(
     (x): x is { icon: typeof Users; label: string } => Boolean(x),
   );
   if (!items.length) return <p className="mt-1 text-[11px] text-muted-foreground">Ontriq staff only</p>;
@@ -484,7 +484,12 @@ function FieldEditor({ initial, existingKeys, onSave, onCancel, nested = false }
     if (clean.type !== "repeatable_group") {
       delete clean.fields;
       delete clean.group;
-    } else clean.group = { min: clean.group?.min ?? 0, max: clean.group?.max ?? 10, item_label: clean.group?.item_label || "Item" };
+    } else {
+      clean.group = { min: clean.group?.min ?? 0, max: clean.group?.max ?? 10, item_label: clean.group?.item_label || "Item" };
+      if (clean.group.min > clean.group.max) return setError("At least can't be more than at most.");
+      // "At least" is the rule for a group. Required says the same thing.
+      clean.required = clean.group.min > 0;
+    }
     if (!clean.help) delete clean.help;
     if (!clean.placeholder) delete clean.placeholder;
     onSave(clean);
@@ -538,18 +543,20 @@ function FieldEditor({ initial, existingKeys, onSave, onCancel, nested = false }
             </SelectContent>
           </Select>
         </Field>
-        <Field>
-          <FieldLabel>Width on the form</FieldLabel>
-          <Select value={f.width} onValueChange={(v) => set("width", v as FieldDef["width"])}>
-            <SelectTrigger className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="half">Half</SelectItem>
-              <SelectItem value="full">Full</SelectItem>
-            </SelectContent>
-          </Select>
-        </Field>
+        {f.type === "repeatable_group" ? null : (
+          <Field>
+            <FieldLabel>Width on the form</FieldLabel>
+            <Select value={f.width} onValueChange={(v) => set("width", v as FieldDef["width"])}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="half">Half</SelectItem>
+                <SelectItem value="full">Full</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+        )}
         <Field className="sm:col-span-2">
           <FieldLabel>Filled in during</FieldLabel>
           <Select value={f.stage} onValueChange={(v) => set("stage", v as FieldDef["stage"])}>
@@ -582,6 +589,10 @@ function FieldEditor({ initial, existingKeys, onSave, onCancel, nested = false }
               value={f.validation?.max ?? ""}
               onChange={(e) => set("validation", { ...f.validation, max: e.target.value === "" ? undefined : Number(e.target.value) })}
             />
+            <label className="col-span-2 flex items-center gap-2 text-sm">
+              <Checkbox checked={f.validation?.integer === true} onCheckedChange={(c) => set("validation", { ...f.validation, integer: c === true || undefined })} />
+              Whole numbers only
+            </label>
           </div>
         ) : null}
         {f.type === "text" || f.type === "textarea" ? (
@@ -594,13 +605,15 @@ function FieldEditor({ initial, existingKeys, onSave, onCancel, nested = false }
           />
         ) : null}
 
-        <label className="flex items-center justify-between gap-3 rounded-xl bg-muted/40 px-3.5 py-3 text-sm ring-1 ring-foreground/[0.05] sm:col-span-2">
-          <span>
-            <span className="block font-medium">Required</span>
-            <span className="block text-xs text-muted-foreground">{f.stage === "verification" ? "The check’s outcome can’t be recorded until it’s filled in." : "Verification can’t start until it’s filled in."}</span>
-          </span>
-          <Switch checked={f.required} onCheckedChange={(v) => set("required", v)} />
-        </label>
+        {f.type === "repeatable_group" ? null : (
+          <label className="flex items-center justify-between gap-3 rounded-xl bg-muted/40 px-3.5 py-3 text-sm ring-1 ring-foreground/[0.05] sm:col-span-2">
+            <span>
+              <span className="block font-medium">Required</span>
+              <span className="block text-xs text-muted-foreground">{f.stage === "verification" ? "The check’s outcome can’t be recorded until it’s filled in." : "Verification can’t start until it’s filled in."}</span>
+            </span>
+            <Switch checked={f.required} onCheckedChange={(v) => set("required", v)} />
+          </label>
+        )}
 
         {hasOptions ? <OptionsEditor options={f.options ?? []} onChange={(options) => set("options", options)} /> : null}
 
@@ -617,6 +630,7 @@ function FieldEditor({ initial, existingKeys, onSave, onCancel, nested = false }
               <TextField
                 name="group_min"
                 label="At least"
+                description="0 makes the group optional."
                 type="number"
                 min={0}
                 value={f.group?.min ?? 0}
@@ -675,7 +689,6 @@ function FieldEditor({ initial, existingKeys, onSave, onCancel, nested = false }
               [
                 ["report", "Printed in the report"],
                 ["client", "Client sees it in the portal"],
-                ["candidate", "Candidate sees it on their link"],
               ] as const
             ).map(([k, label]) => (
               <label key={k} className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm ring-1 ring-foreground/[0.07]">
@@ -685,35 +698,23 @@ function FieldEditor({ initial, existingKeys, onSave, onCancel, nested = false }
             ))}
           </div>
         </div>
-        <div className="space-y-2 sm:col-span-2">
-          <p className="text-sm font-medium">Who may fill it in</p>
-          <div className="flex flex-wrap gap-2">
-            {(
-              [
-                ["staff", "Ontriq staff"],
-                ["candidate", "The candidate"],
-                ["client", "The client"],
-              ] as const
-            ).map(([k, label]) => (
-              <label key={k} className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm ring-1 ring-foreground/[0.07]">
-                <Checkbox
-                  checked={f.fill_by.includes(k)}
-                  onCheckedChange={(c) => set("fill_by", c === true ? [...new Set([...f.fill_by, k])] : f.fill_by.filter((x) => x !== k))}
-                />
-                {label}
-              </label>
-            ))}
-          </div>
-        </div>
+        {f.type === "repeatable_group" ? (
+          <p className="text-xs text-muted-foreground sm:col-span-2">Whether the candidate fills this group in is set on each of its fields above.</p>
+        ) : (
+          <label className="flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm ring-1 ring-foreground/[0.07] sm:col-span-2">
+            <Checkbox checked={f.fill_by.includes("candidate")} onCheckedChange={(c) => set("fill_by", c === true ? ["staff", "candidate"] : ["staff"])} />
+            The candidate fills this in on their BGV form. Staff can always edit it.
+          </label>
+        )}
         <div className="space-y-2 sm:col-span-2">
           <label className="flex items-center justify-between gap-3 text-sm">
             <span>
               <span className="block font-medium">AI pre-fill</span>
-              <span className="block text-xs text-muted-foreground">From Phase 4, AI reads uploaded documents and suggests this value for the officer to confirm.</span>
+              <span className="block text-xs text-muted-foreground">AI reads uploaded documents and suggests this value for the officer to confirm.</span>
             </span>
-            <Switch checked={Boolean(f.ai?.extract)} onCheckedChange={(v) => set("ai", { extract: v, hint: f.ai?.hint })} />
+            <Switch checked={canRead(f)} onCheckedChange={(v) => set("ai", { extract: v, hint: f.ai?.hint })} />
           </label>
-          {f.ai?.extract ? (
+          {canRead(f) ? (
             <Input
               aria-label="Hint for the AI"
               placeholder="Hint for the AI, e.g. the index number printed under the photo"
@@ -767,6 +768,8 @@ function OptionsEditor({ options, onChange }: { options: { value: string; label:
 
 // ---------------------------------------------------------------- documents
 
+const NO_GROUP = "__whole_check__";
+
 function DocumentsEditor({
   schema,
   categories,
@@ -783,6 +786,7 @@ function DocumentsEditor({
   const docs = schema.documents;
   const set = (i: number, patch: Partial<CheckTypeSchema["documents"][number]>) => onChange(docs.map((d, j) => (j === i ? { ...d, ...patch } : d)));
   const unused = categories.filter((c) => !docs.some((d) => d.category === c.key));
+  const groups = schema.fields.filter((f) => f.type === "repeatable_group");
   return (
     <Surface>
       <SurfaceHeader
@@ -847,6 +851,25 @@ function DocumentsEditor({
                 <FieldLabel>Guidance</FieldLabel>
                 <Input value={d.description ?? ""} placeholder="What exactly to upload" onChange={(e) => set(i, { description: e.target.value || undefined })} />
               </Field>
+              {groups.length ? (
+                <Field className="sm:col-span-2">
+                  <FieldLabel>One for each</FieldLabel>
+                  <Select value={d.per_record ?? NO_GROUP} onValueChange={(v) => set(i, { per_record: v === NO_GROUP ? undefined : v })}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={NO_GROUP}>The check as a whole</SelectItem>
+                      {groups.map((g) => (
+                        <SelectItem key={g.key} value={g.key}>
+                          {g.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FieldDescription>A check can&apos;t be verified until each row has its own file.</FieldDescription>
+                </Field>
+              ) : null}
               <div className="flex items-end justify-between gap-3 sm:col-span-2">
                 <label className="flex items-center gap-2 pb-2 text-sm">
                   <Switch checked={d.client_visible} onCheckedChange={(v) => set(i, { client_visible: v })} /> Client can see

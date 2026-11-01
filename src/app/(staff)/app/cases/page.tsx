@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { RealtimeRefresh } from "@/components/realtime-refresh";
 import { getStaffViewer } from "@/lib/server/viewer";
 import { clientOptions, listCases, parseCaseFilters, stageCounts, staffOptions, PAGE_SIZE } from "@/lib/server/cases/queries";
+import { getStatusCatalog } from "@/lib/server/cases/status-catalog";
 import { savedViews } from "@/lib/server/cases/list-queries";
 import { can } from "@/domain/permissions";
 import { redirect } from "next/navigation";
@@ -76,12 +77,13 @@ async function CasesContent({ searchParams }: Pick<PageProps<"/app/cases">, "sea
   if (!can(viewer, "cases.read") && !can(viewer, "cases.read_assigned")) return null;
   const filters = parseCaseFilters(params);
   const view = params.view === "board" ? "board" : "table";
-  const [{ items, total }, staff, clients, views, counts] = await Promise.all([
+  const [{ items, total }, staff, clients, views, counts, statuses] = await Promise.all([
     listCases(filters, viewer.userId, { limit: view === "board" ? 200 : PAGE_SIZE }),
     staffOptions(),
     clientOptions(),
     savedViews(viewer.userId),
     view === "board" ? stageCounts() : Promise.resolve({} as Record<string, number>),
+    getStatusCatalog(),
   ]);
 
   const query = new URLSearchParams();
@@ -107,6 +109,7 @@ async function CasesContent({ searchParams }: Pick<PageProps<"/app/cases">, "sea
         viewerId={viewer.userId}
         canAssign={can(viewer, "cases.assign")}
         canCreate={can(viewer, "cases.create")}
+        statuses={statuses.filter((s) => s.isActive).map(({ key, label }) => ({ key, label }))}
       />
     </>
   );

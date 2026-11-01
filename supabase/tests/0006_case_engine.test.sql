@@ -33,7 +33,7 @@ do $$ begin
   assert (select count(*) from public.packages where owner_scope = 'org') = 3, 'three packages expected';
   assert (select count(*) from public.package_items pi join public.packages p on p.id = pi.package_id where p.code = 'COMPREHENSIVE') = 7, 'comprehensive has 7 checks';
   assert (select count(*) from public.document_categories) >= 13, 'document categories missing';
-  assert (select count(*) from public.client_status_catalog) = 16, 'status catalogue missing';
+  assert (select count(*) from public.client_status_catalog) = 18, 'status catalogue missing';
   assert public.add_working_days('2026-10-30 10:00+05:30', 1) = '2026-11-02 17:30+05:30', 'working days wrong';
 end $$;
 
@@ -69,8 +69,8 @@ begin
   assert c.checks_total = 3 and c.proposed_result = 'amber', 'roll-up wrong at creation';
   assert c.due_at is not null and c.package_snapshot ->> 'code' = 'STANDARD', 'snapshot or due date missing';
   assert (select count(*) from public.case_checks where case_id = c.id) = 3, 'three checks expected';
-  assert (select count(*) from public.case_check_requirements where case_id = c.id and status = 'pending') = 4, 'four required documents expected (BGV form, NIC, certificates, service letters)';
-  update public.case_check_requirements set status = 'waived', waived_reason = 'test' where case_id = c.id and category = 'consent_form';
+  assert (select count(*) from public.case_check_requirements where case_id = c.id and status = 'pending') = 5, 'five required documents expected (CV, BGV form, NIC, certificates, service letters)';
+  update public.case_check_requirements set status = 'waived', waived_reason = 'test' where case_id = c.id and category in ('consent_form', 'cv');
   assert (select count(*) from public.jobs where kind = 'assign.auto' and entity_id = c.id) = 1, 'assign.auto not queued';
   assert (select count(*) from public.case_events where case_id = c.id and kind = 'created') = 1, 'created event missing';
 end $$;
@@ -178,8 +178,12 @@ begin
   perform set_config('t.doc1', d ->> 'id', false);
   d := public.begin_document_upload(c, null, 'police_report', 'police.pdf', 'application/pdf', 2048);
   perform public.finalize_document_upload((d ->> 'id')::uuid);
-  -- Police reports are sensitive: an officer without documents.read_sensitive can't see them.
-  assert (select count(*) from public.documents where case_id = c) = 1, 'sensitive document visible without permission';
+  -- Police reports are sensitive. The officer on the case opens them for their work; a viewer can't.
+  assert (select count(*) from public.documents where case_id = c) = 2, 'the officer on the case should open its files';
+end $$;
+select set_config('request.jwt.claims', '{"sub":"c1000000-0000-4000-8000-000000000007","role":"authenticated","aal":"aal2"}', true);
+do $$ begin
+  assert (select count(*) from public.documents where case_id = current_setting('t.case1')::uuid) = 1, 'sensitive document visible without permission';
 end $$;
 reset role;
 do $$ begin
@@ -197,7 +201,7 @@ begin
   perform public.review_document(current_setting('t.doc1')::uuid, true);
   -- The manager waives the rest and moves the case on.
   perform public.waive_requirement(id, 'Client confirmed by email') from public.case_check_requirements where case_id = c and status = 'pending';
-  assert public.case_outstanding_requirements(c, 'documents') = 0, 'requirements still outstanding';
+  assert not exists (select 1 from public.case_check_requirements where case_id = c and status = 'pending'), 'requirements still outstanding';
   assert public.case_transition(c, 'submit_pre_qc') = 'pre_qc', 'did not reach Pre-QC';
 end $$;
 select set_config('request.jwt.claims', '{"sub":"c1000000-0000-4000-8000-000000000003","role":"authenticated","aal":"aal2"}', true);
@@ -239,9 +243,12 @@ begin
     raise exception 'TEST FAILED: verification started with invalid details';
   exception when sqlstate '22023' then null;
   end;
-  for k in select id from public.case_checks where case_id = c loop
-    perform public.save_check_values(k.id, '{"ok":true}', true);
-  end loop;
+  perform public.save_check_values((select id from public.case_checks where case_id = c and label = 'NIC verification'),
+    '{"nic_number":"853400937V","name_on_nic":"Nimal Perera","validation_source":"online"}', true);
+  perform public.save_check_values((select id from public.case_checks where case_id = c and label = 'Education'),
+    '{"candidate_name":"Nimal Perera","qualification_level":"degree","qualification":"BSc","institution":"University of Colombo","student_number":"S1","year_of_completion":2015,"confirmed_by":"Registrar","confirmation_channel":"email","confirmed_on":"2026-10-01"}', true);
+  perform public.save_check_values((select id from public.case_checks where case_id = c and label = 'Employment'),
+    '{"candidate_name":"Nimal Perera","employers":[{"company":"Dialog","designation":"Engineer","period":{"from":"2018-01-01","to":"2020-01-01"},"employee_code":"E1","employment_type":"permanent","confirmed_by":"HR Manager","confirmed_on":"2026-10-01","employer_response":"Dates and role confirmed"}]}', true);
   begin
     perform public.set_check_state((select id from public.case_checks where case_id = c limit 1), 'completed', 'clear');
     raise exception 'TEST FAILED: data entry officer recorded a result';
@@ -293,7 +300,7 @@ select set_config('request.jwt.claims', '{"sub":"c1000000-0000-4000-8000-0000000
 select public.set_check_state((select id from public.case_checks where case_id = current_setting('t.case1')::uuid and label = 'Employment'), 'discrepancy', null, 'Dates differ by 8 months');
 select public.case_transition(current_setting('t.case1')::uuid, 'submit_post_qc');
 select set_config('request.jwt.claims', '{"sub":"c1000000-0000-4000-8000-000000000006","role":"authenticated","aal":"aal2"}', true);
-select public.record_qc_review(current_setting('t.case1')::uuid, 'post', 'approved');
+select public.record_qc_review(current_setting('t.case1')::uuid, 'post', 'approved', '[{"item":"Findings match","ok":true}]');
 reset role;
 do $$
 declare c public.cases;
@@ -336,14 +343,15 @@ end $$;
 select set_config('request.jwt.claims', '{"sub":"c1000000-0000-4000-8000-000000000001","role":"authenticated","aal":"aal2"}', true);
 do $$
 declare t uuid := (select id from public.check_types where key = 'nic'); v int;
+  v_before int := (select cv.version from public.check_types ct join public.check_type_versions cv on cv.id = ct.current_version_id where ct.id = t);
 begin
   perform public.save_check_type_draft(t, (select schema from public.check_type_versions where id = (select current_version_id from public.check_types where id = t)) || '{"sla_days": 3}');
   v := public.publish_check_type(t, 'Faster SLA');
-  assert v = 2, 'second version should be 2';
+  assert v = v_before + 1, 'publishing should add a version';
   assert (select (v2.schema ->> 'sla_days')::int from public.check_types ct join public.check_type_versions v2 on v2.id = ct.current_version_id where ct.id = t) = 3, 'published schema wrong';
   -- Cases keep the version they started with.
-  assert (select count(*) from public.case_checks k join public.check_type_versions cv on cv.id = k.check_type_version_id where cv.check_type_id = t and cv.version = 1) >= 1,
-    'existing checks should stay on version 1';
+  assert (select count(*) from public.case_checks k join public.check_type_versions cv on cv.id = k.check_type_version_id where cv.check_type_id = t and cv.version = v_before) >= 1,
+    'existing checks should stay on the version they started with';
 end $$;
 reset role;
 do $$ begin

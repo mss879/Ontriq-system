@@ -57,11 +57,14 @@ const en = {
     allDone: "All received. Thank you!",
     allDoneBody: "You've given us everything we need. We'll contact you if anything else comes up. You can close this page now.",
     onHold: "Your verification is paused for now. We'll let you know when it continues.",
+    statusNow: "Current status",
   },
   documents: {
     title: "Documents we need",
     subtitle: "Upload a clear photo or a PDF of each document. Make sure all four corners are visible and the text is easy to read.",
     tips: "Tip: lay the document flat, use good light and avoid glare.",
+    closed: "Your verification has moved on, so uploads have closed. We'll tell you if we need anything else.",
+    notReceived: "Not received",
     forCheck: "For {check}",
     needed: "Needed",
     received: "Received",
@@ -90,6 +93,8 @@ const en = {
     stillHere: "Still here",
     from: "From",
     to: "To",
+    yes: "Yes",
+    no: "No",
     rowsNeeded: "Please fill in at least {n}, with every box marked *.",
     update: "Update answer",
     sent: "Answer sent. Thank you.",
@@ -99,6 +104,8 @@ const en = {
     documentRequest: "Upload this in the documents section.",
     goToDocument: "Go to the document",
     choose: "Choose an option",
+    yourDetails: "your details",
+    bgvPart: "Part of your BGV form.",
   },
   consent: {
     title: "Consent form",
@@ -126,6 +133,17 @@ const en = {
     signedBy: "Signed by {name} on {date}",
     uploadedOn: "Signed form uploaded on {date}",
   },
+  confirm: {
+    title: "Confirm and send",
+    subtitle: "One last step. Check your documents and answers, then confirm so we can begin.",
+    declare: "The details and documents I have given are true and complete, as far as I know.",
+    button: "Confirm and send",
+    sending: "Sending…",
+    tickFirst: "Tick the box first.",
+    lastStep: "One last step: confirm and send",
+    confirmedOn: "You confirmed on {date}.",
+    sent: "Thank you. We've received everything.",
+  },
   messages: {
     title: "Messages",
     subtitle: "Write to the Ontriq team if you have a question.",
@@ -137,6 +155,7 @@ const en = {
     team: "Ontriq team",
   },
   timeline: {
+    candidate_confirmed: "You confirmed your documents",
     title: "Updates",
     empty: "No updates yet.",
     created: "Your verification was opened",
@@ -150,6 +169,7 @@ const en = {
     consent_submitted: "Consent form received",
     consent_accepted: "Consent accepted",
     consent_rejected: "The consent form needs to be signed again",
+    returned: "We need something corrected",
     stage_pre_qc: "Your documents are being reviewed",
     stage_verification: "Verification has started",
     stage_report: "Verification is complete",
@@ -161,6 +181,7 @@ const en = {
     privacy: "Your documents are stored securely and used only for this verification.",
   },
   errors: {
+    notReady: "Something is still needed. Check the list at the top of this page.",
     generic: "Something went wrong. Please try again.",
     expired: "Your link has expired. Please ask Ontriq for a new one.",
     tooMany: "Too many attempts. Please wait a few minutes and try again.",
@@ -174,6 +195,9 @@ const en = {
     agreeNeeded: "Tick the box to agree.",
     answerNeeded: "Write an answer first.",
     messageNeeded: "Write a message first.",
+    consentAccepted: "Your consent has already been accepted. There's nothing more to sign.",
+    answerAccepted: "Ontriq has already accepted this answer.",
+    answerTooLong: "That answer is too long. Please shorten it.",
   },
   expired: {
     title: "This link isn't working",
@@ -196,6 +220,7 @@ const en = {
     field_verification: "Field verification record",
     police_report: "Police clearance report",
     reference_form: "Reference form",
+    verification_response: "Verification response",
     sanction_report: "Sanction screening report",
     other: "Other document",
   },
@@ -208,6 +233,27 @@ const en = {
     reference: "References",
     sanction: "Global sanction screening",
   },
+  /** Built-in help for a document, by its English text. Anything Ontriq typed themselves shows as typed. */
+  guides: {
+    "The candidate's latest CV.": "Your latest CV.",
+    "The candidate's completed BGV form with their signed consent.": "Your completed BGV form with your signed consent.",
+    "O/L, A/L, diploma or degree certificates.": "O/L, A/L, diploma or degree certificates.",
+    "One per previous employer.": "One from each previous employer.",
+    "The candidate's latest CV, as a PDF or a clear photo of each page.": "Your latest CV, as a PDF or a clear photo of each page.",
+    "The consent and authorisation form, signed by the candidate. A clear photo of the signed page is fine.": "The consent and authorisation form, signed by you. A clear photo of the signed page is fine.",
+    "Both sides of the National Identity Card, readable and uncropped.": "Both sides of your National Identity Card, readable and uncropped.",
+    "O/L, A/L, diploma or degree certificates. Upload each certificate separately.": "O/L, A/L, diploma or degree certificates. Upload each certificate separately.",
+    "The transcript or results sheet issued by the institution, if available.": "The transcript or results sheet issued by the institution, if you have it.",
+    "A service or experience letter from each previous employer.": "A service or experience letter from each previous employer.",
+    "The resignation letter and the employer's acceptance, if you have them.": "The resignation letter and the employer's acceptance, if you have them.",
+    "The residence certificate issued by your Grama Niladhari.": "The residence certificate issued by your Grama Niladhari.",
+    "The police clearance report or the station's confirmation.": "The police clearance report or the station's confirmation.",
+    "Completed reference forms or written feedback from referees.": "Completed reference forms or written feedback from your referees.",
+    "Anything else that supports a check.": "Anything else that supports a check.",
+  },
+  /** Built-in fields and choices in the candidate's language. English reads the check type's own words. */
+  fields: {} as Record<string, string>,
+  options: {} as Record<string, string>,
 };
 
 export type CandidateDict = typeof en;
@@ -252,11 +298,14 @@ const si: CandidateDict = {
     allDone: "සියල්ල ලැබුණි. ස්තූතියි!",
     allDoneBody: "අපට අවශ්‍ය සියල්ල ඔබ ලබා දී ඇත. තවත් යමක් අවශ්‍ය වුවහොත් අපි ඔබට දන්වන්නෙමු. ඔබට දැන් මෙම පිටුව වසා දැමිය හැක.",
     onHold: "ඔබගේ සත්‍යාපනය දැනට නවතා ඇත. එය නැවත ආරම්භ වූ විට අපි ඔබට දන්වන්නෙමු.",
+    statusNow: "වත්මන් තත්ත්වය",
   },
   documents: {
     title: "අපට අවශ්‍ය ලේඛන",
     subtitle: "එක් එක් ලේඛනයේ පැහැදිලි ඡායාරූපයක් හෝ PDF එකක් උඩුගත කරන්න. කොන් හතරම පෙනෙන සහ අකුරු පහසුවෙන් කියවිය හැකි බවට වග බලා ගන්න.",
     tips: "ඉඟිය: ලේඛනය සමතලාව තබා, හොඳ ආලෝකයක් යොදා, දිලිසීම් වළක්වන්න.",
+    closed: "ඔබේ සත්‍යාපනය ඉදිරියට ගොස් ඇති බැවින් උඩුගත කිරීම් වසා ඇත. තවත් යමක් අවශ්‍ය නම් අපි ඔබට දන්වන්නෙමු.",
+    notReceived: "ලැබී නැත",
     forCheck: "{check} සඳහා",
     needed: "අවශ්‍යයි",
     received: "ලැබුණි",
@@ -285,6 +334,8 @@ const si: CandidateDict = {
     stillHere: "තවමත් මෙහි",
     from: "සිට",
     to: "දක්වා",
+    yes: "ඔව්",
+    no: "නැත",
     rowsNeeded: "කරුණාකර අවම වශයෙන් {n}ක් පුරවන්න, * ලකුණු කළ සියලු කොටු සමඟ.",
     update: "පිළිතුර යාවත්කාලීන කරන්න",
     sent: "පිළිතුර යවා ඇත. ස්තූතියි.",
@@ -294,6 +345,8 @@ const si: CandidateDict = {
     documentRequest: "මෙය ලේඛන කොටසේ උඩුගත කරන්න.",
     goToDocument: "ලේඛනය වෙත යන්න",
     choose: "විකල්පයක් තෝරන්න",
+    yourDetails: "ඔබේ විස්තර",
+    bgvPart: "ඔබේ BGV පෝරමයේ කොටසක්.",
   },
   consent: {
     title: "කැමැත්ත පත්‍රය",
@@ -321,6 +374,17 @@ const si: CandidateDict = {
     signedBy: "{date} දින {name} විසින් අත්සන් කරන ලදී",
     uploadedOn: "අත්සන් කළ පත්‍රය {date} දින උඩුගත කරන ලදී",
   },
+  confirm: {
+    title: "තහවුරු කර යවන්න",
+    subtitle: "අවසාන පියවර. ඔබේ ලේඛන සහ පිළිතුරු පරීක්ෂා කර, අපට ආරම්භ කළ හැකි වන පරිදි තහවුරු කරන්න.",
+    declare: "මා ලබා දුන් විස්තර සහ ලේඛන, මා දන්නා පරිදි සත්‍ය සහ සම්පූර්ණ බව තහවුරු කරමි.",
+    button: "තහවුරු කර යවන්න",
+    sending: "යවමින්…",
+    tickFirst: "පළමුව කොටුව සලකුණු කරන්න.",
+    lastStep: "අවසාන පියවර: තහවුරු කර යවන්න",
+    confirmedOn: "ඔබ {date} දින තහවුරු කළා.",
+    sent: "ස්තූතියි. අපට සියල්ල ලැබුණා.",
+  },
   messages: {
     title: "පණිවිඩ",
     subtitle: "ප්‍රශ්නයක් ඇත්නම් Ontriq කණ්ඩායමට ලියන්න.",
@@ -332,6 +396,7 @@ const si: CandidateDict = {
     team: "Ontriq කණ්ඩායම",
   },
   timeline: {
+    candidate_confirmed: "ඔබ ඔබේ ලේඛන තහවුරු කළා",
     title: "යාවත්කාලීන කිරීම්",
     empty: "තවම යාවත්කාලීන කිරීම් නැත.",
     created: "ඔබගේ සත්‍යාපනය ආරම්භ කරන ලදී",
@@ -345,6 +410,7 @@ const si: CandidateDict = {
     consent_submitted: "කැමැත්ත පත්‍රය ලැබුණි",
     consent_accepted: "කැමැත්ත පිළිගත්තා",
     consent_rejected: "කැමැත්ත පත්‍රය නැවත අත්සන් කළ යුතුයි",
+    returned: "අපට යමක් නිවැරදි කර ගැනීමට අවශ්‍යයි",
     stage_pre_qc: "ඔබගේ ලේඛන සමාලෝචනය කෙරෙමින් පවතී",
     stage_verification: "සත්‍යාපනය ආරම්භ විය",
     stage_report: "සත්‍යාපනය අවසන්",
@@ -356,6 +422,7 @@ const si: CandidateDict = {
     privacy: "ඔබගේ ලේඛන ආරක්ෂිතව ගබඩා කර ඇති අතර මෙම සත්‍යාපනය සඳහා පමණක් භාවිත කෙරේ.",
   },
   errors: {
+    notReady: "තවමත් යමක් අවශ්‍යයි. මෙම පිටුවේ ඉහළ ඇති ලැයිස්තුව පරීක්ෂා කරන්න.",
     generic: "යම් දෝෂයක් සිදු විය. කරුණාකර නැවත උත්සාහ කරන්න.",
     expired: "ඔබගේ සබැඳිය කල් ඉකුත් වී ඇත. කරුණාකර අලුත් එකක් Ontriq වෙතින් ඉල්ලන්න.",
     tooMany: "උත්සාහයන් වැඩිය. මිනිත්තු කිහිපයක් රැඳී සිට නැවත උත්සාහ කරන්න.",
@@ -369,6 +436,9 @@ const si: CandidateDict = {
     agreeNeeded: "එකඟ වීමට කොටුව සලකුණු කරන්න.",
     answerNeeded: "මුලින්ම පිළිතුරක් ලියන්න.",
     messageNeeded: "මුලින්ම පණිවිඩයක් ලියන්න.",
+    consentAccepted: "ඔබගේ කැමැත්ත දැනටමත් පිළිගෙන ඇත. තවත් අත්සන් කිරීමට කිසිවක් නැත.",
+    answerAccepted: "Ontriq දැනටමත් මෙම පිළිතුර පිළිගෙන ඇත.",
+    answerTooLong: "එම පිළිතුර දිග වැඩියි. කරුණාකර එය කෙටි කරන්න.",
   },
   expired: {
     title: "මෙම සබැඳිය ක්‍රියා නොකරයි",
@@ -391,6 +461,7 @@ const si: CandidateDict = {
     field_verification: "ක්ෂේත්‍ර සත්‍යාපන වාර්තාව",
     police_report: "පොලිස් නිෂ්කාශන වාර්තාව",
     reference_form: "නිර්දේශක පෝරමය",
+    verification_response: "සත්‍යාපන පිළිතුර",
     sanction_report: "සම්බාධක පරීක්ෂණ වාර්තාව",
     other: "වෙනත් ලේඛනයක්",
   },
@@ -403,6 +474,69 @@ const si: CandidateDict = {
     reference: "නිර්දේශකයන්",
     sanction: "ගෝලීය සම්බාධක පරීක්ෂාව",
   },
+  guides: {
+    "The candidate's latest CV.": "ඔබේ නවතම ජීව දත්ත පත්‍රය (CV).",
+    "The candidate's completed BGV form with their signed consent.": "ඔබ සම්පූර්ණ කළ BGV පෝරමය සහ අත්සන් කළ කැමැත්ත.",
+    "O/L, A/L, diploma or degree certificates.": "සා/පෙළ, උ/පෙළ, ඩිප්ලෝමා හෝ උපාධි සහතික.",
+    "One per previous employer.": "පෙර සේවායෝජකයෙකුට එක බැගින්.",
+    "The candidate's latest CV, as a PDF or a clear photo of each page.": "ඔබේ නවතම ජීව දත්ත පත්‍රය, PDF එකක් ලෙස හෝ සෑම පිටුවකම පැහැදිලි ඡායාරූපයක් ලෙස.",
+    "The consent and authorisation form, signed by the candidate. A clear photo of the signed page is fine.": "ඔබ අත්සන් කළ කැමැත්ත සහ අවසර පත්‍රය. අත්සන් කළ පිටුවේ පැහැදිලි ඡායාරූපයක් ප්‍රමාණවත්.",
+    "Both sides of the National Identity Card, readable and uncropped.": "ඔබේ ජාතික හැඳුනුම්පතේ දෙපැත්තම, පැහැදිලිව කියවිය හැකි සහ නොකැපූ ලෙස.",
+    "O/L, A/L, diploma or degree certificates. Upload each certificate separately.": "සා/පෙළ, උ/පෙළ, ඩිප්ලෝමා හෝ උපාධි සහතික. සෑම සහතිකයක්ම වෙන වෙනම උඩුගත කරන්න.",
+    "The transcript or results sheet issued by the institution, if available.": "ආයතනය නිකුත් කළ ප්‍රතිඵල පත්‍රිකාව, ඔබ සතුව තිබේ නම්.",
+    "A service or experience letter from each previous employer.": "සෑම පෙර සේවායෝජකයෙකුගෙන්ම සේවා හෝ පළපුරුදු ලිපියක්.",
+    "The resignation letter and the employer's acceptance, if you have them.": "ඉල්ලා අස්වීමේ ලිපිය සහ සේවායෝජකයාගේ පිළිගැනීම, ඔබ සතුව තිබේ නම්.",
+    "The residence certificate issued by your Grama Niladhari.": "ඔබේ ග්‍රාම නිලධාරී නිකුත් කළ පදිංචි සහතිකය.",
+    "The police clearance report or the station's confirmation.": "පොලිස් නිෂ්කාශන වාර්තාව හෝ පොලිස් ස්ථානයේ තහවුරු කිරීම.",
+    "Completed reference forms or written feedback from referees.": "සම්පූර්ණ කළ නිර්දේශක පෝරම හෝ ඔබේ නිර්දේශකයන්ගේ ලිඛිත අදහස්.",
+    "Anything else that supports a check.": "පරීක්ෂාවකට උපකාරී වන වෙනත් ඕනෑම දෙයක්.",
+  },
+  fields: {
+    candidate_name: "අපේක්ෂකයාගේ නම",
+    qualification: "උපාධිය හෝ සුදුසුකම",
+    institution: "ආයතනය",
+    student_number: "ශිෂ්‍ය, රෝල් හෝ විභාග අංකය",
+    year_of_completion: "අවසන් කළ වර්ෂය",
+    employers: "සේවා ඉතිහාසය",
+    company: "සමාගම",
+    designation: "තනතුර",
+    period: "සේවා කාලය",
+    employee_code: "සේවක කේතය හෝ ජාතික හැඳුනුම්පත් අංකය",
+    employment_type: "සේවා වර්ගය",
+    address: "ලිපිනය",
+    district: "දිස්ත්‍රික්කය",
+    residence_period: "පදිංචි කාලය",
+    nic: "ජාතික හැඳුනුම්පත් අංකය",
+    nic_number: "ජාතික හැඳුනුම්පත් අංකය",
+    permanent_address: "ස්ථිර ලිපිනය",
+    referees: "නිර්දේශකයින්",
+    full_name: "සම්පූර්ණ නම",
+    current_employer: "වත්මන් සේවායෝජකයා",
+    current_job_title: "වත්මන් තනතුර",
+    worked_together_at: "අපේක්ෂකයා සමඟ සේවය කළ සමාගම",
+    relationship: "අපේක්ෂකයාට ඇති සම්බන්ධතාවය",
+    acquaintance_duration: "අපේක්ෂකයා හඳුනන කාලය",
+    contact_number: "දුරකථන අංකය",
+    email: "විද්‍යුත් තැපෑල",
+    screened_name: "පරීක්ෂා කළ යුතු සම්පූර්ණ නම",
+    date_of_birth: "උපන් දිනය",
+    identity_number: "ජාතික හැඳුනුම්පත් හෝ ගමන් බලපත්‍ර අංකය",
+    nationality: "ජාතිකත්වය",
+  } as Record<string, string>,
+  options: {
+    permanent: "ස්ථිර",
+    temporary: "තාවකාලික",
+    internship: "සීමාවාසික",
+    contract: "කොන්ත්‍රාත්",
+    line_manager: "සෘජු කළමනාකරු",
+    senior_colleague: "ජ්‍යෙෂ්ඨ සගයා",
+    colleague: "සගයා",
+    client: "ගනුදෙනුකරු",
+    academic: "අධ්‍යයන",
+    other: "වෙනත්",
+    Employer: "සේවායෝජකයා",
+    Referee: "නිර්දේශකයා",
+  } as Record<string, string>,
 };
 
 const ta: CandidateDict = {
@@ -445,11 +579,14 @@ const ta: CandidateDict = {
     allDone: "அனைத்தும் கிடைத்தன. நன்றி!",
     allDoneBody: "எங்களுக்குத் தேவையான அனைத்தையும் நீங்கள் வழங்கியுள்ளீர்கள். வேறு ஏதேனும் தேவைப்பட்டால் உங்களைத் தொடர்பு கொள்வோம். இப்போது இந்தப் பக்கத்தை மூடலாம்.",
     onHold: "உங்கள் சரிபார்ப்பு தற்போது இடைநிறுத்தப்பட்டுள்ளது. மீண்டும் தொடங்கும்போது உங்களுக்குத் தெரிவிப்போம்.",
+    statusNow: "தற்போதைய நிலை",
   },
   documents: {
     title: "எங்களுக்குத் தேவையான ஆவணங்கள்",
     subtitle: "ஒவ்வொரு ஆவணத்தின் தெளிவான புகைப்படம் அல்லது PDF ஐப் பதிவேற்றவும். நான்கு மூலைகளும் தெரிவதையும் எழுத்துகள் எளிதாகப் படிக்கக்கூடியவை என்பதையும் உறுதிப்படுத்தவும்.",
     tips: "குறிப்பு: ஆவணத்தைத் தட்டையாக வைத்து, நல்ல வெளிச்சத்தில், பளபளப்பைத் தவிர்த்துப் படம் எடுக்கவும்.",
+    closed: "உங்கள் சரிபார்ப்பு அடுத்த கட்டத்திற்குச் சென்றுவிட்டதால் பதிவேற்றங்கள் மூடப்பட்டுள்ளன. வேறு ஏதேனும் தேவைப்பட்டால் நாங்கள் உங்களுக்குத் தெரிவிப்போம்.",
+    notReceived: "பெறப்படவில்லை",
     forCheck: "{check} க்காக",
     needed: "தேவை",
     received: "பெறப்பட்டது",
@@ -478,6 +615,8 @@ const ta: CandidateDict = {
     stillHere: "இன்னும் இங்கே",
     from: "முதல்",
     to: "வரை",
+    yes: "ஆம்",
+    no: "இல்லை",
     rowsNeeded: "குறைந்தது {n} நிரப்பவும், * குறியிட்ட அனைத்துக் கட்டங்களுடன்.",
     update: "பதிலைப் புதுப்பிக்கவும்",
     sent: "பதில் அனுப்பப்பட்டது. நன்றி.",
@@ -487,6 +626,8 @@ const ta: CandidateDict = {
     documentRequest: "இதை ஆவணங்கள் பகுதியில் பதிவேற்றவும்.",
     goToDocument: "ஆவணத்திற்குச் செல்லவும்",
     choose: "ஒரு விருப்பத்தைத் தேர்ந்தெடுக்கவும்",
+    yourDetails: "உங்கள் விவரங்கள்",
+    bgvPart: "உங்கள் BGV படிவத்தின் ஒரு பகுதி.",
   },
   consent: {
     title: "ஒப்புதல் படிவம்",
@@ -514,6 +655,17 @@ const ta: CandidateDict = {
     signedBy: "{date} அன்று {name} கையொப்பமிட்டார்",
     uploadedOn: "கையொப்பமிட்ட படிவம் {date} அன்று பதிவேற்றப்பட்டது",
   },
+  confirm: {
+    title: "உறுதிசெய்து அனுப்புங்கள்",
+    subtitle: "கடைசிப் படி. உங்கள் ஆவணங்களையும் பதில்களையும் சரிபார்த்து, நாங்கள் தொடங்க உறுதிசெய்யுங்கள்.",
+    declare: "நான் வழங்கிய விவரங்களும் ஆவணங்களும் எனக்குத் தெரிந்தவரை உண்மையானவை, முழுமையானவை.",
+    button: "உறுதிசெய்து அனுப்புங்கள்",
+    sending: "அனுப்புகிறது…",
+    tickFirst: "முதலில் பெட்டியைத் தேர்வுசெய்யுங்கள்.",
+    lastStep: "கடைசிப் படி: உறுதிசெய்து அனுப்புங்கள்",
+    confirmedOn: "நீங்கள் {date} அன்று உறுதிசெய்தீர்கள்.",
+    sent: "நன்றி. அனைத்தும் எங்களுக்குக் கிடைத்தன.",
+  },
   messages: {
     title: "செய்திகள்",
     subtitle: "கேள்வி இருந்தால் Ontriq குழுவுக்கு எழுதவும்.",
@@ -525,6 +677,7 @@ const ta: CandidateDict = {
     team: "Ontriq குழு",
   },
   timeline: {
+    candidate_confirmed: "உங்கள் ஆவணங்களை உறுதிசெய்தீர்கள்",
     title: "புதுப்பிப்புகள்",
     empty: "இதுவரை புதுப்பிப்புகள் இல்லை.",
     created: "உங்கள் சரிபார்ப்பு தொடங்கப்பட்டது",
@@ -538,6 +691,7 @@ const ta: CandidateDict = {
     consent_submitted: "ஒப்புதல் படிவம் பெறப்பட்டது",
     consent_accepted: "ஒப்புதல் ஏற்றுக்கொள்ளப்பட்டது",
     consent_rejected: "ஒப்புதல் படிவத்தில் மீண்டும் கையொப்பமிட வேண்டும்",
+    returned: "நாங்கள் ஒன்றைத் திருத்த வேண்டியுள்ளது",
     stage_pre_qc: "உங்கள் ஆவணங்கள் மதிப்பாய்வு செய்யப்படுகின்றன",
     stage_verification: "சரிபார்ப்பு தொடங்கியது",
     stage_report: "சரிபார்ப்பு நிறைவடைந்தது",
@@ -549,6 +703,7 @@ const ta: CandidateDict = {
     privacy: "உங்கள் ஆவணங்கள் பாதுகாப்பாகச் சேமிக்கப்பட்டு இந்தச் சரிபார்ப்புக்கு மட்டுமே பயன்படுத்தப்படுகின்றன.",
   },
   errors: {
+    notReady: "இன்னும் ஒன்று தேவைப்படுகிறது. இந்தப் பக்கத்தின் மேலே உள்ள பட்டியலைப் பாருங்கள்.",
     generic: "ஏதோ தவறு நடந்தது. மீண்டும் முயற்சிக்கவும்.",
     expired: "உங்கள் இணைப்பு காலாவதியாகிவிட்டது. புதிய இணைப்பை Ontriq இடம் கேட்கவும்.",
     tooMany: "அதிக முயற்சிகள். சில நிமிடங்கள் காத்திருந்து மீண்டும் முயற்சிக்கவும்.",
@@ -562,6 +717,9 @@ const ta: CandidateDict = {
     agreeNeeded: "ஒப்புக்கொள்ள பெட்டியைத் தேர்வு செய்யவும்.",
     answerNeeded: "முதலில் ஒரு பதிலை எழுதவும்.",
     messageNeeded: "முதலில் ஒரு செய்தியை எழுதவும்.",
+    consentAccepted: "உங்கள் ஒப்புதல் ஏற்கனவே ஏற்றுக்கொள்ளப்பட்டுள்ளது. மேலும் கையொப்பமிட எதுவும் இல்லை.",
+    answerAccepted: "இந்தப் பதிலை Ontriq ஏற்கனவே ஏற்றுக்கொண்டுள்ளது.",
+    answerTooLong: "அந்தப் பதில் மிக நீளமாக உள்ளது. தயவுசெய்து அதைச் சுருக்கவும்.",
   },
   expired: {
     title: "இந்த இணைப்பு செயல்படவில்லை",
@@ -584,6 +742,7 @@ const ta: CandidateDict = {
     field_verification: "கள சரிபார்ப்புப் பதிவு",
     police_report: "பொலிஸ் அனுமதி அறிக்கை",
     reference_form: "பரிந்துரையாளர் படிவம்",
+    verification_response: "சரிபார்ப்பு பதில்",
     sanction_report: "தடைகள் சரிபார்ப்பு அறிக்கை",
     other: "வேறு ஆவணம்",
   },
@@ -596,6 +755,69 @@ const ta: CandidateDict = {
     reference: "பரிந்துரையாளர்கள்",
     sanction: "உலகளாவிய தடைகள் சரிபார்ப்பு",
   },
+  guides: {
+    "The candidate's latest CV.": "உங்கள் சமீபத்திய சுயவிவரக் குறிப்பு (CV).",
+    "The candidate's completed BGV form with their signed consent.": "நீங்கள் பூர்த்தி செய்த BGV படிவமும் கையொப்பமிட்ட ஒப்புதலும்.",
+    "O/L, A/L, diploma or degree certificates.": "சா/த, உ/த, டிப்ளோமா அல்லது பட்டச் சான்றிதழ்கள்.",
+    "One per previous employer.": "முந்தைய ஒவ்வொரு வேலை வழங்குநரிடமிருந்தும் ஒன்று.",
+    "The candidate's latest CV, as a PDF or a clear photo of each page.": "உங்கள் சமீபத்திய சுயவிவரக் குறிப்பு, PDF ஆக அல்லது ஒவ்வொரு பக்கத்தின் தெளிவான புகைப்படமாக.",
+    "The consent and authorisation form, signed by the candidate. A clear photo of the signed page is fine.": "நீங்கள் கையொப்பமிட்ட ஒப்புதல் மற்றும் அங்கீகாரப் படிவம். கையொப்பமிட்ட பக்கத்தின் தெளிவான புகைப்படம் போதுமானது.",
+    "Both sides of the National Identity Card, readable and uncropped.": "உங்கள் தேசிய அடையாள அட்டையின் இரு பக்கங்களும், தெளிவாக வாசிக்கக்கூடியதாகவும் வெட்டப்படாமலும்.",
+    "O/L, A/L, diploma or degree certificates. Upload each certificate separately.": "சா/த, உ/த, டிப்ளோமா அல்லது பட்டச் சான்றிதழ்கள். ஒவ்வொரு சான்றிதழையும் தனித்தனியாகப் பதிவேற்றவும்.",
+    "The transcript or results sheet issued by the institution, if available.": "நிறுவனம் வழங்கிய பெறுபேற்றுப் பத்திரம், உங்களிடம் இருந்தால்.",
+    "A service or experience letter from each previous employer.": "முந்தைய ஒவ்வொரு வேலை வழங்குநரிடமிருந்தும் சேவை அல்லது அனுபவக் கடிதம்.",
+    "The resignation letter and the employer's acceptance, if you have them.": "பதவி விலகல் கடிதமும் வேலை வழங்குநரின் ஏற்பும், உங்களிடம் இருந்தால்.",
+    "The residence certificate issued by your Grama Niladhari.": "உங்கள் கிராம உத்தியோகத்தர் வழங்கிய வதிவிடச் சான்றிதழ்.",
+    "The police clearance report or the station's confirmation.": "பொலிஸ் அனுமதி அறிக்கை அல்லது பொலிஸ் நிலையத்தின் உறுதிப்படுத்தல்.",
+    "Completed reference forms or written feedback from referees.": "பூர்த்தி செய்யப்பட்ட பரிந்துரையாளர் படிவங்கள் அல்லது உங்கள் பரிந்துரையாளர்களின் எழுத்து மூலமான கருத்துகள்.",
+    "Anything else that supports a check.": "சரிபார்ப்புக்கு உதவும் வேறு எதுவும்.",
+  },
+  fields: {
+    candidate_name: "விண்ணப்பதாரரின் பெயர்",
+    qualification: "பட்டம் அல்லது தகைமை",
+    institution: "நிறுவனம்",
+    student_number: "மாணவர், பதிவு அல்லது சுட்டெண்",
+    year_of_completion: "நிறைவு செய்த ஆண்டு",
+    employers: "பணி வரலாறு",
+    company: "நிறுவனம்",
+    designation: "பதவி",
+    period: "பணிக்காலம்",
+    employee_code: "பணியாளர் குறியீடு அல்லது தேசிய அடையாள அட்டை எண்",
+    employment_type: "பணி வகை",
+    address: "முகவரி",
+    district: "மாவட்டம்",
+    residence_period: "வசித்த காலம்",
+    nic: "தேசிய அடையாள அட்டை எண்",
+    nic_number: "தேசிய அடையாள அட்டை எண்",
+    permanent_address: "நிரந்தர முகவரி",
+    referees: "பரிந்துரையாளர்கள்",
+    full_name: "முழுப் பெயர்",
+    current_employer: "தற்போதைய பணியமர்த்துநர்",
+    current_job_title: "தற்போதைய பதவி",
+    worked_together_at: "விண்ணப்பதாரருடன் பணியாற்றிய நிறுவனம்",
+    relationship: "விண்ணப்பதாரருடனான உறவு",
+    acquaintance_duration: "விண்ணப்பதாரரை அறிந்த காலம்",
+    contact_number: "தொடர்பு எண்",
+    email: "மின்னஞ்சல்",
+    screened_name: "சரிபார்க்க வேண்டிய முழுப் பெயர்",
+    date_of_birth: "பிறந்த திகதி",
+    identity_number: "தேசிய அடையாள அட்டை அல்லது கடவுச்சீட்டு எண்",
+    nationality: "தேசியம்",
+  } as Record<string, string>,
+  options: {
+    permanent: "நிரந்தரம்",
+    temporary: "தற்காலிகம்",
+    internship: "பயிற்சி",
+    contract: "ஒப்பந்தம்",
+    line_manager: "நேரடி மேலாளர்",
+    senior_colleague: "மூத்த சக ஊழியர்",
+    colleague: "சக ஊழியர்",
+    client: "வாடிக்கையாளர்",
+    academic: "கல்வியாளர்",
+    other: "மற்றவை",
+    Employer: "பணியமர்த்துநர்",
+    Referee: "பரிந்துரையாளர்",
+  } as Record<string, string>,
 };
 
 export const CANDIDATE_DICTS: Record<CandidateLang, CandidateDict> = { en, si, ta };
@@ -617,7 +839,27 @@ export function categoryLabel(t: CandidateDict, key: string | null | undefined, 
 
 /** A check type's name in the candidate's language (built-in keys only), else its label. */
 export function checkLabel(t: CandidateDict, key: string | null | undefined, fallback: string): string {
-  return (key && (t.checks as Record<string, string>)[key]) || fallback;
+  const name = key && (t.checks as Record<string, string>)[key];
+  if (!name) return fallback;
+  // A further record keeps its own name: "Education: Secondary".
+  const colon = fallback.indexOf(":");
+  return colon > 0 ? `${name}${fallback.slice(colon)}` : name;
+}
+
+/** A document's help in the candidate's language and in their own words, when it is built-in wording. */
+export function documentGuide(t: CandidateDict, text: string | null | undefined): string | null {
+  if (!text) return null;
+  return (t.guides as Record<string, string>)[text] ?? text;
+}
+
+/** A built-in field's name in the candidate's language, else the check type's own. */
+export function fieldLabel(t: CandidateDict, key: string, fallback: string): string {
+  return t.fields[key] ?? fallback;
+}
+
+/** A built-in choice in the candidate's language, else the check type's own wording. */
+export function optionLabel(t: CandidateDict, value: string, fallback: string): string {
+  return t.options[value] ?? fallback;
 }
 
 /** A candidate-safe timeline entry in the candidate's language; English titles from the database are the fallback. */
@@ -643,6 +885,8 @@ export function timelineTitle(
     case "consent_submitted":
     case "consent_accepted":
     case "consent_rejected":
+    case "candidate_confirmed":
+    case "returned":
       return t.timeline[e.kind];
     default:
       return e.title;

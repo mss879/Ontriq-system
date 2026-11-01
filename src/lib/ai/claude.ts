@@ -25,8 +25,11 @@ export type AiContext = {
   promptVersion: string;
 };
 
-export type AiFailure = { ok: false; reason: "not_configured" | "disabled" | "over_budget" | "refused" | "truncated" | "error"; message: string };
+export type AiFailure = { ok: false; reason: "not_configured" | "disabled" | "over_budget" | "refused" | "truncated" | "error" | "unavailable"; message: string };
 export type AiSuccess<T> = { ok: true; text: string; data: T; model: string; runId: string | null };
+
+/** A stalled call is cut off here and tried again, instead of holding a worker for minutes. */
+const CALL_LIMIT_MS = 150_000;
 
 type Capability = { key: string; model: string; effort: "low" | "medium" | "high" | "xhigh" | "max"; max_tokens: number; enabled: boolean };
 
@@ -121,7 +124,7 @@ export async function runStructured<S extends z.ZodType>(
   admin: ServiceClient,
   capabilityKey: string,
   ctx: AiContext,
-  input: { system: string; content: Anthropic.ContentBlockParam[]; schema: S; minTokens?: number },
+  input: { system: string; content: Anthropic.ContentBlockParam[]; schema: S; minTokens?: number; limitMs?: number },
 ): Promise<AiSuccess<z.infer<S>> | AiFailure> {
   if (!isAiConfigured()) return { ok: false, reason: "not_configured", message: "AI is not set up (ANTHROPIC_API_KEY)." };
   const cap = await capability(admin, capabilityKey);
@@ -132,13 +135,16 @@ export async function runStructured<S extends z.ZodType>(
   client ??= new Anthropic();
   const started = Date.now();
   try {
-    const stream = client.messages.stream({
-      model: cap.model,
-      max_tokens: Math.max(cap.max_tokens, input.minTokens ?? 0),
-      system: [{ type: "text", text: input.system, cache_control: { type: "ephemeral" } }],
-      messages: [{ role: "user", content: input.content }],
-      output_config: { effort: cap.effort, format: zodOutputFormat(input.schema) },
-    });
+    const stream = client.messages.stream(
+      {
+        model: cap.model,
+        max_tokens: Math.max(cap.max_tokens, input.minTokens ?? 0),
+        system: [{ type: "text", text: input.system, cache_control: { type: "ephemeral" } }],
+        messages: [{ role: "user", content: input.content }],
+        output_config: { effort: cap.effort, format: zodOutputFormat(input.schema) },
+      },
+      { signal: AbortSignal.timeout(input.limitMs ?? CALL_LIMIT_MS) },
+    );
     const message = await stream.finalMessage();
     if (message.stop_reason === "refusal") {
       await record(admin, ctx, cap.key, cap.model, started, { status: "refused", usage: message.usage, stopReason: message.stop_reason });
@@ -156,8 +162,15 @@ export async function runStructured<S extends z.ZodType>(
   } catch (error) {
     const msg = error instanceof Anthropic.APIError ? `${error.status ?? ""} ${error.message}` : error instanceof Error ? error.message : String(error);
     await record(admin, ctx, cap.key, cap.model, started, { status: "error", error: msg });
-    return { ok: false, reason: "error", message: "The AI request failed. Try again in a moment." };
+    return { ok: false, reason: isTransient(error) ? "unavailable" : "error", message: "The AI request failed. Try again in a moment." };
   }
+}
+
+/** Rate limits, outages, dropped connections and the time limit pass. A rejected request won't fare better next time. */
+function isTransient(error: unknown): boolean {
+  if (error instanceof Anthropic.APIUserAbortError || error instanceof Anthropic.APIConnectionError) return true;
+  if (error instanceof Anthropic.APIError) return error.status === 408 || error.status === 409 || error.status === 429 || (error.status ?? 500) >= 500;
+  return error instanceof Error && error.name === "TimeoutError";
 }
 
 /** Files larger than this are never sent to the model, whatever size the upload declared. */

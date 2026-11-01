@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { PDFDocument } from "pdf-lib";
+import { PDFArray, PDFDict, PDFDocument, PDFName } from "pdf-lib";
 import { canonicalJson, compileReport, fixedAnnexureCategories, formatFieldValue, type ReportAnnexure, type ReportInputs } from "@/domain/reports/compile-core";
-import { assembleReport, MAX_ANNEXURE_PAGES } from "../../src/jobs/report/assemble";
+import { assembleReport, assembleReportPart, MAX_ANNEXURE_BYTES, MAX_ANNEXURE_PAGES, planAnnexures, type AnnexureFile } from "../../src/jobs/report/assemble";
+import { jpegOrientation } from "../../src/jobs/report/convert-image";
 import { BUILTIN_CHECK_TYPES } from "@/domain/check-types/builtin";
 import { parseCheckTypeSchema } from "@/domain/check-types/schema";
 
@@ -59,7 +60,8 @@ describe("report compile", () => {
   });
 
   it("formats field values for print", () => {
-    expect(formatFieldValue({ key: "p", label: "Period", type: "date_range" } as never, { from: "2020-01-01", to: "" })).toBe("01/01/20 to present");
+    expect(formatFieldValue({ key: "p", label: "Period", type: "date_range" } as never, { from: "2020-01-01", present: true })).toBe("01/01/20 to present");
+    expect(formatFieldValue({ key: "p", label: "Period", type: "date_range" } as never, { from: "2020-01-01", to: "" })).toBe("From 01/01/20");
     expect(formatFieldValue({ key: "x", label: "X", type: "boolean" } as never, false)).toBe("No");
     expect(formatFieldValue({ key: "s", label: "S", type: "select", options: [{ value: "a", label: "Alpha" }] } as never, "a")).toBe("Alpha");
   });
@@ -83,7 +85,7 @@ describe("the fixed annexure", () => {
     for (let i = 0; i < pages; i += 1) doc.addPage();
     return doc.save();
   };
-  const annexure = (kind: ReportAnnexure["kind"], filename: string, bytes: Uint8Array | null): ReportAnnexure & { bytes: Uint8Array | null } => ({
+  const annexure = (kind: ReportAnnexure["kind"], filename: string, bytes: Uint8Array | null): AnnexureFile => ({
     document_id: filename,
     title: kind === "fixed" ? "Global sanction screening report" : "Evidence",
     filename,
@@ -91,7 +93,7 @@ describe("the fixed annexure", () => {
     kind,
     check_label: null,
     sha256: null,
-    bytes,
+    read: async () => bytes,
   });
   const opts = { reference: "ONT-2026-000001", draft: true };
 
@@ -102,13 +104,140 @@ describe("the fixed annexure", () => {
   });
 
   it("is embedded even when the evidence used up the page limit", async () => {
-    const r = await assembleReport(await pdf(1), [annexure("evidence", "bulky.pdf", await pdf(MAX_ANNEXURE_PAGES + 1)), annexure("evidence", "late.pdf", await pdf(1)), annexure("fixed", "cfirst.pdf", await pdf(3))], opts);
-    expect(r.skipped).toEqual(["late.pdf"]);
-    expect(r.partial).toEqual(["bulky.pdf"]);
+    const plan = await planAnnexures([annexure("evidence", "bulky.pdf", await pdf(MAX_ANNEXURE_PAGES + 1)), annexure("evidence", "late.pdf", await pdf(1)), annexure("fixed", "cfirst.pdf", await pdf(3))], { parts: true });
+    expect(plan.map((a) => [a.filename, a.status, a.part])).toEqual([
+      ["bulky.pdf", "embedded", 1],
+      ["late.pdf", "embedded", 2],
+      ["cfirst.pdf", "embedded", 1],
+    ]);
   });
 
   it("is reported when the file can't be embedded, so the report can stop", async () => {
-    const r = await assembleReport(await pdf(1), [annexure("fixed", "cfirst.pdf", new TextEncoder().encode("not a pdf")), annexure("fixed", "gone.pdf", null)], opts);
-    expect(r.skipped).toEqual(["cfirst.pdf", "gone.pdf"]);
+    const plan = await planAnnexures([annexure("fixed", "cfirst.pdf", new TextEncoder().encode("not a pdf")), annexure("fixed", "gone.pdf", null)], { parts: true });
+    expect(plan.map((a) => a.status)).toEqual(["damaged", "unreadable"]);
+  });
+
+  /** The files held inside a PDF, by name. */
+  const attachments = async (bytes: Uint8Array) => {
+    const doc = await PDFDocument.load(bytes);
+    const names = doc.catalog.lookupMaybe(PDFName.of("Names"), PDFDict);
+    const files = names?.lookupMaybe(PDFName.of("EmbeddedFiles"), PDFDict)?.lookupMaybe(PDFName.of("Names"), PDFArray);
+    return files ? files.size() / 2 : 0;
+  };
+
+  it("travels inside the report as the file itself, as well as its pages", async () => {
+    const plan = await planAnnexures([annexure("fixed", "cfirst.pdf", await pdf(3))], { parts: true });
+    const r = await assembleReport(await pdf(1), plan, opts);
+    expect(plan[0].status).toBe("embedded");
+    expect(await attachments(r.bytes)).toBe(1);
+    expect(r.pages).toBe(1 + 1 + 3);
+  });
+
+  it("is kept as the file itself when it is protected, instead of stopping the report", async () => {
+    const plain = new TextDecoder("latin1").decode(await (await PDFDocument.create({})).save({ useObjectStreams: false }));
+    const locked = Uint8Array.from(plain.replace("trailer\n<<", "trailer\n<<\n/Encrypt 1 0 R"), (c) => c.charCodeAt(0));
+    const plan = await planAnnexures([annexure("fixed", "cfirst.pdf", locked)], { parts: true });
+    expect(plan[0].status).toBe("attached");
+    const r = await assembleReport(await pdf(1), plan, opts);
+    expect(await attachments(r.bytes)).toBe(1);
+  });
+
+  it("says when a file no longer matches what was uploaded", async () => {
+    const plan = await planAnnexures([{ ...annexure("evidence", "letter.pdf", await pdf(1)), sha256: "not-its-fingerprint" }], { parts: true });
+    expect(plan[0].altered).toBe(true);
+  });
+
+  it("keeps two bad files apart when they share a name", async () => {
+    const good = await pdf(1);
+    const [first, second] = await planAnnexures(
+      [{ ...annexure("evidence", "image.pdf", good), document_id: "a" }, { ...annexure("evidence", "image.pdf", new TextEncoder().encode("broken")), document_id: "b" }],
+      { parts: true },
+    );
+    expect([first.status, second.status]).toEqual(["embedded", "damaged"]);
+  });
+
+  it("doesn't count a PDF with nothing in it", async () => {
+    const empty = await (await PDFDocument.create()).save({ addDefaultPage: false });
+    const [a] = await planAnnexures([annexure("evidence", "blank.pdf", empty)], { parts: true });
+    expect(a.status).toBe("damaged");
+  });
+
+  it("leaves one cover sheet when a file can't be embedded", async () => {
+    const plan = await planAnnexures([annexure("evidence", "broken.pdf", new TextEncoder().encode("not a pdf"))], { parts: true });
+    const r = await assembleReport(await pdf(1), plan, opts);
+    expect(r.pages).toBe(1 + 1);
+  });
+
+  it("marks copied pages on a draft, and leaves a final's alone", async () => {
+    const file = await pdf(1);
+    const plan = await planAnnexures([annexure("evidence", "letter.pdf", file)], { parts: true });
+    const draft = await assembleReport(await pdf(1), plan, { ...opts, draft: true });
+    const final = await assembleReport(await pdf(1), plan, { ...opts, draft: false });
+    expect(draft.bytes.byteLength).toBeGreaterThan(final.bytes.byteLength);
+  });
+});
+
+describe("a report too big for one file", () => {
+  const pdf = async (pages: number) => {
+    const doc = await PDFDocument.create();
+    for (let i = 0; i < pages; i += 1) doc.addPage();
+    return doc.save();
+  };
+  const evidence = (filename: string, bytes: Uint8Array): AnnexureFile => ({ document_id: filename, title: "Evidence", filename, mime: "application/pdf", kind: "evidence", check_label: null, sha256: null, read: async () => bytes });
+  const opts = { reference: "ONT-2026-000001", draft: false };
+
+  it("carries on in the next part, leaving nothing out", async () => {
+    const plan = await planAnnexures([evidence("first.pdf", await pdf(MAX_ANNEXURE_PAGES - 1)), evidence("second.pdf", await pdf(5)), evidence("third.pdf", await pdf(2))], { parts: true });
+    expect(plan.map((a) => a.part)).toEqual([1, 2, 2]);
+    const next = await assembleReportPart(plan, { ...opts, part: 2 });
+    // Its title page, then a cover and the pages for each file.
+    expect(next.pages).toBe(1 + (1 + 5) + (1 + 2));
+  });
+
+  it("keeps each annexure's number across parts", async () => {
+    const plan = await planAnnexures([evidence("first.pdf", await pdf(MAX_ANNEXURE_PAGES)), evidence("second.pdf", await pdf(1))], { parts: true });
+    expect(plan[1]).toMatchObject({ filename: "second.pdf", number: 2, part: 2 });
+  });
+
+  it("takes a very long file whole, on a part of its own", async () => {
+    const plan = await planAnnexures([evidence("long.pdf", await pdf(MAX_ANNEXURE_PAGES + 2))], { parts: true });
+    expect(plan[0].part).toBe(1);
+    const r = await assembleReport(await pdf(1), plan, { ...opts, part: 1 });
+    expect(r.pages).toBe(1 + 1 + MAX_ANNEXURE_PAGES + 2);
+  });
+
+  it("splits on size well below what Storage takes", async () => {
+    expect(MAX_ANNEXURE_BYTES).toBeLessThanOrEqual(50 * 1024 * 1024);
+    // Six 18 MB scans: too big for one file, so they spread over parts instead of failing the upload.
+    const big = (name: string): AnnexureFile => ({ document_id: name, title: "Scan", filename: name, mime: "image/heic", kind: "evidence", check_label: null, sha256: null, read: async () => null });
+    const plan = await planAnnexures([big("a"), big("b")], { parts: true });
+    expect(plan.every((a) => a.status === "unreadable")).toBe(true);
+  });
+
+  it("says what was left out when a report has no further parts", async () => {
+    const plan = await planAnnexures([evidence("first.pdf", await pdf(MAX_ANNEXURE_PAGES)), evidence("second.pdf", await pdf(1))], { parts: false });
+    expect(plan.map((a) => a.status)).toEqual(["embedded", "left_out"]);
+  });
+});
+
+describe("phone photos", () => {
+  const exif = (orientation: number) => {
+    // A JPEG start, an Exif header, a little-endian TIFF block holding one tag.
+    const tiff = [0x49, 0x49, 0x2a, 0x00, 0x08, 0x00, 0x00, 0x00, 0x01, 0x00, 0x12, 0x01, 0x03, 0x00, 0x01, 0x00, 0x00, 0x00, orientation, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
+    const size = 2 + 6 + tiff.length;
+    return Uint8Array.from([0xff, 0xd8, 0xff, 0xe1, size >> 8, size & 255, 0x45, 0x78, 0x69, 0x66, 0x00, 0x00, ...tiff, 0xff, 0xda]);
+  };
+  it("reads which way up the camera says they are", () => {
+    expect(jpegOrientation(exif(6))).toBe(6);
+    expect(jpegOrientation(exif(3))).toBe(3);
+    expect(jpegOrientation(Uint8Array.from([0xff, 0xd8, 0xff, 0xda]))).toBe(1);
+    expect(jpegOrientation(Uint8Array.from([0x00, 0x01]))).toBe(1);
+  });
+});
+
+describe("field values in the report", () => {
+  it("prints a year as a year", () => {
+    const year = schemaOf("education").fields.find((f) => f.key === "year_of_completion")!;
+    expect(formatFieldValue(year, 2015)).toBe("2015");
   });
 });

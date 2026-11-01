@@ -79,6 +79,20 @@ export async function sessionCookies(role: string, clientId?: string): Promise<{
   return { userId: user.id, cookies: [...jar].map(([name, value]) => ({ name, value })) };
 }
 
+/** A database client signed in as that role, for scripts that call the app's own RPCs. */
+export async function signedInClient(role: string, clientId?: string) {
+  await sessionCookies(role, clientId); // enrols the authenticator on first use
+  const user = await ensureUser(role, clientId);
+  const db = createClient(url, anonKey, { auth: { persistSession: false } });
+  const s = await db.auth.signInWithPassword({ email: user.email, password: user.password });
+  if (s.error) throw new Error(`sign-in: ${s.error.message}`);
+  if (saved[user.key].totp) {
+    const factor = (await db.auth.mfa.listFactors()).data?.totp?.[0];
+    if (factor) await db.auth.mfa.challengeAndVerify({ factorId: factor.id, code: totp(saved[user.key].totp!) });
+  }
+  return { db, userId: user.id };
+}
+
 export async function cookieHeader(role: string, clientId?: string): Promise<string> {
   return (await sessionCookies(role, clientId)).cookies.map((c) => `${c.name}=${c.value}`).join("; ");
 }

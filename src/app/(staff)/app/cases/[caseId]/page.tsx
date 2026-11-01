@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Ban, PauseCircle, RotateCcw, ShieldCheck, ShieldOff } from "lucide-react";
+import { Ban, History, PauseCircle, PhoneCall, RotateCcw, ShieldCheck, ShieldOff } from "lucide-react";
 import { SURFACE } from "@/components/admin/surface";
 import { SetCrumbs } from "@/components/layout/crumbs";
 import { Page, SectionSkeleton } from "@/components/layout/page";
@@ -14,10 +14,13 @@ import { RelativeTime, SlaBadge } from "@/components/cases/sla-badge";
 import { getStaffViewer } from "@/lib/server/viewer";
 import { getAssignments, getCase, getCaseChecks, getDocuments, getQcReviews, getRequirements, getStageDates, getTimeline, staffOptions } from "@/lib/server/cases/queries";
 import { getDocumentCategories } from "@/lib/server/cases/detail-queries";
-import { consentMissing, getCandidatePanel } from "@/lib/server/cases/candidate-queries";
-import { can, type Permission } from "@/domain/permissions";
+import { getStatusCatalog, getWorkflowSettings } from "@/lib/server/cases/status-catalog";
+import { consentMissing, consentRefused, getCandidatePanel } from "@/lib/server/cases/candidate-queries";
+import { canAny, can, type Permission } from "@/domain/permissions";
 import { availableActions } from "@/domain/workflow/transitions-core";
+import { CandidateMatch } from "./_components/candidate-match";
 import { CaseActions } from "./_components/case-actions";
+import { StatusSetter } from "./_components/status-setter";
 import { EraseCaseDialog } from "./_components/erase-dialog";
 import { CheckCards } from "./_components/check-cards";
 import { CaseSectionsBar, type SectionLink } from "./_components/case-sections-bar";
@@ -28,13 +31,15 @@ import { AssignmentCard } from "./_components/assignment-card";
 import { CandidateCard, DetailsCard } from "./_components/info-cards";
 import { CandidatePanel } from "./_components/candidate-panel";
 import { ReportPanel } from "./_components/report-panel";
-import { getMissingAnnexures, getReleaseRecipients, getReportVersions, getUnreportedEvidence } from "@/lib/server/reports/queries";
+import { getMissingAnnexures, getReleaseRecipients, getReportAudience, getReportVersions, getUnreportedEvidence, revisionCanStop } from "@/lib/server/reports/queries";
 import { getCheckTypeOptions, getClientQuestions, getContactLog } from "@/lib/server/cases/detail-queries";
 import { AddCheck } from "./_components/add-check";
 import { ClientQuestions } from "./_components/client-questions";
 import { ContactLogSection } from "./_components/contact-log-section";
 import { validateCheckValues } from "@/domain/check-types/validate";
+import { recordOptions } from "@/domain/check-types/records";
 import type { FieldDef } from "@/domain/check-types/schema";
+import { documentsLocked, remarksLocked, uploadsOpen } from "@/lib/server/cases/document-lock";
 import { fixedAnnexureCategories } from "@/domain/reports/compile-core";
 import { aiItem, getAiStatus, getAiWork, getCaseAi, getDocumentAi } from "@/lib/server/ai/queries";
 import { canDecide, canRerun, RERUN, type RerunCapability } from "@/domain/ai/suggestions";
@@ -161,10 +166,32 @@ async function Header({ params }: Params) {
   const { caseId } = await params;
   const [viewer, c] = await Promise.all([getStaffViewer(), loadCase(caseId)]);
   if (!c) notFound();
-  const [checks, reqs, candidate] = await Promise.all([getCaseChecks(caseId), getRequirements(caseId), getCandidatePanel(caseId)]);
+  const [checks, reqs, candidate, documents, contacts, statuses, workflow] = await Promise.all([
+    getCaseChecks(caseId),
+    getRequirements(caseId),
+    getCandidatePanel(caseId),
+    getDocuments(caseId),
+    getContactLog(caseId),
+    getStatusCatalog(),
+    getWorkflowSettings(viewer.orgId),
+  ]);
   const missing = (stageFilter: (s: string) => boolean) => reqs.filter((r) => r.status === "pending" && r.minCount > r.receivedCount && stageFilter(r.stage)).length;
   // Mirrors public.case_transition: a document for an open or waived check doesn't hold the case back.
   const closedChecks = new Set(checks.filter((k) => k.state === "completed" || k.state === "discrepancy" || k.state === "unable_to_verify").map((k) => k.id));
+  // Spec 2.2 and the flowchart: a call and a formal request. Mirrors public.candidate_contact_gap.
+  const caseContacts = contacts.filter((e) => !e.caseCheckId);
+  const contactGap =
+    c.processType !== "candidate_collected"
+      ? null
+      : !candidate?.linkEmailed && !caseContacts.some((e) => e.direction === "outbound" && (e.channel === "email" || e.channel === "letter"))
+        ? "send the candidate their page by email, or log a formal email or letter first"
+        : !caseContacts.some((e) => e.channel === "phone")
+          ? "log your call to the candidate first"
+          : null;
+  // Under revision. It can stop only while the case still says what the released report says.
+  const revised = Boolean(c.releasedAt) && c.stage !== "released" && c.stage !== "cancelled";
+  const revising = revised && (await revisionCanStop(caseId));
+  const reworking = revised && !revising;
   const actions = availableActions(
     {
       stage: c.stage,
@@ -175,13 +202,22 @@ async function Header({ params }: Params) {
       annexuresMissing: c.stage === "verification" ? await getMissingAnnexures(caseId) : [],
       isOwner: c.assignee?.id === viewer.userId,
       consentMissing: consentMissing(candidate, c.processType),
+      consentRefused: consentRefused(candidate, c.processType),
+      contactGap,
+      candidateMatchOpen: c.candidateMatchOpen,
+      revising,
+      reworking,
+      formOpen: Boolean(candidate?.requests.some((q) => q.form && q.status === "open")),
+      ownsCheck: checks.some((k) => k.assignee?.id === viewer.userId),
     },
     (p) => can(viewer, p as Permission),
   );
   const closed = c.stage === "released" || c.stage === "cancelled";
   const stageDates = await getStageDates(caseId);
   const result = shownResult(c);
-  const note = statusNote(c.statusKey);
+  const note = statusNote(c.statusKey, c.statusLabel);
+  const ownStatuses = statuses.filter((s) => s.isCustom && (s.isActive || s.key === c.manualStatusKey));
+  const notContacted = Boolean(contactGap) && (c.stage === "intake" || c.stage === "documents") && !c.onHold;
 
   return (
     <header className="space-y-3">
@@ -210,9 +246,13 @@ async function Header({ params }: Params) {
             {c.positionTitle ? <span className="text-muted-foreground"> · {c.positionTitle}</span> : null}
           </p>
           <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
-            <Link href={`/app/clients/${c.client.id}`} className="font-medium text-foreground hover:underline">
-              {c.client.name}
-            </Link>
+            {canAny(viewer, ["clients.read", "clients.manage"]) ? (
+              <Link href={`/app/clients/${c.client.id}`} className="font-medium text-foreground hover:underline">
+                {c.client.name}
+              </Link>
+            ) : (
+              <span className="font-medium text-foreground">{c.client.name}</span>
+            )}
             <span aria-hidden>·</span>
             <span>{c.package.name}</span>
             <ProcessTypeBadge type={c.processType} />
@@ -220,10 +260,11 @@ async function Header({ params }: Params) {
         </div>
         <div className="flex flex-wrap items-center gap-2 sm:justify-end">
           {note ? (
-            <ToneChip tone={c.statusKey === "returned_for_correction" ? "warning" : "neutral"} dot={false}>
+            <ToneChip tone={c.returnedAt ? "warning" : "neutral"} dot={false}>
               {note}
             </ToneChip>
           ) : null}
+          {ownStatuses.length && !closed && !c.onHold && can(viewer, "cases.update") ? <StatusSetter caseId={c.id} value={c.manualStatusKey} options={ownStatuses} /> : null}
           {result ? <ResultBadge result={result} prefix={c.finalResult ? "Result:" : "Proposed:"} /> : null}
           {!closed && c.stage !== "report" && c.stage !== "approval" ? <SlaBadge dueAt={c.dueAt} startedAt={c.receivedAt} /> : null}
           <PersonChip person={c.assignee} empty="Manager queue" className="max-w-44" />
@@ -235,6 +276,20 @@ async function Header({ params }: Params) {
           {c.holdReason}
         </Banner>
       ) : null}
+      {notContacted ? (
+        <Banner tone="warning" icon={<PhoneCall className="size-4" />} title="Contacting the candidate isn't finished">
+          Call them to explain the verification and log it under{" "}
+          <a href="#contacts" className="font-medium underline-offset-4 hover:underline">
+            Contacts
+          </a>
+          , and send their page from the{" "}
+          <a href="#candidate" className="font-medium underline-offset-4 hover:underline">
+            Candidate
+          </a>{" "}
+          section. The case can&apos;t go to Pre-QC until both are done.
+        </Banner>
+      ) : null}
+      {c.candidateMatchOpen ? <CandidateMatch caseId={c.id} typed={c.intakeCandidate?.full_name ?? c.candidate.fullName} onFile={c.candidate.fullName} canDecide={can(viewer, "cases.update")} /> : null}
       {c.returnedAt && !c.onHold && !closed ? (
         <Banner tone="warning" icon={<RotateCcw className="size-4" />} title="Returned for correction">
           {c.returnNote}
@@ -263,11 +318,19 @@ async function Header({ params }: Params) {
         stage={c.stage}
         processType={c.processType}
         actions={actions}
+        revising={revising}
         checks={checks.map((k) => ({ id: k.id, label: k.label, state: k.state }))}
+        checklists={workflow.qcChecklists}
+        filesWithoutOriginalNote={documents.filter((d) => (d.status === "uploaded" || d.status === "accepted") && d.originalKind === "unknown").length}
       />
-      {closed && !c.erasedAt && viewer.roleKey === "super_admin" ? (
-        <div className="flex justify-end">
-          <EraseCaseDialog caseId={c.id} reference={c.reference} />
+      {can(viewer, "audit.read") || (closed && !c.erasedAt && viewer.roleKey === "super_admin") ? (
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {can(viewer, "audit.read") ? (
+            <Link href={`/app/audit?q=${encodeURIComponent(c.reference)}`} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground">
+              <History className="size-4" /> Audit trail
+            </Link>
+          ) : null}
+          {closed && !c.erasedAt && viewer.roleKey === "super_admin" ? <EraseCaseDialog caseId={c.id} reference={c.reference} /> : null}
         </div>
       ) : null}
     </header>
@@ -338,11 +401,12 @@ async function Report({ params }: Params) {
   if (!atReport && !versions.length) return null;
   const [missingAnnexures, unreported, checks] = await Promise.all([
     c.stage === "report" ? getMissingAnnexures(caseId) : [],
-    c.stage === "report" ? getUnreportedEvidence(caseId) : [],
+    c.stage === "report" || c.stage === "post_qc" ? getUnreportedEvidence(caseId) : [],
     getCaseChecks(caseId),
   ]);
   const canRelease = can(viewer, "reports.release");
-  const recipients = canRelease && c.stage === "approval" ? await getReleaseRecipients(c.client.id) : [];
+  const recipients = canRelease && (c.stage === "approval" || c.stage === "released") ? await getReleaseRecipients(c.client.id) : [];
+  const audience = c.stage === "released" || c.stage === "approval" ? await getReportAudience(caseId) : null;
   return (
     <Section title="Report" id="report">
       <ReportPanel
@@ -350,9 +414,12 @@ async function Report({ params }: Params) {
         stage={c.stage}
         onHold={c.onHold}
         clientName={c.client.name}
+        clientVisible={c.clientVisible}
         versions={versions}
         summary={draftSummary}
         recipients={recipients}
+        audience={audience}
+        erased={Boolean(c.erasedAt)}
         missingAnnexures={missingAnnexures}
         unreported={unreported}
         closedChecks={checks.filter((k) => k.state === "completed" || k.state === "discrepancy" || k.state === "unable_to_verify").map((k) => ({ id: k.id, label: k.label }))}
@@ -362,6 +429,8 @@ async function Report({ params }: Params) {
           approve: can(viewer, "reports.approve"),
           release: canRelease,
           superAdmin: viewer.roleKey === "super_admin",
+          overrideEvidence: can(viewer, "cases.stage.change") || can(viewer, "qc.post"),
+          openSensitive: can(viewer, "documents.read_sensitive") || c.assignee?.id === viewer.userId,
         }}
         viewerId={viewer.userId}
       />
@@ -377,9 +446,11 @@ async function Copilot({ params }: Params) {
   const [ai, status, checks, docs] = await Promise.all([getCaseAi(caseId), getAiStatus(), getCaseChecks(caseId), getDocuments(caseId)]);
   const work = await getAiWork(caseId, [...checks.map((k) => k.id), ...docs.map((d) => d.id)]);
   const may = (p: string) => can(viewer, p as Permission);
+  // Who may word a check (public.set_check_remarks): an officer only the checks, or the case, they own.
+  const wordsAny = may("qc.post") || may("cases.stage.change") || (may("checks.verify") && c.assignee?.id === viewer.userId);
   const remarks = checks.flatMap((k) => {
     const item = aiItem<{ text: string }>(ai.checks[k.id]?.remarks);
-    return item ? [{ ...item, checkId: k.id, checkLabel: k.label, current: k.clientNote }] : [];
+    return item ? [{ ...item, checkId: k.id, checkLabel: k.label, current: k.clientNote, canUse: wordsAny || (may("checks.verify") && k.assignee?.id === viewer.userId) }] : [];
   });
   const data = {
     consistency: aiItem<ConsistencyResult>(ai.consistency),
@@ -415,7 +486,7 @@ async function Copilot({ params }: Params) {
   }
   const closed = c.stage === "released" || c.stage === "cancelled";
   const rerun = Object.fromEntries((Object.keys(RERUN) as RerunCapability[]).map((k) => [k, !closed && canRerun(k, c.stage, c.onHold, may)]));
-  const askCandidate = !closed && (may("candidates.requests") || may("cases.update"));
+  const askCandidate = !closed && !c.onHold && (may("candidates.requests") || may("cases.update"));
   const [candidate, categories] = askCandidate ? await Promise.all([getCandidatePanel(caseId), getDocumentCategories()]) : [null, await getDocumentCategories()];
   return (
     <Section title="AI copilot" id="ai">
@@ -431,9 +502,10 @@ async function Copilot({ params }: Params) {
           post: canDecide("case.postqc", may),
           remarks: canDecide("report.narrative", may),
           askCandidate,
-          requestClient: !closed && may("cases.update"),
+          requestClient: !closed && !c.onHold && uploadsOpen(c.stage) && may("cases.update"),
+          askDocuments: uploadsOpen(c.stage),
         }}
-        remarksLocked={["approval", "released", "cancelled"].includes(c.stage)}
+        remarksLocked={remarksLocked(c, may("qc.post") || may("cases.stage.change"))}
         candidate={
           candidate
             ? {
@@ -447,7 +519,11 @@ async function Copilot({ params }: Params) {
               }
             : null
         }
-        request={{ categories, checks: checks.map((k) => ({ id: k.id, label: k.label })) }}
+        request={{
+          categories: c.processType === "candidate_collected" ? categories.filter((cat) => !STAFF_ONLY_CATEGORIES.has(cat.key)) : categories,
+          checks: checks.map((k) => ({ id: k.id, label: k.label })),
+          candidateCollected: c.processType === "candidate_collected",
+        }}
       />
     </Section>
   );
@@ -475,7 +551,7 @@ async function Questions({ params }: Params) {
   const [viewer, c] = await Promise.all([getStaffViewer(), loadCase(caseId)]);
   if (!c) return null;
   const closed = c.stage === "released" || c.stage === "cancelled";
-  return <ClientQuestions caseId={caseId} questions={await getClientQuestions(caseId)} canAsk={!closed && can(viewer, "cases.update")} clientName={c.client.name || "The client"} />;
+  return <ClientQuestions caseId={caseId} questions={await getClientQuestions(caseId)} canAsk={!closed && !c.onHold && can(viewer, "cases.update")} clientName={c.client.name || "The client"} />;
 }
 
 async function Contacts({ params }: Params) {
@@ -491,7 +567,7 @@ async function Documents({ params }: Params) {
   const { caseId } = await params;
   const [viewer, c] = await Promise.all([getStaffViewer(), loadCase(caseId)]);
   if (!c) return null;
-  const [reqs, docs, categories, checks] = await Promise.all([getRequirements(caseId), getDocuments(caseId), getDocumentCategories(), getCaseChecks(caseId)]);
+  const [reqs, docs, categories, checks, candidate] = await Promise.all([getRequirements(caseId), getDocuments(caseId), getDocumentCategories(), getCaseChecks(caseId), getCandidatePanel(caseId)]);
   const docAi = await getDocumentAi(
     caseId,
     docs.map((d) => d.id),
@@ -506,20 +582,28 @@ async function Documents({ params }: Params) {
       categories={categories}
       checks={checks.map((k) => ({ id: k.id, label: k.label }))}
       fixedCategories={fixedAnnexureCategories(checks)}
+      recordsByCheck={Object.fromEntries(checks.map((k) => [k.id, recordOptions(k.schema.fields, k.values)]))}
       perms={{
         upload: can(viewer, "cases.update") || can(viewer, "candidates.manage"),
+        details: can(viewer, "cases.update") || can(viewer, "qc.pre") || can(viewer, "qc.post"),
         review: can(viewer, "cases.update") || can(viewer, "qc.pre"),
         waive: can(viewer, "cases.stage.change") || can(viewer, "qc.pre"),
-        request: can(viewer, "cases.update"),
+        request: can(viewer, "cases.update") && uploadsOpen(c.stage),
         visibility: can(viewer, "documents.manage_visibility"),
+        toReport: c.stage === "post_qc" && can(viewer, "qc.post"),
       }}
       closed={c.stage === "released" || c.stage === "cancelled"}
+      erased={Boolean(c.erasedAt)}
+      consentDocumentId={candidate.consent?.documentId ?? null}
+      locked={documentsLocked(c, can(viewer, "qc.post") || can(viewer, "cases.stage.change"))}
+      uploadsOpen={uploadsOpen(c.stage)}
+      candidateCollected={c.processType === "candidate_collected"}
     />
   );
 }
 
-/** Categories only Ontriq staff provide (public.candidate_providable in 0041). */
-const STAFF_ONLY_CATEGORIES = new Set(["field_verification", "sanction_report", "consent_form"]);
+/** Categories only Ontriq staff provide (public.candidate_providable in 0049). */
+const STAFF_ONLY_CATEGORIES = new Set(["field_verification", "sanction_report", "consent_form", "verification_response", "reference_form"]);
 
 /** What a candidate can be asked to fill in: single details, and rows of a group they can fill. */
 const askableFields = (fields: FieldDef[]) =>
@@ -537,7 +621,7 @@ async function Candidate({ params }: Params) {
     <CandidatePanel
       caseId={caseId}
       data={data}
-      contact={{ email: c.candidate.email, phone: c.candidate.phone, preferredLanguage: (["si", "ta"].includes(c.candidate.preferredLanguage) ? c.candidate.preferredLanguage : "en") as "en" | "si" | "ta" }}
+      contact={{ email: c.intakeCandidate?.email ?? c.candidate.email, phone: c.intakeCandidate?.phone ?? c.candidate.phone, preferredLanguage: (["si", "ta"].includes(c.candidate.preferredLanguage) ? c.candidate.preferredLanguage : "en") as "en" | "si" | "ta" }}
       checks={checks.map((k) => ({
         id: k.id,
         label: k.label,
@@ -547,7 +631,10 @@ async function Candidate({ params }: Params) {
       consentDocuments={docs.filter((d) => d.category === "consent_form" && (d.status === "uploaded" || d.status === "accepted")).map((d) => ({ id: d.id, filename: d.filename, createdAt: d.createdAt }))}
       canManage={canManage}
       canReviewConsent={canManage && (can(viewer, "cases.update") || can(viewer, "qc.pre"))}
-      closed={c.stage === "released" || c.stage === "cancelled"}
+      canUseAnswers={can(viewer, "cases.update") && (can(viewer, "checks.data_entry") || can(viewer, "checks.verify")) && ["intake", "documents", "pre_qc", "data_entry", "verification"].includes(c.stage)}
+      askDocuments={uploadsOpen(c.stage)}
+      closed={c.stage === "released" || c.stage === "cancelled" || c.onHold}
+      erased={Boolean(c.erasedAt)}
       candidateCollected={c.processType === "candidate_collected"}
     />
   );
@@ -557,8 +644,9 @@ async function Activity({ params }: Params) {
   const { caseId } = await params;
   const c = await loadCase(caseId);
   if (!c) return null;
-  const [events, checks] = await Promise.all([getTimeline(caseId), getCaseChecks(caseId)]);
-  return <Timeline caseId={caseId} events={events} checks={checks.map((k) => ({ id: k.id, label: k.label }))} canNote />;
+  const [viewer, events, checks] = await Promise.all([getStaffViewer(), getTimeline(caseId), getCaseChecks(caseId)]);
+  const canNote = can(viewer, "cases.update") || can(viewer, "checks.verify") || can(viewer, "qc.pre") || can(viewer, "qc.post");
+  return <Timeline caseId={caseId} events={events} checks={checks.map((k) => ({ id: k.id, label: k.label }))} canNote={canNote} />;
 }
 
 async function Owner({ params }: Params) {
@@ -588,7 +676,11 @@ async function People({ params }: Params) {
   const closed = c.stage === "released" || c.stage === "cancelled";
   return (
     <>
-      <CandidateCard candidate={c.candidate} canEdit={!closed && (can(viewer, "candidates.manage") || can(viewer, "cases.update"))} />
+      {/* The contact the case uses: on a request, the one the client typed. */}
+      <CandidateCard
+        candidate={{ ...c.candidate, email: c.intakeCandidate?.email ?? c.candidate.email, phone: c.intakeCandidate?.phone ?? c.candidate.phone }}
+        canEdit={!closed && (can(viewer, "candidates.manage") || can(viewer, "cases.update"))}
+      />
       <DetailsCard
         caseId={caseId}
         details={{
@@ -597,6 +689,7 @@ async function People({ params }: Params) {
           department: c.department,
           clientReference: c.clientReference,
           instructions: c.instructions,
+          internalNotes: c.internalNotes,
           receivedAt: c.receivedAt,
           dueAt: c.dueAt,
           processType: c.processType,

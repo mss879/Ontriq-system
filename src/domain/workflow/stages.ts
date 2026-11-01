@@ -49,6 +49,8 @@ export const STATUS_LABELS: Record<string, string> = {
   partially_completed: "Partially Completed",
   pending_post_qc: "Pending Post-QC",
   returned_for_correction: "Returned for Correction",
+  returned_to_data_entry: "Returned to Data Entry",
+  returned_to_verification: "Returned to Verification",
   final_report_in_progress: "Final Report in Progress",
   pending_final_approval: "Pending Final Approval",
   report_completed: "Report Completed",
@@ -115,7 +117,7 @@ export function stageStep(stage: Stage): number | null {
 
 export const FINAL_RESULTS = ["green", "amber", "red"] as const;
 export type FinalResult = (typeof FINAL_RESULTS)[number];
-export const FINAL_RESULT_LABELS: Record<FinalResult, string> = { green: "Clear", amber: "Review", red: "Discrepancy" };
+export const FINAL_RESULT_LABELS: Record<FinalResult, string> = { green: "Clear", amber: "Pending / Review", red: "Discrepancy Identified" };
 
 export const PROCESS_TYPES = ["client_supplied", "candidate_collected"] as const;
 export type ProcessType = (typeof PROCESS_TYPES)[number];

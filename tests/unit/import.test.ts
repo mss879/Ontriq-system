@@ -5,7 +5,7 @@ const today = new Date("2026-10-30T00:00:00Z");
 
 describe("case import", () => {
   it("maps headers by name, label or alias, once each", () => {
-    expect(mapImportHeaders(["Candidate Name", "NIC Number", "Mobile", "Language", "Notes", "name"])).toEqual(["full_name", "nic", "phone", "preferred_language", null, null]);
+    expect(mapImportHeaders(["Candidate Name", "NIC Number", "Mobile", "Language", "Notes", "name"])).toEqual(["full_name", "nic", "phone", "preferred_language", "internal_notes", null]);
   });
 
   it("accepts the template as is", () => {
@@ -14,7 +14,7 @@ describe("case import", () => {
     expect(r.rows).toHaveLength(1);
     expect(r.rows[0].errors).toEqual([]);
     expect(candidatePayload(r.rows[0])).toMatchObject({ full_name: "Nimal Perera", nic: "853400937V", nic_canonical: "198534000937", preferred_language: "en", district: "Colombo" });
-    expect(caseFields(r.rows[0])).toEqual({ position_title: "Accountant", department: "Finance", client_reference: "EMP-1042" });
+    expect(caseFields(r.rows[0])).toEqual({ position_title: "Accountant", department: "Finance", client_reference: "EMP-1042", instructions: null, internal_notes: null });
   });
 
   it("reports each problem on its own line and catches duplicates", () => {
@@ -34,8 +34,7 @@ describe("case import", () => {
     expect(bad.errors.join(" ")).toMatch(/Full name.*NIC.*Email.*Phone.*District.*Language/);
     expect(dup.errors).toEqual(["Same NIC as line 2."]);
     expect(dup.warnings).toContain("Same email as line 2.");
-    expect(noContact.errors).toEqual([]);
-    expect(noContact.warnings.join(" ")).toMatch(/No NIC.*candidate link/);
+    expect(noContact.errors).toEqual(["Ontriq collects from this candidate, so the row needs an email or phone number."]);
   });
 
   it("needs a name column and caps the number of rows", () => {

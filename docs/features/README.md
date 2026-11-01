@@ -44,6 +44,11 @@ Each feature is one migration file.
 - [Client requirements](0041-client-requirements.md) — `0041_client_requirements.sql`
 - [Fixes from the independent re-audit](0042-review-fixes.md) — `0042_review_fixes.sql`
 - [Colombo dates](0043-colombo-dates.md) — `0043_colombo_dates.sql`
+- [AI evaluation and routing](0044-ai-evaluation.md) — `0044_ai_routing.sql`, `0045_search_words.sql`
+- [One file filling several document slots](0046-combined-files.md) — `0046_combined_files.sql`
+- [Candidate report](0047-candidate-report.md) — `0047_candidate_report.sql`
+- [Requirements check fixes](0048-audit-fixes.md) — `0048_audit_fixes.sql`
+- [Final audit fixes](0049-final-audit-fixes.md) — `0049_final_audit_fixes.sql`
 
 ## Notes from Phase 0
 

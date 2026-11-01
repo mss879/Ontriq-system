@@ -157,8 +157,9 @@ begin
 end $$;
 
 -- "In the report" stays out of the portal, before and after release.
-select set_config('request.jwt.claims', '{"sub":"a4000000-0000-4000-8000-000000000001","role":"authenticated","aal":"aal2"}', true);
-do $$ begin perform public.set_document_visibility('a4000000-1111-4000-8000-000000000001', 'report'); end $$;
+reset role;
+update public.documents set visibility = 'report' where id = 'a4000000-1111-4000-8000-000000000001';
+set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"a4000000-0000-4000-8000-000000000004","role":"authenticated","aal":"aal2"}', true);
 do $$ begin
   assert jsonb_array_length(public.portal_case_detail(current_setting('t.case')::uuid) -> 'documents') = 0, 'a report-only file reached the portal';
@@ -168,6 +169,7 @@ end $$;
 -- Sharing is deliberate, and takes someone who may open the file.
 reset role;
 delete from public.role_permissions where permission = 'documents.read_sensitive' and role_id = (select id from public.roles where key = 'admin');
+update public.cases set stage = 'report' where id = current_setting('t.case')::uuid;
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"a4000000-0000-4000-8000-000000000001","role":"authenticated","aal":"aal2"}', true);
 do $$ begin
@@ -179,6 +181,9 @@ reset role;
 insert into public.role_permissions (role_id, permission) select id, 'documents.read_sensitive' from public.roles where key = 'admin';
 set local role authenticated;
 do $$ begin perform public.set_document_visibility('a4000000-1111-4000-8000-000000000001', 'client'); end $$;
+reset role;
+update public.cases set stage = 'released' where id = current_setting('t.case')::uuid;
+set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"a4000000-0000-4000-8000-000000000004","role":"authenticated","aal":"aal2"}', true);
 do $$ begin
   assert jsonb_array_length(public.portal_case_detail(current_setting('t.case')::uuid) -> 'documents') = 1, 'a shared file should reach the portal';

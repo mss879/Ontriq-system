@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
-import { NonRetryableError, type JobHandler } from "../types";
+import { NonRetryableError, type JobContext, type JobHandler } from "../types";
 import { currentSnapshot } from "../report/load";
 import { renderReportBody } from "../report/build-body";
-import { assembleReport } from "../report/assemble";
+import { assembleReport, assembleReportPart, planAnnexures, type AnnexureFile } from "../report/assemble";
 import type { ReportSnapshot } from "../../domain/reports/compile-core";
 import type { ResultTone } from "../../domain/check-types/schema";
 
@@ -32,46 +32,7 @@ export const reportRender: JobHandler = async (job, { admin, heartbeat }) => {
     }
     await heartbeat({ step: "compiled" });
 
-    // Annexure files, in the snapshot's order.
-    const ids = snapshot.annexures.map((a) => a.document_id);
-    const { data: docs } = ids.length ? await admin.from("documents").select("id, storage_bucket, storage_path").in("id", ids) : { data: [] };
-    const where = new Map((docs ?? []).map((d) => [d.id, d]));
-    const annexures = [];
-    for (const a of snapshot.annexures) {
-      const d = where.get(a.document_id);
-      let bytes: Uint8Array | null = null;
-      if (d) {
-        const file = await admin.storage.from(d.storage_bucket).download(d.storage_path);
-        bytes = file.data ? new Uint8Array(await file.data.arrayBuffer()) : null;
-      }
-      annexures.push({ ...a, bytes });
-    }
-
-    const origin = (process.env.APP_ORIGIN ?? process.env.URL ?? "http://localhost:3000").replace(/\/+$/, "");
-    const approver = v.approved_by ? (await admin.from("profiles").select("full_name").eq("id", v.approved_by).maybeSingle()).data?.full_name : null;
-    const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Colombo" }) : null);
-    const body = await renderReportBody(snapshot, {
-      kind: v.kind,
-      version: v.version,
-      finalResult: (v.final_result as ResultTone | null) ?? null,
-      approvedBy: approver ?? null,
-      approvedOn: fmt(v.approved_at),
-      verifyUrl: v.kind === "final" ? `${origin}/verify/${v.id}` : null,
-      generatedOn: fmt(new Date().toISOString()) ?? "",
-      revisionReason: v.revision_reason,
-    });
-    await heartbeat({ step: "body" });
-    const assembled = await assembleReport(new Uint8Array(body), annexures, { reference: snapshot.case.reference, draft: v.kind === "draft" });
-    // A report without its fixed annexure is not a report: stop here and say why.
-    const lost = snapshot.annexures.find((a) => a.kind === "fixed" && assembled.skipped.includes(a.filename));
-    if (lost) {
-      throw new NonRetryableError(`${lost.title} (${lost.filename}) couldn't be attached. It must be a PDF or photo that opens normally. Upload a new version, then generate the draft again.`);
-    }
-
-    const path = `org/${v.org_id}/case/${v.case_id}/report/v${v.version}-${v.kind}.pdf`;
-    const up = await admin.storage.from("reports").upload(path, assembled.bytes, { contentType: "application/pdf", upsert: true });
-    if (up.error) throw new Error(`upload: ${up.error.message}`);
-    const sha256 = createHash("sha256").update(assembled.bytes).digest("hex");
+    const { path, sha256, assembled, plan, parts } = await buildReportFiles(admin, v, snapshot, { run: job.attempts ?? 1, heartbeat });
     const done = await admin.rpc("report_render_done", {
       p_version: v.id,
       p_ok: true,
@@ -81,13 +42,91 @@ export const reportRender: JobHandler = async (job, { admin, heartbeat }) => {
       p_sha256: sha256,
       p_pages: assembled.pages,
       p_size: assembled.bytes.byteLength,
-      p_annexures: snapshot.annexures.map((a) => ({ title: a.title, filename: a.filename, kind: a.kind, embedded: !assembled.skipped.includes(a.filename), partial: assembled.partial.includes(a.filename) })) as never,
+      p_annexures: plan.map((a) => ({
+        document_id: a.document_id,
+        title: a.title,
+        filename: a.filename,
+        kind: a.kind,
+        part: a.part,
+        status: a.status,
+        embedded: a.status === "embedded" || a.status === "attached",
+        attached: a.status === "attached",
+        altered: a.altered,
+      })) as never,
+      p_parts: parts as never,
     });
     if (done.error) throw new Error(`report_render_done: ${done.error.message}`);
-    return { path, pages: assembled.pages, sha256, skipped: assembled.skipped };
+    return { path, pages: assembled.pages, sha256, problems: plan.filter((a) => a.status !== "embedded" || a.altered).map((a) => a.filename), parts: parts.length };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await admin.rpc("report_render_done", { p_version: v.id, p_ok: false, p_error: message });
     throw error;
   }
 };
+
+type RenderTarget = { id: string | null; case_id: string; org_id: string; version: number; kind: "draft" | "final"; final_result: string | null; approved_by: string | null; approved_at: string | null; revision_reason: string | null };
+type BuildOptions = { run: number; heartbeat: JobContext["heartbeat"]; issue?: number };
+
+/** Draws one version from its snapshot and stores the files. The seed uses it too, to redraw demo reports after moving their dates. */
+export async function buildReportFiles(admin: JobContext["admin"], v: RenderTarget, snapshot: ReportSnapshot, { run, heartbeat, issue }: BuildOptions) {
+  // Annexure files, in the snapshot's order, read when they're needed.
+  const ids = snapshot.annexures.map((a) => a.document_id);
+  const { data: docs } = ids.length ? await admin.from("documents").select("id, storage_bucket, storage_path").in("id", ids) : { data: [] };
+  const where = new Map((docs ?? []).map((d) => [d.id, d]));
+  const files: AnnexureFile[] = snapshot.annexures.map((a) => ({
+    ...a,
+    read: async () => {
+      const d = where.get(a.document_id);
+      const file = d ? await admin.storage.from(d.storage_bucket).download(d.storage_path) : null;
+      return file?.data ? new Uint8Array(await file.data.arrayBuffer()) : null;
+    },
+  }));
+  const plan = await planAnnexures(files, { parts: true });
+  await heartbeat({ step: "planned" });
+  // A report without its fixed annexure is not a report: stop here and say why.
+  const lost = plan.find((a) => a.kind === "fixed" && a.status !== "embedded" && a.status !== "attached");
+  if (lost) {
+    throw new NonRetryableError(`${lost.title} (${lost.filename}) couldn't be attached. It must be a PDF or photo that opens normally. Upload a new version, then generate the draft again.`);
+  }
+
+  const origin = (process.env.APP_ORIGIN ?? process.env.URL ?? "http://localhost:3000").replace(/\/+$/, "");
+  const verifyUrl = v.kind === "final" ? `${origin}/verify/${v.id}` : null;
+  const approver = v.approved_by ? (await admin.from("profiles").select("full_name").eq("id", v.approved_by).maybeSingle()).data?.full_name : null;
+  const fmt = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Colombo" }) : null);
+  // A client counts issues of the report, not every draft that came before.
+  const { count: released } = await admin.from("report_versions").select("id", { count: "exact", head: true }).eq("case_id", v.case_id).eq("kind", "final").not("released_at", "is", null);
+  const body = await renderReportBody(snapshot, {
+    kind: v.kind,
+    version: v.kind === "final" ? (issue ?? (released ?? 0) + 1) : v.version,
+    finalResult: (v.final_result as ResultTone | null) ?? null,
+    approvedBy: approver ?? null,
+    approvedOn: fmt(v.approved_at),
+    verifyUrl,
+    // A final is dated by its approval, so drawing it again gives the same report.
+    generatedOn: fmt(v.kind === "final" && v.approved_at ? v.approved_at : new Date().toISOString()) ?? "",
+    revisionReason: v.revision_reason,
+    annexures: plan,
+  });
+  await heartbeat({ step: "body" });
+  const base = { reference: snapshot.case.reference, draft: v.kind === "draft", verifyUrl };
+  const assembled = await assembleReport(new Uint8Array(body), plan, { ...base, part: 1 });
+
+  // Each run writes its own file. If a lease ran out and two ran at once, the first one finished stands whole.
+  const path = `org/${v.org_id}/case/${v.case_id}/report/v${v.version}-${v.kind}-${run}.pdf`;
+  const up = await admin.storage.from("reports").upload(path, assembled.bytes, { contentType: "application/pdf", upsert: true });
+  if (up.error) throw new Error(`upload: ${up.error.message}`);
+  const sha256 = createHash("sha256").update(assembled.bytes).digest("hex");
+
+  // Spec 7: what didn't fit goes in further files of the same report.
+  const parts: { part: number; path: string; sha256: string; pages: number; size_bytes: number; annexures: string[] }[] = [];
+  const lastPart = Math.max(1, ...plan.map((a) => a.part));
+  for (let part = 2; part <= lastPart; part += 1) {
+    await heartbeat({ step: `part ${part}` });
+    const piece = await assembleReportPart(plan, { ...base, part });
+    const partPath = `org/${v.org_id}/case/${v.case_id}/report/v${v.version}-${v.kind}-${run}-part-${part}.pdf`;
+    const stored = await admin.storage.from("reports").upload(partPath, piece.bytes, { contentType: "application/pdf", upsert: true });
+    if (stored.error) throw new Error(`upload: ${stored.error.message}`);
+    parts.push({ part, path: partPath, sha256: createHash("sha256").update(piece.bytes).digest("hex"), pages: piece.pages, size_bytes: piece.bytes.byteLength, annexures: plan.filter((a) => a.part === part).map((a) => a.filename) });
+  }
+  return { path, sha256, assembled, plan, parts };
+}

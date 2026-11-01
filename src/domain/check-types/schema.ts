@@ -1,8 +1,8 @@
 /**
  * The check type definition language. A check type version stores one of
  * these as JSON (check_type_versions.schema); forms, validation, document
- * requirements and (in Phase 3) report blocks are all driven by it, so Ontriq
- * can add a new kind of check without code. Pure module.
+ * requirements and the report are all driven by it, so Ontriq can add a new
+ * kind of check without code. Pure module.
  */
 import { z } from "zod";
 
@@ -58,7 +58,7 @@ const visibilitySchema = z.object({
   client: z.boolean().default(false),
   /** Printed in the final report. */
   report: z.boolean().default(true),
-  /** Shown to the candidate on their link. */
+  /** Kept for stored versions. What a candidate sees is set by fill_by. */
   candidate: z.boolean().default(false),
 });
 
@@ -76,12 +76,14 @@ const baseField = z.object({
       min: z.number().optional(),
       max: z.number().optional(),
       maxLength: z.number().int().positive().optional(),
+      /** Numbers only: a year or a count, with no decimals. */
+      integer: z.boolean().optional(),
     })
     .optional(),
   visibility: visibilitySchema.default({ client: false, report: true, candidate: false }),
-  /** Who may fill the field: Ontriq staff, the candidate (Phase 2), the client. */
+  /** Who else may fill the field: "candidate" puts it on the BGV form. Staff can always fill it. */
   fill_by: z.array(z.enum(["staff", "candidate", "client"])).default(["staff"]),
-  /** Phase 4: whether AI extraction pre-fills it, and a hint for the model. */
+  /** Whether AI extraction pre-fills it, and a hint for the model. On unless set to false. */
   ai: z.object({ extract: z.boolean().default(false), hint: z.string().max(300).optional() }).optional(),
   width: z.enum(["full", "half"]).default("half"),
 });
@@ -104,6 +106,8 @@ export const documentRequirementSchema = z.object({
   /** Documents must be in before the case leaves this stage. */
   stage: z.enum(["documents", "verification"]).default("documents"),
   client_visible: z.boolean().default(false),
+  /** Spec 4.2: one file for each row of this repeating group, before the check can be verified. */
+  per_record: keySchema.optional(),
 });
 
 export const RESULT_TONES = ["green", "amber", "red"] as const;
@@ -124,7 +128,7 @@ export const checkTypeSchema = z
     fields: z.array(fieldSchema).min(1, "Add at least one field."),
     documents: z.array(documentRequirementSchema).default([]),
     result: z.object({ options: z.array(resultOptionSchema).min(2) }).default({ options: DEFAULT_RESULT_OPTIONS }),
-    /** Report layout blocks, used from Phase 3. */
+    /** Kept for stored versions: the report is laid out from the fields themselves. */
     report: z.object({ blocks: z.array(z.record(z.string(), z.unknown())).default([]) }).default({ blocks: [] }),
     sla_days: z.number().int().min(1).max(90).default(5),
     /** Address and police checks happen on the ground; assignment considers regions. */
@@ -162,6 +166,27 @@ export type ResultOption = z.infer<typeof resultOptionSchema>;
 export type CheckTypeSchema = z.infer<typeof checkTypeSchema>;
 /** What authors write before defaults apply. */
 export type CheckTypeSchemaInput = z.input<typeof checkTypeSchema>;
+
+/**
+ * What has to be right before a version goes live. Checked at publish, not on
+ * read: a stored version stays readable whatever it holds, and cases keep theirs.
+ */
+export function publishIssues(schema: CheckTypeSchema): string[] {
+  const issues: string[] = [];
+  const tones = new Set(schema.result.options.map((o) => o.tone));
+  if (!tones.has("green")) issues.push("Add a green result, so a check can come out clear.");
+  if (!tones.has("red")) issues.push("Add a red result, so a check can record a discrepancy.");
+  const keys = schema.result.options.map((o) => o.key);
+  if (new Set(keys).size !== keys.length) issues.push("Two results share a key.");
+  for (const f of schema.fields) {
+    if (f.type === "repeatable_group" && f.group && f.group.min > f.group.max) issues.push(`"${f.label}" asks for at least ${f.group.min} but allows only ${f.group.max}.`);
+    if (f.type === "number" && f.validation?.min !== undefined && f.validation.max !== undefined && f.validation.min > f.validation.max) issues.push(`"${f.label}" has a lowest value above its highest.`);
+  }
+  for (const d of schema.documents) {
+    if (d.per_record && !schema.fields.some((f) => f.key === d.per_record && f.type === "repeatable_group")) issues.push(`"${d.label}" is set per record, but that repeating group isn't on this check.`);
+  }
+  return issues;
+}
 
 /** Parse a stored schema, filling defaults. Throws on invalid input. */
 export function parseCheckTypeSchema(raw: unknown): CheckTypeSchema {

@@ -4,6 +4,7 @@ import { createRequestClient } from "@/lib/supabase/server";
 import { parseCheckTypeSchema, type CheckTypeSchema } from "@/domain/check-types/schema";
 import type { CheckState, FinalResult, Priority, ProcessType, Stage } from "@/domain/workflow/stages";
 import { ACTIVE_STAGES, STAGES } from "@/domain/workflow/stages";
+import { statusLabeller } from "./status-catalog";
 
 /**
  * Read models for the case screens. Every query runs as the signed-in person
@@ -43,6 +44,7 @@ export const staffOptions = cache(async (): Promise<StaffOption[]> => {
 export type CaseFilters = {
   q?: string;
   stage?: string;
+  status?: string;
   client?: string;
   assignee?: string;
   priority?: string;
@@ -58,6 +60,7 @@ export type CaseListItem = {
   clientName: string;
   stage: Stage;
   statusKey: string;
+  statusLabel: string;
   priority: Priority;
   onHold: boolean;
   proposedResult: FinalResult | null;
@@ -78,7 +81,7 @@ export function parseCaseFilters(params: Record<string, string | string[] | unde
     return (Array.isArray(v) ? v[0] : v)?.trim() || undefined;
   };
   const page = Number(one("page") ?? "1");
-  return { q: one("q"), stage: one("stage"), client: one("client"), assignee: one("assignee"), priority: one("priority"), due: one("due"), page: Number.isFinite(page) && page > 0 ? Math.floor(page) : 1 };
+  return { q: one("q"), stage: one("stage"), status: one("status"), client: one("client"), assignee: one("assignee"), priority: one("priority"), due: one("due"), page: Number.isFinite(page) && page > 0 ? Math.floor(page) : 1 };
 }
 
 export async function listCases(filters: CaseFilters, viewerId: string, opts: { limit?: number } = {}): Promise<{ items: CaseListItem[]; total: number }> {
@@ -98,6 +101,7 @@ export async function listCases(filters: CaseFilters, viewerId: string, opts: { 
   else if (stage === "on_hold") query = query.eq("on_hold", true);
   else if ((STAGES as readonly string[]).includes(stage)) query = query.eq("stage", stage as Stage);
 
+  if (filters.status) query = query.eq("status_key", filters.status);
   if (filters.client) query = query.eq("client_id", filters.client);
   if (filters.priority) query = query.eq("priority", filters.priority);
   if (filters.assignee === "me") query = query.eq("assigned_to", viewerId);
@@ -111,7 +115,7 @@ export async function listCases(filters: CaseFilters, viewerId: string, opts: { 
   }
 
   const { data, count } = await query.order("received_at", { ascending: false }).range(from, from + limit - 1);
-  const people = await peopleById();
+  const [people, statusLabel] = await Promise.all([peopleById(), statusLabeller()]);
   const items: CaseListItem[] = (data ?? []).map((c) => ({
     id: c.id,
     reference: c.reference,
@@ -120,6 +124,7 @@ export async function listCases(filters: CaseFilters, viewerId: string, opts: { 
     clientName: (c.client as { name: string } | null)?.name ?? "",
     stage: c.stage,
     statusKey: c.status_key,
+    statusLabel: statusLabel(c.status_key),
     priority: c.priority as Priority,
     onHold: c.on_hold,
     proposedResult: c.proposed_result as FinalResult | null,
@@ -131,7 +136,20 @@ export async function listCases(filters: CaseFilters, viewerId: string, opts: { 
     processType: c.process_type,
     packageName: ((c.package_snapshot as { name?: string } | null)?.name ?? "") || "Custom",
   }));
-  return { items, total: count ?? items.length };
+  return { items: await withClientNames(items), total: count ?? items.length };
+}
+
+/** Officers work a case without access to the client's record, but lists show its name. */
+export async function clientNamesFor(caseIds: string[]): Promise<Map<string, string>> {
+  if (!caseIds.length) return new Map();
+  const supabase = await createRequestClient();
+  const { data } = await supabase.rpc("case_client_names", { p_cases: [...new Set(caseIds)] });
+  return new Map((data ?? []).map((r) => [r.case_id, r.client_name]));
+}
+
+export async function withClientNames(items: CaseListItem[]): Promise<CaseListItem[]> {
+  const names = await clientNamesFor(items.filter((i) => !i.clientName).map((i) => i.id));
+  return items.map((i) => (i.clientName ? i : { ...i, clientName: names.get(i.id) ?? "" }));
 }
 
 /** Counts per stage for the board header and dashboard pipeline. */
@@ -153,6 +171,13 @@ export type CaseDetail = {
   reference: string;
   stage: Stage;
   statusKey: string;
+  statusLabel: string;
+  /** One of Ontriq's own statuses, set by hand, until the case moves stage. */
+  manualStatusKey: string | null;
+  /** The NIC matched a record with a different name, and nobody has looked yet. */
+  candidateMatchOpen: boolean;
+  /** The candidate as the client typed them on a portal request. */
+  intakeCandidate: { full_name?: string; nic?: string; email?: string; phone?: string } | null;
   priority: Priority;
   processType: ProcessType;
   clientVisible: boolean;
@@ -170,10 +195,12 @@ export type CaseDetail = {
   department: string | null;
   clientReference: string | null;
   instructions: string | null;
+  internalNotes: string | null;
   createdVia: string;
   receivedAt: string;
   dueAt: string | null;
   completedAt: string | null;
+  releasedAt: string | null;
   cancelReason: string | null;
   erasedAt: string | null;
   package: { name: string; code: string | null; tatDays: number | null; items: { checkTypeId: string; name: string; unitPrice: number }[] };
@@ -215,11 +242,17 @@ export const getCase = cache(async (id: string): Promise<CaseDetail | null> => {
     preferred_language: string;
   } | null;
   const client = c.client as { id: string; name: string; code: string } | null;
+  // Officers work a case without access to the client's record, but they need its name.
+  const clientName = client ? "" : ((await supabase.rpc("case_client_name", { p_case: id })).data ?? "");
   return {
     id: c.id,
     reference: c.reference,
     stage: c.stage,
     statusKey: c.status_key,
+    statusLabel: (await statusLabeller())(c.status_key),
+    manualStatusKey: c.manual_status_key,
+    candidateMatchOpen: c.candidate_match_open,
+    intakeCandidate: c.intake_candidate as CaseDetail["intakeCandidate"],
     priority: c.priority as Priority,
     processType: c.process_type,
     clientVisible: c.client_visible,
@@ -237,11 +270,13 @@ export const getCase = cache(async (id: string): Promise<CaseDetail | null> => {
     department: c.department,
     clientReference: c.client_reference,
     instructions: c.instructions,
+    internalNotes: c.internal_notes,
     createdVia: c.created_via,
     receivedAt: c.received_at,
     dueAt: c.due_at,
     erasedAt: c.erased_at,
     completedAt: c.completed_at,
+    releasedAt: c.released_at,
     cancelReason: c.cancel_reason,
     package: {
       name: snap.name ?? "Custom selection",
@@ -249,7 +284,7 @@ export const getCase = cache(async (id: string): Promise<CaseDetail | null> => {
       tatDays: snap.tat_days ?? null,
       items: (snap.items ?? []).map((i) => ({ checkTypeId: i.check_type_id, name: i.name, unitPrice: Number(i.unit_price ?? 0) })),
     },
-    client: client ?? { id: c.client_id, name: "", code: "" },
+    client: client ?? { id: c.client_id, name: clientName, code: "" },
     candidate: cand
       ? {
           id: cand.id,
@@ -282,6 +317,8 @@ export type CaseCheck = {
   values: Record<string, unknown>;
   valuesValid: boolean;
   clientNote: string | null;
+  /** The last outcome recorded was a discrepancy, even if the check was reopened since. */
+  discrepancyAt: string | null;
   assignee: Person | null;
   dueAt: string | null;
   startedAt: string | null;
@@ -317,6 +354,7 @@ export const getCaseChecks = cache(async (caseId: string): Promise<CaseCheck[]> 
       values: (k.values ?? {}) as Record<string, unknown>,
       valuesValid: k.values_valid,
       clientNote: k.client_note,
+      discrepancyAt: k.discrepancy_at,
       assignee: k.assigned_to ? (people.get(k.assigned_to) ?? { id: k.assigned_to, name: "Team member", email: "" }) : null,
       dueAt: k.due_at,
       startedAt: k.started_at,
@@ -339,11 +377,16 @@ export type Requirement = {
   requestedNote: string | null;
   requestedAt: string | null;
   waivedReason: string | null;
+  /** Files a person confirmed hold this document, though they were uploaded as something else. */
+  files: { documentId: string; filename: string; pages: string | null; recordKeys: string[] }[];
 };
 
 export const getRequirements = cache(async (caseId: string): Promise<Requirement[]> => {
   const supabase = await createRequestClient();
-  const { data } = await supabase.from("case_check_requirements").select("*").eq("case_id", caseId).order("created_at");
+  const [{ data }, { data: links }] = await Promise.all([
+    supabase.from("case_check_requirements").select("*").eq("case_id", caseId).order("created_at"),
+    supabase.from("requirement_files").select("requirement_id, document_id, pages, record_keys, document:documents(filename)").eq("case_id", caseId).order("created_at"),
+  ]);
   return (data ?? []).map((r) => ({
     id: r.id,
     caseCheckId: r.case_check_id,
@@ -357,8 +400,14 @@ export const getRequirements = cache(async (caseId: string): Promise<Requirement
     requestedNote: r.requested_note,
     requestedAt: r.requested_at,
     waivedReason: r.waived_reason,
+    files: (links ?? [])
+      .filter((f) => f.requirement_id === r.id)
+      .map((f) => ({ documentId: f.document_id, filename: (f.document as unknown as { filename: string } | null)?.filename ?? "a file", pages: f.pages, recordKeys: f.record_keys ?? [] })),
   }));
 });
+
+/** The flowchart's "copy/original requirements": what Pre-QC saw, per file. */
+export type OriginalKind = "unknown" | "original" | "certified_copy" | "copy";
 
 export type CaseDocument = {
   id: string;
@@ -373,6 +422,9 @@ export type CaseDocument = {
   sensitive: boolean;
   visibility: "internal" | "client" | "report";
   recordKey: string | null;
+  originalKind: OriginalKind;
+  /** Why sensitive evidence stays out of the report, when someone decided that. */
+  withheldReason: string | null;
   status: "pending_upload" | "uploaded" | "accepted" | "rejected" | "superseded";
   rejectionReason: string | null;
   uploadedBy: Person | null;
@@ -399,6 +451,8 @@ export const getDocuments = cache(async (caseId: string): Promise<CaseDocument[]
     sensitive: d.sensitive,
     visibility: d.visibility as CaseDocument["visibility"],
     recordKey: d.record_key,
+    originalKind: d.original_kind as OriginalKind,
+    withheldReason: d.withheld_reason,
     status: d.status as CaseDocument["status"],
     rejectionReason: d.rejection_reason,
     uploadedBy: d.uploaded_by ? (people.get(d.uploaded_by) ?? null) : null,

@@ -2,8 +2,9 @@ import "server-only";
 import { cache } from "react";
 import { createRequestClient } from "@/lib/supabase/server";
 import { isAiConfigured } from "@/lib/ai/claude";
-import { ConsistencySchema, OutreachSchema, PostQcSchema, PreQcSchema, ResponseSchema } from "@/lib/ai/prompts";
+import { CandidateReportSchema, ConsistencySchema, OutreachSchema, PostQcSchema, PreQcSchema, ResponseSchema } from "@/lib/ai/prompts";
 import { organizeSuggestions, type CaseAi, type Suggestion } from "@/domain/ai/suggestions";
+import type { DocumentPart } from "@/domain/documents/combined";
 
 /**
  * Read models for the AI review screens. Everything runs as the signed-in
@@ -33,6 +34,7 @@ const SCHEMAS: Record<string, { safeParse: (v: unknown) => { success: boolean } 
   "case.postqc": PostQcSchema,
   "check.outreach": OutreachSchema,
   "check.response": ResponseSchema.partial(),
+  "candidate.report": CandidateReportSchema,
 };
 
 function valid(r: Row): boolean {
@@ -92,6 +94,8 @@ export type DocumentAi = {
   matchesExpected: boolean | null;
   issues: string[];
   language: string | null;
+  /** What the classifier thought, for Pre-QC to check. It never decides. */
+  isPhotocopy: boolean | null;
   possibleTampering: boolean;
   tamperNotes: string | null;
   /** The pending suggestion a reviewer can dismiss, when there is one. */
@@ -102,7 +106,12 @@ export type DocumentAi = {
   translation: string | null;
   /** Why the AI couldn't read the file, when it couldn't. */
   notRead: string | null;
+  /** Other documents the AI saw in the file, waiting for a person to match them to slots. */
+  contains: DocumentPart[];
+  containsSuggestionId: string | null;
 };
+
+const partsOf = (s: Suggestion | undefined) => (s?.value as { parts?: DocumentPart[] } | undefined)?.parts ?? [];
 
 /** What the classifier made of each file (document_ai), with the pending quality and tamper flags. */
 export const getDocumentAi = cache(async (caseId: string, documentIds: string[]): Promise<Record<string, DocumentAi>> => {
@@ -123,6 +132,7 @@ export const getDocumentAi = cache(async (caseId: string, documentIds: string[])
       matchesExpected: typeof c.matches_expected === "boolean" ? c.matches_expected : null,
       issues: Array.isArray(c.quality_issues) ? c.quality_issues.map(String) : [],
       language: typeof c.language === "string" ? c.language : null,
+      isPhotocopy: typeof c.is_photocopy === "boolean" ? c.is_photocopy : null,
       possibleTampering: c.possible_tampering === true || Boolean(flags.tamper),
       tamperNotes: (flags.tamper?.value as { notes?: string } | undefined)?.notes ?? (typeof c.tampering_notes === "string" ? c.tampering_notes : null),
       qualitySuggestionId: flags.quality?.id ?? null,
@@ -130,11 +140,13 @@ export const getDocumentAi = cache(async (caseId: string, documentIds: string[])
       candidateMessage: typeof q.message === "string" ? q.message : null,
       translation: typeof c.translation_en === "string" ? c.translation_en : null,
       notRead: typeof c.not_read === "string" ? c.not_read : null,
+      contains: partsOf(flags.contains),
+      containsSuggestionId: flags.contains?.id ?? null,
     };
   }
   // Flags can exist before document_ai does (or without it, in seeded data).
   for (const [id, flags] of Object.entries(ai.documents)) {
-    if (out[id] || !documentIds.includes(id) || (!flags.quality && !flags.tamper)) continue;
+    if (out[id] || !documentIds.includes(id) || (!flags.quality && !flags.tamper && !flags.contains)) continue;
     const q = (flags.quality?.value ?? {}) as Record<string, unknown>;
     out[id] = {
       type: typeof q.detected === "string" ? q.detected : null,
@@ -142,6 +154,7 @@ export const getDocumentAi = cache(async (caseId: string, documentIds: string[])
       matchesExpected: typeof q.matches_expected === "boolean" ? q.matches_expected : null,
       issues: Array.isArray(q.issues) ? q.issues.map(String) : [],
       language: null,
+      isPhotocopy: null,
       possibleTampering: Boolean(flags.tamper),
       tamperNotes: (flags.tamper?.value as { notes?: string } | undefined)?.notes ?? null,
       qualitySuggestionId: flags.quality?.id ?? null,
@@ -149,6 +162,8 @@ export const getDocumentAi = cache(async (caseId: string, documentIds: string[])
       candidateMessage: typeof q.message === "string" ? q.message : null,
       translation: null,
       notRead: null,
+      contains: partsOf(flags.contains),
+      containsSuggestionId: flags.contains?.id ?? null,
     };
   }
   return out;

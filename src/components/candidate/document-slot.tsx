@@ -29,7 +29,7 @@ export type SlotData = {
 type Item = { key: string; name: string; stage: "checking" | "preparing" | "uploading" | "saving" | "done" | "error"; message?: string; warning?: string };
 
 /** One document the candidate needs to provide: guidance, status, their files, and camera or file upload. */
-export function DocumentSlot({ lang, slot }: { lang: CandidateLang; slot: SlotData }) {
+export function DocumentSlot({ lang, slot, uploadsOpen }: { lang: CandidateLang; slot: SlotData; uploadsOpen: boolean }) {
   const t = candidateDict(lang);
   const camera = useRef<HTMLInputElement>(null);
   const picker = useRef<HTMLInputElement>(null);
@@ -67,8 +67,8 @@ export function DocumentSlot({ lang, slot }: { lang: CandidateLang; slot: SlotDa
     if (ok) toast.success(t.documents.uploaded);
   }
 
-  const tone = slot.needsReupload ? "danger" : slot.status === "received" ? "done" : slot.status === "optional" ? "muted" : "pending";
-  const badge = slot.needsReupload ? t.documents.reupload : slot.status === "received" ? t.documents.received : slot.status === "optional" ? t.documents.optional : t.documents.needed;
+  const tone = slot.status === "received" ? "done" : !uploadsOpen || slot.status === "optional" ? "muted" : slot.needsReupload ? "danger" : "pending";
+  const badge = slot.status === "received" ? t.documents.received : !uploadsOpen ? t.documents.notReceived : slot.needsReupload ? t.documents.reupload : slot.status === "optional" ? t.documents.optional : t.documents.needed;
 
   return (
     <article id={`slot-${slot.id}`} className="scroll-mt-20 rounded-2xl border bg-card p-4 shadow-soft sm:p-5">
@@ -168,14 +168,16 @@ export function DocumentSlot({ lang, slot }: { lang: CandidateLang; slot: SlotDa
         </ul>
       ) : null}
 
-      <div className="mt-4 grid grid-cols-2 gap-2">
-        <Button type="button" variant={slot.status === "received" ? "outline" : "default"} className="h-11 text-[14px]" disabled={busy} onClick={() => camera.current?.click()}>
-          <Camera /> {t.documents.takePhoto}
-        </Button>
-        <Button type="button" variant="outline" className="h-11 text-[14px]" disabled={busy} onClick={() => picker.current?.click()}>
-          <FolderOpen /> {slot.files.length ? t.documents.addAnother : t.documents.chooseFile}
-        </Button>
-      </div>
+      {uploadsOpen ? (
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Button type="button" variant={slot.status === "received" ? "outline" : "default"} className="h-11 min-w-fit flex-1 text-[14px]" disabled={busy} onClick={() => camera.current?.click()}>
+            <Camera /> {t.documents.takePhoto}
+          </Button>
+          <Button type="button" variant="outline" className="h-11 min-w-fit flex-1 text-[14px]" disabled={busy} onClick={() => picker.current?.click()}>
+            <FolderOpen /> {slot.files.length ? t.documents.addAnother : t.documents.chooseFile}
+          </Button>
+        </div>
+      ) : null}
       <input
         ref={camera}
         type="file"

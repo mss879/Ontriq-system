@@ -91,7 +91,7 @@ async function Dashboard() {
   const actionCount = d.counts.action <= d.needs_action.length ? needsAction.length : d.counts.action;
   const tiles = [
     { label: "In progress", value: d.counts.active, sub: "active requests", icon: ClipboardList, href: "/portal/cases?status=active" },
-    { label: "Needs you", value: actionCount, sub: actionCount === 1 ? "request waits on documents" : "requests wait on documents", icon: FileWarning, href: "/portal/cases?status=action", warn: actionCount > 0 },
+    { label: "Needs you", value: actionCount, sub: actionCount === 1 ? "request waits on you" : "requests wait on you", icon: FileWarning, href: "/portal/cases?status=action", warn: actionCount > 0 },
     { label: "Released", value: d.counts.released_30d, sub: "in the last 30 days", icon: CheckCircle2, href: "/portal/cases?status=released" },
     { label: "Past due", value: d.counts.overdue, sub: "beyond the target date", icon: AlarmClock, href: "/portal/cases?status=active&sort=due", danger: d.counts.overdue > 0 },
     { label: "Turnaround", value: d.avg_tat_days === null ? "—" : `${d.avg_tat_days}d`, sub: "average, last 90 days", icon: Timer },
@@ -163,7 +163,7 @@ async function Dashboard() {
                   </span>
                   <div>
                     <CardTitle>Needs your action</CardTitle>
-                    <CardDescription>Ontriq is waiting for documents from you on these requests.</CardDescription>
+                    <CardDescription>Ontriq is waiting for documents or an answer from you on these requests.</CardDescription>
                   </div>
                 </div>
               </CardHeader>

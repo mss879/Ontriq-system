@@ -96,6 +96,7 @@ export function InvoiceEditor({
 
   const payload = () => ({
     lines: lines.map((l) => ({ id: l.id, description: l.description, quantity: l.quantity, unit_price: l.unit_price, discount_pct: l.discount_pct || "0" })),
+    known: initial.lines.map((l) => l.id),
     message,
     internal_notes: notes,
     contact_id: contactId || null,

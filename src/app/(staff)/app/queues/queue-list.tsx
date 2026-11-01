@@ -27,7 +27,7 @@ export function QueueList({ items, empty, assign, hideOwner }: { items: CaseList
     <ul className="divide-y overflow-hidden rounded-2xl bg-card shadow-soft ring-1 ring-foreground/[0.07]">
       {items.map((c) => {
         const result = shownResult(c);
-        const note = statusNote(c.statusKey);
+        const note = statusNote(c.statusKey, c.statusLabel);
         return (
         <li key={c.id} className={cn("relative flex flex-col gap-3 px-5 py-3.5 transition-colors hover:bg-muted/40", assign ? "xl:flex-row xl:items-center xl:gap-5" : "md:flex-row md:items-center md:gap-5")}>
           <Link href={`/app/cases/${c.id}`} className={cn("group min-w-0 flex-1 md:min-w-56", !assign && ROW_LINK)}>

@@ -24,7 +24,8 @@ export type CopilotData = {
   preqc?: Item<PreQcResult>;
   postqc?: Item<PostQcResult>;
   summary?: Item<{ text: string }>;
-  remarks: (Item<{ text: string }> & { checkId: string; checkLabel: string; current: string | null })[];
+  /** canUse: this person may word this check (public.set_check_remarks). */
+  remarks: (Item<{ text: string }> & { checkId: string; checkLabel: string; current: string | null; canUse: boolean })[];
 };
 
 export type CopilotProps = {
@@ -34,10 +35,11 @@ export type CopilotProps = {
   configured: boolean;
   /** Job kinds still queued or running for this case. */
   working: string[];
-  perms: { rerun: Partial<Record<RerunCapability, boolean>>; pre: boolean; post: boolean; remarks: boolean; askCandidate: boolean; requestClient: boolean };
-  remarksLocked: boolean;
+  perms: { rerun: Partial<Record<RerunCapability, boolean>>; pre: boolean; post: boolean; remarks: boolean; askCandidate: boolean; requestClient: boolean; askDocuments: boolean };
+  /** Why remarks can't be used now, if they can't. */
+  remarksLocked: string | null;
   candidate: { checks: AskCheck[]; categories: { key: string; name: string; guide: string }[]; linkActive: boolean } | null;
-  request: { categories: { key: string; name: string }[]; checks: { id: string; label: string }[] };
+  request: { categories: { key: string; name: string }[]; checks: { id: string; label: string }[]; candidateCollected: boolean };
 };
 
 const SEVERITY = { high: "danger", medium: "warning", low: "neutral" } as const;
@@ -198,7 +200,7 @@ function PreQc(props: CopilotProps & { item: Item<PreQcResult> }) {
           <p className="text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">Drafted requests</p>
           {v.requests.map((r, n) => {
             const toCandidate = r.to === "candidate";
-            const enabled = toCandidate ? perms.askCandidate && Boolean(candidate) : perms.requestClient;
+            const enabled = toCandidate ? perms.askCandidate && Boolean(candidate) && (r.kind !== "document" || perms.askDocuments) : perms.requestClient;
             return (
               <div key={n} className="rounded-lg bg-muted/40 px-3 py-2.5 text-sm">
                 <div className="flex flex-wrap items-center gap-2">
@@ -237,9 +239,10 @@ function PreQc(props: CopilotProps & { item: Item<PreQcResult> }) {
           categories={candidate.categories}
           linkActive={candidate.linkActive}
           initial={ask ?? undefined}
+          askDocuments={perms.askDocuments}
         />
       ) : null}
-      <RequestDialog open={req !== null} onOpenChange={(o) => !o && setReq(null)} caseId={caseId} categories={request.categories} checks={request.checks} initial={req ?? undefined} />
+      <RequestDialog open={req !== null} onOpenChange={(o) => !o && setReq(null)} caseId={caseId} categories={request.categories} checks={request.checks} candidateCollected={request.candidateCollected} initial={req ?? undefined} />
     </Card>
   );
 }
@@ -295,10 +298,10 @@ function Narrative(props: CopilotProps) {
         <h3 className="text-sm font-semibold">Report remarks</h3>
         <AiBadge />
       </header>
-      {remarksLocked ? <p className="mb-3 text-xs text-muted-foreground">Remarks are locked once the report is with the approver.</p> : null}
+      {remarksLocked ? <p className="mb-3 text-xs text-muted-foreground">{remarksLocked}</p> : null}
       <div className="space-y-4">
         {data.remarks.map((r) => (
-          <RemarksDraft key={r.id} item={r} canAccept={perms.remarks && !remarksLocked} />
+          <RemarksDraft key={r.id} item={r} canAccept={perms.remarks && r.canUse && !remarksLocked} />
         ))}
         {data.summary ? <SummaryDraft item={data.summary} canDecide={perms.remarks} /> : null}
       </div>

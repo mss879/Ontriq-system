@@ -38,7 +38,7 @@ async function Content({ params }: Pick<PageProps<"/portal/quotes/[quoteId]">, "
   if (!can(viewer, "portal.quotes.accept")) redirect("/portal");
   const q = /^[0-9a-f-]{36}$/.test(quoteId) ? await portalQuote(quoteId) : null;
   if (!q) notFound();
-  const ctx = await portalQuoteContext(q.id, viewer.orgId, viewer.clientId ?? "");
+  const ctx = await portalQuoteContext(q.id);
   const open = q.status === "sent" || q.status === "viewed";
   const model = quoteModel({
     issuer: ctx.issuer,

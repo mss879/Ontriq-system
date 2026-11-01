@@ -51,7 +51,7 @@ export function CheckCards({
         // A check with nothing for Data Entry, such as Global Sanction, has nothing to show until verification.
         const notYet = mode === "entry" && filled.required === 0;
         return (
-          <li key={k.id}>
+          <li key={k.id} className="min-w-0">
             <Link
               href={`/app/cases/${caseId}/checks/${k.id}`}
               className="group relative block h-full overflow-hidden rounded-xl border bg-background/40 p-4 pl-5 transition-colors outline-none hover:border-foreground/20 hover:bg-muted/30 focus-visible:ring-3 focus-visible:ring-ring/50"

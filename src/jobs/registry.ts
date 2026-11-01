@@ -22,6 +22,7 @@ import {
   retentionPurge,
   slaScan,
 } from "./handlers/ai-jobs";
+import { aiCandidateReport } from "./handlers/candidate-report";
 import { sttTranscribe } from "./handlers/stt-transcribe";
 
 /** Job kind → handler. Kinds and their concurrency live in job_kind_limits (0009_jobs.sql). */
@@ -44,6 +45,7 @@ export const JOB_HANDLERS: Record<string, JobHandler> = {
   "ai.narrative": aiNarrative,
   "ai.outreach_draft": aiOutreach,
   "ai.response_capture": aiResponse,
+  "ai.candidate_report": aiCandidateReport,
   "sla.scan": slaScan,
   "briefing.daily": dailyBriefing,
   "performance.rollup": performanceRollup,

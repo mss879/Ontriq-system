@@ -41,7 +41,8 @@ const pgRunning = () => {
 
 if (process.argv.includes("--reset") && existsSync(DIR)) {
   if (pgRunning()) run("pg_ctl", ["-D", PGDATA, "stop", "-m", "fast"]);
-  rmSync(DIR, { recursive: true, force: true });
+  // Keys and the candidate secret stay, so .env.local keeps working after a reset.
+  for (const part of ["pgdata", "storage", "applied.json"]) rmSync(path.join(DIR, part), { recursive: true, force: true });
   console.info("• reset local stack");
 }
 mkdirSync(DIR, { recursive: true });

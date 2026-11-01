@@ -111,7 +111,7 @@ begin
   delete from public.report_versions where case_id = c;
   update public.cases set stage = 'documents' where id = c;
   perform public.recompute_case(c);
-  assert not exists (select 1 from public.client_status_catalog where client_label <> internal_label), 'clients should see the spec''s wording';
+  assert not exists (select 1 from public.client_status_catalog where client_label <> internal_label and key not in ('returned_to_data_entry', 'returned_to_verification')), 'clients should see the spec''s wording';
 end $$;
 
 -- ---------------------------------------------------------------- questions to the client

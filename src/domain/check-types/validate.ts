@@ -10,7 +10,7 @@
 import { isValidPhoneNumber } from "libphonenumber-js";
 import { z } from "zod";
 import { parseNic } from "../nic-core";
-import { DISTRICTS } from "../districts";
+import { DISTRICT_CHOICES } from "../districts";
 import type { Stage } from "../workflow/stages";
 import type { FieldDef } from "./schema";
 
@@ -29,6 +29,9 @@ const isEmpty = (v: unknown) =>
 
 function validDate(s: string) {
   if (!DATE.test(s)) return false;
+  // A mistyped year such as 0201 would print as a believable two-digit date.
+  const year = Number(s.slice(0, 4));
+  if (year < 1900 || year > 2100) return false;
   const d = new Date(`${s}T00:00:00Z`);
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
 }
@@ -59,11 +62,12 @@ function checkScalar(f: FieldDef, raw: unknown): FieldOutcome {
     }
     case "district": {
       const s = String(raw).trim();
-      return (DISTRICTS as readonly string[]).includes(s) ? { value: s } : { error: `${label} must be a Sri Lankan district.` };
+      return DISTRICT_CHOICES.includes(s) ? { value: s } : { error: `${label} must be a Sri Lankan district, or Outside Sri Lanka.` };
     }
     case "number": {
       const n = typeof raw === "number" ? raw : Number(String(raw).trim());
       if (!Number.isFinite(n)) return { error: `${label} must be a number.` };
+      if (f.validation?.integer && !Number.isInteger(n)) return { error: `${label} must be a whole number.` };
       if (f.validation?.min !== undefined && n < f.validation.min) return { error: `${label} must be at least ${f.validation.min}.` };
       if (f.validation?.max !== undefined && n > f.validation.max) return { error: `${label} must be at most ${f.validation.max}.` };
       return { value: n };
@@ -73,7 +77,8 @@ function checkScalar(f: FieldDef, raw: unknown): FieldOutcome {
       return validDate(s) ? { value: s } : { error: `${label} must be a valid date.` };
     }
     case "date_range": {
-      const r = (raw ?? {}) as { from?: string; to?: string; present?: boolean };
+      if (typeof raw !== "object" || raw === null) return { error: `${label} needs a start date.` };
+      const r = raw as { from?: string; to?: string; present?: boolean };
       const from = r.from?.trim() || undefined;
       const present = r.present === true || undefined;
       const to = present ? undefined : r.to?.trim() || undefined;

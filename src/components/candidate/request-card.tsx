@@ -5,14 +5,14 @@ import { ArrowDown, CheckCircle2, MessageSquareReply, Send } from "lucide-react"
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Spinner } from "@/components/ui/spinner";
 import { candidateDict, type CandidateLang } from "@/domain/candidate/i18n";
 import { answerRequest } from "@/app/(candidate)/c/session/actions";
+import { answerText, type AnswerValue } from "@/domain/candidate/answers";
+import { fieldDate } from "@/domain/reports/compile-core";
 import type { CandidateRow, CandidateRowForm } from "@/domain/candidate/view";
 import { errorText } from "./errors";
-import { DateField } from "@/components/forms/date-field";
+import { AnswerField, type AnswerDraft } from "./answer-field";
 import { RowsForm } from "./rows-form";
 
 export type RequestData = {
@@ -25,29 +25,36 @@ export type RequestData = {
   requirementId: string | null;
   dueText: string | null;
   status: "open" | "answered" | "accepted";
-  answer: string | null;
+  /** What they sent, as stored. */
+  answer: AnswerValue | null;
   reviewNote: string | null;
   /** Set when the candidate fills in rows, such as referees or employers. */
   rowForm?: CandidateRowForm | null;
   rows?: CandidateRow[];
 };
 
-const selectClass =
-  "h-11 w-full rounded-lg border border-input bg-background px-3 text-[15px] outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30";
-
 /** One thing Ontriq asked for: a detail, a question, or a pointer to a document slot. */
 export function RequestCard({ lang, request }: { lang: CandidateLang; request: RequestData }) {
   const t = candidateDict(lang);
+  const given = request.answer;
   const [editing, setEditing] = useState(request.status === "open");
-  const [value, setValue] = useState(request.answer ?? "");
-  const [rangeTo, setRangeTo] = useState("");
+  const [draft, setDraft] = useState<AnswerDraft | undefined>(given ?? undefined);
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const done = request.status === "accepted";
+  const options = request.fieldType === "boolean" && !request.options.length ? [{ value: "yes", label: t.requests.yes }, { value: "no", label: t.requests.no }] : request.options;
+  const shown = (v: AnswerValue | null) => answerText(v, options, { to: t.requests.to, present: t.requests.stillHere, date: (iso) => fieldDate(iso) ?? iso });
+
+  /** What this kind of question stores: a value, a list of values, or a range. */
+  const answerNow = (): string | string[] | { from: string; to?: string; present?: boolean } | null => {
+    if (Array.isArray(draft)) return draft.length ? draft : null;
+    if (typeof draft === "object") return draft.from && (draft.to || draft.present) ? { from: draft.from, ...(draft.present ? { present: true } : { to: draft.to }) } : null;
+    return draft?.trim() || null;
+  };
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
-    const answer = request.fieldType === "date_range" ? [value, rangeTo].filter(Boolean).join(" – ") : value.trim();
+    const answer = answerNow();
     if (!answer) return setError(t.errors.answerNeeded);
     setError(null);
     start(async () => {
@@ -57,70 +64,6 @@ export function RequestCard({ lang, request }: { lang: CandidateLang; request: R
       setEditing(false);
     });
   }
-
-  const field = (() => {
-    switch (request.fieldType) {
-      case "textarea":
-      case "address":
-        return <Textarea id={`answer-${request.id}`} value={value} onChange={(e) => setValue(e.target.value)} rows={3} className="text-[15px]" />;
-      case "date":
-        return <DateField id={`answer-${request.id}`} value={value} onChange={(e) => setValue(e.target.value)} className="h-11 text-[15px]" />;
-      case "date_range":
-        return (
-          <div className="grid grid-cols-2 gap-2">
-            <DateField id={`answer-${request.id}`} value={value} onChange={(e) => setValue(e.target.value)} className="h-11 text-[15px]" />
-            <DateField value={rangeTo} onChange={(e) => setRangeTo(e.target.value)} className="h-11 text-[15px]" aria-label={t.requests.yourAnswer} />
-          </div>
-        );
-      case "number":
-        return <Input id={`answer-${request.id}`} type="number" inputMode="decimal" value={value} onChange={(e) => setValue(e.target.value)} className="h-11 text-[15px]" />;
-      case "email":
-        return <Input id={`answer-${request.id}`} type="email" inputMode="email" value={value} onChange={(e) => setValue(e.target.value)} className="h-11 text-[15px]" />;
-      case "phone":
-        return <Input id={`answer-${request.id}`} type="tel" inputMode="tel" value={value} onChange={(e) => setValue(e.target.value)} className="h-11 text-[15px]" />;
-      case "select":
-      case "boolean":
-        return (
-          <select id={`answer-${request.id}`} value={value} onChange={(e) => setValue(e.target.value)} className={selectClass}>
-            <option value="">{t.requests.choose}</option>
-            {(request.fieldType === "boolean" && !request.options.length ? [{ value: "Yes", label: "Yes" }, { value: "No", label: "No" }] : request.options).map((o) => (
-              <option key={o.value} value={o.label}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        );
-      case "multi_select": {
-        const picked = new Set(value ? value.split(", ") : []);
-        return (
-          <div className="flex flex-wrap gap-2">
-            {request.options.map((o) => (
-              <label key={o.value} className={cn("flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm", picked.has(o.label) && "border-primary bg-primary/5")}>
-                <input
-                  type="checkbox"
-                  className="size-4 accent-[var(--primary)]"
-                  checked={picked.has(o.label)}
-                  onChange={(e) => {
-                    const next = new Set(picked);
-                    if (e.target.checked) next.add(o.label);
-                    else next.delete(o.label);
-                    setValue([...next].join(", "));
-                  }}
-                />
-                {o.label}
-              </label>
-            ))}
-          </div>
-        );
-      }
-      default:
-        return request.kind === "question" ? (
-          <Textarea id={`answer-${request.id}`} value={value} onChange={(e) => setValue(e.target.value)} rows={3} className="text-[15px]" />
-        ) : (
-          <Input id={`answer-${request.id}`} value={value} onChange={(e) => setValue(e.target.value)} className="h-11 text-[15px]" />
-        );
-    }
-  })();
 
   return (
     <article className="rounded-2xl border bg-card p-4 shadow-soft sm:p-5">
@@ -156,7 +99,7 @@ export function RequestCard({ lang, request }: { lang: CandidateLang; request: R
       ) : done ? (
         <div className="mt-3 rounded-xl bg-success/8 px-3 py-2.5 text-sm">
           <p className="font-medium text-success">{t.requests.accepted}</p>
-          {request.answer ? <p className="mt-0.5 whitespace-pre-wrap text-foreground">{request.answer}</p> : null}
+          {request.answer ? <p className="mt-0.5 whitespace-pre-wrap text-foreground">{shown(request.answer)}</p> : null}
         </div>
       ) : request.rowForm ? (
         <RowsForm lang={lang} requestId={request.id} form={request.rowForm} initial={request.rows ?? []} answered={request.status === "answered"} />
@@ -165,7 +108,7 @@ export function RequestCard({ lang, request }: { lang: CandidateLang; request: R
           <label htmlFor={`answer-${request.id}`} className="text-xs font-medium text-muted-foreground">
             {t.requests.yourAnswer}
           </label>
-          {field}
+          <AnswerField id={`answer-${request.id}`} lang={lang} type={request.fieldType ?? "text"} options={options} value={draft} onChange={setDraft} question={request.kind === "question"} />
           {error ? <p className="text-xs leading-relaxed text-destructive">{error}</p> : null}
           <Button type="submit" className="h-11 w-full text-[14px] sm:w-auto" disabled={pending}>
             {pending ? <Spinner /> : <Send />} {request.status === "answered" ? t.requests.update : t.requests.send}
@@ -175,7 +118,7 @@ export function RequestCard({ lang, request }: { lang: CandidateLang; request: R
         <div className="mt-3 flex flex-wrap items-end justify-between gap-2 rounded-xl bg-muted/50 px-3 py-2.5 text-sm">
           <div className="min-w-0">
             <p className="text-xs font-medium text-success">{t.requests.sent}</p>
-            <p className="mt-0.5 whitespace-pre-wrap">{value || request.answer}</p>
+            <p className="mt-0.5 whitespace-pre-wrap">{shown(answerNow() ?? request.answer)}</p>
           </div>
           <Button type="button" variant="ghost" size="sm" onClick={() => setEditing(true)}>
             {t.requests.update}

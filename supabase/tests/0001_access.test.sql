@@ -37,8 +37,11 @@ reset role;
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"44444444-4444-4444-8444-444444444444","role":"authenticated","aal":"aal1"}', true);
 do $$ begin
-  assert (select count(*) from public.clients) = 1, 'client admin should see exactly one client';
-  assert (select code from public.clients) = 'HEMAS', 'client admin sees the wrong client';
+  -- Client users read their company through portal_client_profile: the table holds Ontriq's own notes (0048).
+  assert (select count(*) from public.clients) = 0, 'client admin can read the clients table';
+  assert (select count(*) from public.client_settings) = 0, 'client admin can read client settings';
+  assert public.portal_client_profile() ->> 'code' = 'HEMAS', 'client admin sees the wrong company';
+  assert not (public.portal_client_profile() ? 'notes'), 'the profile carries internal notes';
   assert (select count(*) from public.client_contacts where client_id = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb') = 0, 'client sees another client''s contacts';
   assert (select count(*) from public.audit_log) = 0, 'client can read the audit log';
   assert (select count(*) from public.jobs) = 0, 'client can read jobs';
@@ -60,7 +63,7 @@ reset role;
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"55555555-5555-4555-8555-555555555555","role":"authenticated","aal":"aal1"}', true);
 do $$ begin
-  assert (select count(*) from public.clients) = 1 and (select code from public.clients) = 'CEYFIN', 'client isolation broken';
+  assert (select count(*) from public.clients) = 0 and public.portal_client_profile() ->> 'code' = 'CEYFIN', 'client isolation broken';
   assert (select count(*) from public.memberships) = 1, 'client user should only see memberships of their own company';
 end $$;
 reset role;

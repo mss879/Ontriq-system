@@ -1,14 +1,15 @@
 /**
  * Ontriq cost model: the single source of truth for the Cost and Feasibility
- * document (scripts/build-cost-doc.tsx) and, later, the in-app usage
- * dashboard's "plan" column. Every figure is computed from the assumptions
- * below. Prices are list prices verified on 2026-10-29; re-verify before
- * publishing a new version.
+ * document (scripts/build-cost-doc.tsx). Every figure is computed from the
+ * assumptions below. Prices are list prices verified on 2026-10-31; re-verify
+ * before publishing a new version. Token counts come from the AI evaluation of
+ * 2026-10-31 (scripts/ai-eval) and the ledger of its real test cases. Only AI
+ * calls the system really makes belong here.
  */
 
-export const COST_MODEL_VERSION = "1.0";
-export const PRICES_VERIFIED_ON = "29 October 2026";
-export const USD_TO_LKR = 300; // planning rate; restate at the current rate when quoting in rupees
+export const COST_MODEL_VERSION = "1.3";
+export const PRICES_VERIFIED_ON = "31 October 2026";
+export const USD_TO_LKR = 335; // market about 331 in mid-October 2026, plus a small cushion; restate when quoting in rupees
 
 // ---------------------------------------------------------------------------
 // Model prices (USD per million tokens)
@@ -22,15 +23,15 @@ export const MODELS: Record<ModelTier, { id: string; name: string; input: number
     input: 0.1,
     output: 0.5,
     cacheRead: 0.01,
-    role: "Light, high-volume work: classifying uploads, reading slips, short messages and explanations.",
+    role: "Light, high-volume work: reading uploads, payment slips, consistency checks, Pre-QC drafts, outreach and briefings.",
   },
   sonnet: {
     id: "claude-sonnet-5-5",
     name: "Claude Sonnet 5.5",
     input: 2,
     output: 10,
-    cacheRead: 0.2,
-    role: "Everyday extraction and drafting: check fields, outreach, QC checklists, quotations, report narrative, the staff assistant.",
+    cacheRead: 0.1,
+    role: "Where accuracy matters most: check fields, the candidate report, the Post-QC cross-check, reading replies, report remarks, quotations, the staff assistant.",
   },
   opus: {
     id: "claude-opus-5-5",
@@ -38,7 +39,7 @@ export const MODELS: Record<ModelTier, { id: string; name: string; input: number
     input: 4,
     output: 20,
     cacheRead: 0.2,
-    role: "Only where judgement matters most: the Post-QC cross-check and the Super Admin command assistant.",
+    role: "The Super Admin command assistant.",
   },
 };
 
@@ -57,19 +58,14 @@ export function usageCost(u: Usage): number {
 export type TaskKey =
   | "classify_page"
   | "extract_check"
+  | "candidate_report"
   | "consistency"
   | "preqc"
   | "outreach_check"
   | "response_check"
   | "postqc"
   | "narrative"
-  | "tamper"
-  | "candidate_guidance"
-  | "status_explainer"
-  | "consent_check"
-  | "assignment_explanation"
   | "quotation_draft"
-  | "cover_email"
   | "slip_read"
   | "nudge"
   | "staff_assistant_turn"
@@ -78,28 +74,24 @@ export type TaskKey =
 
 export type TaskDef = { key: TaskKey; label: string; unit: string; usage: Usage; note?: string };
 
-/** Typical Sri Lankan documents are 1–2 pages; one page image ≈ 1,600 input tokens. */
+/** Typical Sri Lankan documents are 1 to 2 pages; a photographed page is up to about 4,800 input tokens. */
 export const TASKS: TaskDef[] = [
-  { key: "classify_page", label: "Classify, quality-check and read one page", unit: "page", usage: { tier: "haiku", input: 2200, output: 950 } },
-  { key: "extract_check", label: "Extract the fields for one check", unit: "check", usage: { tier: "sonnet", input: 5000, cachedInput: 2500, output: 700 }, note: "about 3 pages plus the check's cached field schema" },
-  { key: "consistency", label: "Cross-document consistency check", unit: "case", usage: { tier: "sonnet", input: 12000, output: 1200 }, note: "scales with pages; 12-page case shown" },
-  { key: "preqc", label: "Pre-QC checklist and drafted requests", unit: "case", usage: { tier: "sonnet", input: 8000, output: 1200 } },
-  { key: "outreach_check", label: "Verification outreach draft", unit: "check", usage: { tier: "sonnet", input: 3000, output: 500 } },
-  { key: "response_check", label: "Turn a reply into a proposed result", unit: "check", usage: { tier: "sonnet", input: 4000, output: 500 } },
-  { key: "postqc", label: "Post-QC cross-check and proposed outcome", unit: "case", usage: { tier: "opus", input: 24900, output: 6200 }, note: "scales with checks; 7-check case shown" },
-  { key: "narrative", label: "Report findings and summary", unit: "case", usage: { tier: "sonnet", input: 15500, output: 2900 }, note: "scales with checks; 7-check case shown" },
-  { key: "tamper", label: "Tamper and duplicate signals", unit: "case", usage: { tier: "haiku", input: 6000, output: 300 } },
-  { key: "candidate_guidance", label: "Instant feedback on a candidate upload", unit: "upload", usage: { tier: "haiku", input: 2000, output: 100 } },
-  { key: "status_explainer", label: "Plain-language status for client or candidate", unit: "update", usage: { tier: "haiku", input: 1500, output: 200 } },
-  { key: "consent_check", label: "Check a photographed consent form", unit: "form", usage: { tier: "haiku", input: 2000, output: 150 } },
-  { key: "assignment_explanation", label: "Explain an auto-assignment", unit: "case", usage: { tier: "haiku", input: 1200, output: 150 } },
-  { key: "quotation_draft", label: "Draft a quotation", unit: "draft", usage: { tier: "sonnet", input: 6000, output: 2500 } },
-  { key: "cover_email", label: "Cover email for a quote or invoice", unit: "email", usage: { tier: "haiku", input: 1500, output: 300 } },
-  { key: "slip_read", label: "Read a payment slip", unit: "slip", usage: { tier: "haiku", input: 2000, output: 150 } },
-  { key: "nudge", label: "Draft a nudge to a staff member", unit: "nudge", usage: { tier: "haiku", input: 1500, output: 300 } },
-  { key: "staff_assistant_turn", label: "Staff assistant question", unit: "question", usage: { tier: "sonnet", input: 4000, cachedInput: 4000, output: 800 } },
-  { key: "command_turn", label: "Super Admin command (text or voice)", unit: "command", usage: { tier: "opus", input: 8000, cachedInput: 4000, output: 1500 } },
-  { key: "daily_briefing", label: "Daily manager briefing", unit: "day", usage: { tier: "sonnet", input: 10000, output: 1000 } },
+  { key: "classify_page", label: "Read one page: type, quality, text, translation, signs of editing", unit: "page", usage: { tier: "haiku", input: 4000, output: 900 } },
+  { key: "extract_check", label: "Fill the fields for one check", unit: "check", usage: { tier: "sonnet", input: 5700, output: 520 }, note: "one new page, earlier pages as text" },
+  { key: "candidate_report", label: "Write the candidate report once they confirm", unit: "case", usage: { tier: "sonnet", input: 6000, cachedInput: 1800, output: 2560 }, note: "scales with pages; 12-page case shown" },
+  { key: "consistency", label: "Compare everything across documents", unit: "case", usage: { tier: "haiku", input: 9600, output: 1980 }, note: "scales with pages; 12-page case shown" },
+  { key: "preqc", label: "Pre-QC checklist and drafted requests", unit: "case", usage: { tier: "haiku", input: 3000, output: 1900 } },
+  { key: "outreach_check", label: "Draft the verification email and call script", unit: "check", usage: { tier: "haiku", input: 1000, output: 600 } },
+  { key: "response_check", label: "Turn a verifier's reply into a proposed result", unit: "check", usage: { tier: "sonnet", input: 1200, output: 700 } },
+  { key: "postqc", label: "Post-QC cross-check and proposed outcome", unit: "case", usage: { tier: "sonnet", input: 5200, output: 710 }, note: "scales with checks; 7-check case shown" },
+  { key: "narrative", label: "Report remarks and summary", unit: "case", usage: { tier: "sonnet", input: 2400, output: 870 }, note: "scales with checks; 7-check case shown" },
+  { key: "quotation_draft", label: "Draft a quotation", unit: "draft", usage: { tier: "sonnet", input: 1000, output: 400 } },
+  { key: "slip_read", label: "Read a payment slip", unit: "slip", usage: { tier: "haiku", input: 2200, output: 240 } },
+  { key: "nudge", label: "Draft a nudge to a staff member", unit: "nudge", usage: { tier: "haiku", input: 600, output: 130 } },
+  // The two assistants are planned at about twice the test runs: real conversations run longer than single questions.
+  { key: "staff_assistant_turn", label: "Staff assistant question", unit: "question", usage: { tier: "sonnet", input: 800, cachedInput: 8000, output: 300 } },
+  { key: "command_turn", label: "Super Admin command", unit: "command", usage: { tier: "opus", input: 900, cachedInput: 10000, output: 320 } },
+  { key: "daily_briefing", label: "Daily manager briefing", unit: "day", usage: { tier: "haiku", input: 750, output: 150 } },
 ];
 
 export const task = (key: TaskKey): TaskDef => {
@@ -116,65 +108,74 @@ export type CaseProfile = {
   label: string;
   checks: number;
   pages: number;
-  candidateUploads: number;
-  statusUpdates: number;
-  postQcTier: "opus" | "sonnet";
 };
 
-export const COMPREHENSIVE_CASE: CaseProfile = { label: "Comprehensive (7 checks)", checks: 7, pages: 12, candidateUploads: 12, statusUpdates: 6, postQcTier: "opus" };
-export const STANDARD_CASE: CaseProfile = { label: "Standard (NIC, education, employment)", checks: 3, pages: 6, candidateUploads: 6, statusUpdates: 5, postQcTier: "opus" };
+export const COMPREHENSIVE_CASE: CaseProfile = { label: "Comprehensive (7 checks)", checks: 7, pages: 12 };
+export const STANDARD_CASE: CaseProfile = { label: "Standard (NIC, education, employment)", checks: 3, pages: 6 };
 
 export type CostLine = { label: string; quantity: number; unit: string; tier: ModelTier | "none"; cost: number };
 
 export function caseCostLines(p: CaseProfile): CostLine[] {
-  const postQc: Usage = { tier: p.postQcTier, input: 6000 + 2700 * p.checks, output: 2000 + 600 * p.checks };
-  const narrative: Usage = { tier: "sonnet", input: 5000 + 1500 * p.checks, output: 800 + 300 * p.checks };
-  const consistency: Usage = { tier: "sonnet", input: 1000 * p.pages, output: 600 + 50 * p.pages };
+  const postQc: Usage = { tier: "sonnet", input: 1000 + 600 * p.checks, output: 150 + 80 * p.checks };
+  const narrative: Usage = { tier: "sonnet", input: 1000 + 200 * p.checks, output: 100 + 110 * p.checks };
+  const consistency: Usage = { tier: "haiku", input: 800 * p.pages, output: 1500 + 40 * p.pages };
+  // Fits the ledger: $0.021 for a real report on five files, six pages.
+  const candidateReport: Usage = { tier: "sonnet", input: 600 + 450 * p.pages, cachedInput: 1800, output: 400 + 180 * p.pages };
   const line = (key: TaskKey, quantity: number): CostLine => ({ label: task(key).label, quantity, unit: task(key).unit, tier: task(key).usage.tier, cost: quantity * taskCost(key) });
   return [
     line("classify_page", p.pages),
     line("extract_check", p.checks),
-    { label: task("consistency").label, quantity: 1, unit: "case", tier: "sonnet", cost: usageCost(consistency) },
+    { label: task("candidate_report").label, quantity: 1, unit: "case", tier: "sonnet", cost: usageCost(candidateReport) },
+    { label: task("consistency").label, quantity: 1, unit: "case", tier: "haiku", cost: usageCost(consistency) },
     line("preqc", 1),
     line("outreach_check", p.checks),
     line("response_check", p.checks),
-    { label: task("postqc").label, quantity: 1, unit: "case", tier: p.postQcTier, cost: usageCost(postQc) },
+    { label: task("postqc").label, quantity: 1, unit: "case", tier: "sonnet", cost: usageCost(postQc) },
     { label: task("narrative").label, quantity: 1, unit: "case", tier: "sonnet", cost: usageCost(narrative) },
-    line("tamper", 1),
-    line("candidate_guidance", p.candidateUploads),
-    line("status_explainer", p.statusUpdates),
-    line("consent_check", 1),
-    line("assignment_explanation", 1),
   ];
 }
 
 export const sum = (lines: { cost: number }[]) => lines.reduce((a, l) => a + l.cost, 0);
 export const caseCost = (p: CaseProfile) => sum(caseCostLines(p));
 
-/** Onboarding a client: the AI quotation (first draft and two regenerations) and its cover email. */
-export function onboardingCostLines(): CostLine[] {
-  return [
-    { label: "Draft the quotation (first draft and two regenerations)", quantity: 3, unit: "draft", tier: "sonnet", cost: 3 * taskCost("quotation_draft") },
-    { label: task("cover_email").label, quantity: 1, unit: "email", tier: "haiku", cost: taskCost("cover_email") },
-  ];
+/**
+ * One check reading a whole combined PDF. Separate files are read once each and
+ * reused as text, but every check reads a pack in full. Fits the ledger: four
+ * pages over seven checks cost $0.145 to $0.152 on the real pipeline.
+ */
+export const packExtractCost = (pages: number) => usageCost({ tier: "sonnet", input: 800 + 1850 * pages, cachedInput: 2000, output: 400 });
+
+/** The same case when it all arrives as one PDF. */
+export function combinedCaseCost(p: CaseProfile): number {
+  return caseCost(p) - p.checks * taskCost("extract_check") + p.checks * packExtractCost(p.pages);
 }
 
-export const invoiceCost = () => taskCost("cover_email") + taskCost("slip_read");
+/** Onboarding a client: the AI quotation, a first draft and two regenerations. */
+export function onboardingCostLines(): CostLine[] {
+  return [{ label: "Draft the quotation (first draft and two regenerations)", quantity: 3, unit: "draft", tier: "sonnet", cost: 3 * taskCost("quotation_draft") }];
+}
+
+/** The AI's part in one invoice: reading the payment slip. */
+export const invoiceCost = () => taskCost("slip_read");
 
 // ---------------------------------------------------------------------------
 // Hosting and services (USD per month)
 // ---------------------------------------------------------------------------
 export const SERVICES = {
-  netlifyPro: { label: "Netlify Pro", monthly: 20, note: "3,000 credits a month; background jobs and scheduled tasks; automatic top-ups so the site is never paused" },
+  netlifyPro: { label: "Netlify Pro", monthly: 20, note: "3,000 credits a month for the team, with unlimited members; extra credits can top up automatically so the site is never paused", topUpUsd: 10, topUpCredits: 1500 },
   netlifyPersonal: { label: "Netlify Personal", monthly: 9, note: "1,000 credits a month; the minimum paid plan" },
   supabaseFree: { label: "Supabase Free", monthly: 0, note: "500 MB database, 1 GB file storage, pauses after a week without activity, no backups" },
-  supabasePro: { label: "Supabase Pro", monthly: 25, note: "8 GB database, 100 GB file storage, daily backups, never pauses; includes a $10 compute credit" },
+  supabasePro: { label: "Supabase Pro", monthly: 25, note: "8 GB database, 100 GB file storage, daily backups kept for 7 days, never pauses; includes a $10 compute credit", extraStoragePerGb: 0.0213 },
   resendFree: { label: "Resend Free", monthly: 0, note: "3,000 emails a month, 100 a day" },
   resendPro: { label: "Resend Pro", monthly: 20, note: "50,000 emails a month" },
-  smsPerMessage: { label: "SMS (Notify.lk or similar)", unitCost: 0.003, note: "about LKR 0.65–1.00 per message at local gateway rates" },
+  smsPerMessage: { label: "SMS (Notify.lk or similar)", unitCost: 0.003, note: "LKR 0.64 to 0.84 a message on Text.lk's published rates; the totals allow about LKR 1.00, because Sinhala and Tamil messages can use more than one unit" },
 };
 
 export const STORAGE_PER_CASE_MB = 8; // document images, PDFs and the final report
+export const WORKING_DAYS_PER_MONTH = 22;
+/** Resend's free plan stops at 100 emails a day, and busy days run at about twice the average. */
+const EMAILS_A_DAY_ON_FREE_PLAN = 50;
+const BACKGROUND_EMAILS = 200; // invites, reminders and notices that don't belong to one case
 
 export type Scenario = {
   key: "starter" | "growth" | "scale";
@@ -188,12 +189,14 @@ export type Scenario = {
   nudges: number;
   smsPerCase: number;
   emailsPerCase: number;
+  /** Cases that arrive as one combined PDF instead of separate files. */
+  combinedShare: number;
 };
 
 export const SCENARIOS: Scenario[] = [
-  { key: "starter", label: "Starter", casesPerMonth: 50, comprehensiveShare: 0.4, newClientsPerMonth: 3, staffAssistantQuestions: 200, commandTurns: 100, voiceMinutes: 15, nudges: 10, smsPerCase: 3, emailsPerCase: 8 },
-  { key: "growth", label: "Growth", casesPerMonth: 200, comprehensiveShare: 0.4, newClientsPerMonth: 8, staffAssistantQuestions: 500, commandTurns: 200, voiceMinutes: 30, nudges: 25, smsPerCase: 3, emailsPerCase: 8 },
-  { key: "scale", label: "Scale", casesPerMonth: 600, comprehensiveShare: 0.4, newClientsPerMonth: 15, staffAssistantQuestions: 1200, commandTurns: 300, voiceMinutes: 50, nudges: 50, smsPerCase: 3, emailsPerCase: 8 },
+  { key: "starter", label: "Starter", casesPerMonth: 50, comprehensiveShare: 0.4, newClientsPerMonth: 3, staffAssistantQuestions: 200, commandTurns: 100, voiceMinutes: 15, nudges: 10, smsPerCase: 3, emailsPerCase: 8, combinedShare: 0.3 },
+  { key: "growth", label: "Growth", casesPerMonth: 200, comprehensiveShare: 0.4, newClientsPerMonth: 8, staffAssistantQuestions: 500, commandTurns: 200, voiceMinutes: 30, nudges: 25, smsPerCase: 3, emailsPerCase: 8, combinedShare: 0.3 },
+  { key: "scale", label: "Scale", casesPerMonth: 600, comprehensiveShare: 0.4, newClientsPerMonth: 15, staffAssistantQuestions: 1200, commandTurns: 300, voiceMinutes: 50, nudges: 50, smsPerCase: 3, emailsPerCase: 8, combinedShare: 0.3 },
 ];
 
 export type MonthlyBreakdown = {
@@ -213,9 +216,19 @@ export type MonthlyBreakdown = {
   emailsPerMonth: number;
 };
 
+/** AI per case across the month's mix of case sizes and of separate files and combined PDFs. */
+export function averageCaseCost(s: Pick<Scenario, "comprehensiveShare" | "combinedShare">): number {
+  const arriving = (p: CaseProfile) => (1 - s.combinedShare) * caseCost(p) + s.combinedShare * combinedCaseCost(p);
+  return s.comprehensiveShare * arriving(COMPREHENSIVE_CASE) + (1 - s.comprehensiveShare) * arriving(STANDARD_CASE);
+}
+
+export const needsPaidEmail = (emailsPerMonth: number) => emailsPerMonth / WORKING_DAYS_PER_MONTH > EMAILS_A_DAY_ON_FREE_PLAN;
+
+/** The monthly case count at which email moves to the paid plan. */
+export const paidEmailFromCases = (emailsPerCase: number) => Math.ceil((EMAILS_A_DAY_ON_FREE_PLAN * WORKING_DAYS_PER_MONTH - BACKGROUND_EMAILS) / emailsPerCase);
+
 export function monthly(s: Scenario): MonthlyBreakdown {
-  const perCase = s.comprehensiveShare * caseCost(COMPREHENSIVE_CASE) + (1 - s.comprehensiveShare) * caseCost(STANDARD_CASE);
-  const aiCases = s.casesPerMonth * perCase;
+  const aiCases = s.casesPerMonth * averageCaseCost(s);
   const aiCommercial = s.newClientsPerMonth * sum(onboardingCostLines()) + s.casesPerMonth * invoiceCost();
   const speech = s.voiceMinutes * SPEECH_TO_TEXT_PER_MINUTE;
   const aiAssistants =
@@ -225,8 +238,8 @@ export function monthly(s: Scenario): MonthlyBreakdown {
     s.nudges * taskCost("nudge");
   const aiTotal = aiCases + aiCommercial + aiAssistants;
 
-  const emailsPerMonth = s.casesPerMonth * s.emailsPerCase + 200;
-  const email = emailsPerMonth > 3000 ? SERVICES.resendPro.monthly : SERVICES.resendFree.monthly;
+  const emailsPerMonth = s.casesPerMonth * s.emailsPerCase + BACKGROUND_EMAILS;
+  const email = needsPaidEmail(emailsPerMonth) ? SERVICES.resendPro.monthly : SERVICES.resendFree.monthly;
   const sms = s.casesPerMonth * s.smsPerCase * SERVICES.smsPerMessage.unitCost;
   const netlify = SERVICES.netlifyPro.monthly;
   const supabase = SERVICES.supabasePro.monthly; // recommended for production from day one
@@ -237,6 +250,8 @@ export function monthly(s: Scenario): MonthlyBreakdown {
 
 /** Months until the free 1 GB of file storage is full. */
 export const monthsOnFreeStorage = (casesPerMonth: number) => 1024 / (casesPerMonth * STORAGE_PER_CASE_MB);
+/** Years until Supabase Pro's 100 GB of file storage is full. */
+export const yearsOnProStorage = (casesPerMonth: number) => (100 * 1024) / (casesPerMonth * STORAGE_PER_CASE_MB) / 12;
 
 // ---------------------------------------------------------------------------
 // Feasibility: staff time the AI replaces on a comprehensive case (minutes)

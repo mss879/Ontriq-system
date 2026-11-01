@@ -58,6 +58,13 @@ export function registerFonts() {
   Font.registerHyphenationCallback((word) => [word]);
 }
 
+/**
+ * Latin first, then Sinhala and Tamil for the letters Latin doesn't have: names
+ * and findings can be in any of the three, sometimes in one line.
+ */
+export const BODY_FONTS = ["Inter", "NotoSinhala", "NotoTamil"];
+export const DISPLAY_FONTS = ["StackSans", "NotoSinhala", "NotoTamil"];
+
 /** Ontriq brand colours (logo and ontriq.com) plus the result colours. */
 export const C = {
   navy: "#0C5A9A", // Ontriq Blue (logo)
@@ -77,13 +84,13 @@ export const C = {
 };
 
 export const s = StyleSheet.create({
-  page: { fontFamily: "Inter", fontSize: 9.5, color: C.body, paddingTop: 64, paddingBottom: 56, paddingHorizontal: 48, lineHeight: 1.45 },
+  page: { fontFamily: BODY_FONTS, fontSize: 9.5, color: C.body, paddingTop: 64, paddingBottom: 56, paddingHorizontal: 48, lineHeight: 1.45 },
   header: { position: "absolute", top: 26, left: 48, right: 48, flexDirection: "row", justifyContent: "space-between", borderBottomWidth: 0.75, borderBottomColor: C.line, paddingBottom: 8 },
   headerText: { fontSize: 7.5, color: C.muted, letterSpacing: 0.4 },
   footer: { position: "absolute", bottom: 24, left: 48, right: 48, flexDirection: "row", justifyContent: "space-between", fontSize: 7.5, color: C.muted },
   eyebrow: { fontSize: 7.5, fontWeight: 600, color: C.navy, letterSpacing: 1.6, textTransform: "uppercase" },
-  h1: { fontFamily: "StackSans", fontWeight: 700, fontSize: 22, color: C.ink, marginBottom: 10, lineHeight: 1.15, letterSpacing: -0.3 },
-  h2: { fontFamily: "StackSans", fontWeight: 600, fontSize: 13.5, color: C.ink, marginTop: 16, marginBottom: 6 },
+  h1: { fontFamily: DISPLAY_FONTS, fontWeight: 700, fontSize: 22, color: C.ink, marginBottom: 10, lineHeight: 1.15, letterSpacing: -0.3 },
+  h2: { fontFamily: DISPLAY_FONTS, fontWeight: 600, fontSize: 13.5, color: C.ink, marginTop: 16, marginBottom: 6 },
   p: { marginBottom: 8 },
   small: { fontSize: 8, color: C.muted },
   strong: { fontWeight: 600, color: C.ink },
@@ -275,7 +282,7 @@ export function StatTiles({ items, dark = false }: { items: { label: string; val
           }}
         >
           <Text style={{ fontSize: 7, lineHeight: 1.3, fontWeight: 600, letterSpacing: 0.8, textTransform: "uppercase", color: dark ? "#B9C6DA" : C.muted, marginBottom: 6 }}>{t.label}</Text>
-          <Text style={{ fontFamily: "StackSans", fontWeight: 700, fontSize: 20, lineHeight: 1.15, color: dark ? C.white : C.navyDeep }}>{t.value}</Text>
+          <Text style={{ fontFamily: DISPLAY_FONTS, fontWeight: 700, fontSize: 20, lineHeight: 1.15, color: dark ? C.white : C.navyDeep }}>{t.value}</Text>
           {t.sub ? <Text style={{ fontSize: 7.5, lineHeight: 1.35, color: dark ? "#B9C6DA" : C.muted, marginTop: 4 }}>{t.sub}</Text> : null}
         </View>
       ))}

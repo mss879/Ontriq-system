@@ -8,6 +8,10 @@
     "start": "next start",
     "lint": "eslint",
     "db:verify": "bash scripts/db/verify.sh",
+    "ai:docs": "tsx scripts/ai-eval/render.ts",
+    "ai:eval": "tsx --env-file=.env.local scripts/ai-eval/run.ts",
+    "ai:e2e": "tsx --env-file=.env.local scripts/ai-eval/e2e.ts",
+    "ai:assistant": "tsx --env-file=.env.local scripts/ai-eval/assistant.ts",
     "db:types:local": "AFTER_CMD='supabase gen types typescript --db-url \"$DATABASE_URL?sslmode=disable\" --schema public > src/lib/supabase/database.types.ts 2>/dev/null && npx --yes oxfmt src/lib/supabase/database.types.ts >/dev/null' bash scripts/db/verify.sh",
     "db:types": "supabase gen types typescript --linked --schema public > src/lib/supabase/database.types.ts && npx --yes oxfmt src/lib/supabase/database.types.ts",
     "db:push": "supabase db push --include-all",
@@ -16,6 +20,7 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
     "stack:local": "tsx scripts/local-stack/start.ts",
+    "demo": "bash scripts/demo.sh",
     "docs:cost": "tsx scripts/build-cost-doc.tsx",
     "simulate": "tsx scripts/simulate.ts"
   },

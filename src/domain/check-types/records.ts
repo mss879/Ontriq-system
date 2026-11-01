@@ -32,19 +32,34 @@ export function recordLabel(fields: FieldDef[], values: Record<string, unknown> 
 /**
  * Rows move or go when someone edits a group, and records are kept by position.
  * Returns where each record went: { "employers.2": "employers.1" }, or null for
- * a row that was removed. Rows are matched by their name; unnamed rows stay put.
+ * a row that was removed. Names follow their rows: with two rows of one name, the
+ * first stays the first. What is left in a free place was renamed, not removed:
+ * correcting a name keeps its files.
  */
 export function recordMoves(fields: FieldDef[], before: Record<string, unknown> | null | undefined, after: Record<string, unknown> | null | undefined): Record<string, string | null> {
   const moves: Record<string, string | null> = {};
   for (const f of fields) {
     if (f.type !== "repeatable_group") continue;
     const rows = (v: Record<string, unknown> | null | undefined) => (Array.isArray(v?.[f.key]) ? (v?.[f.key] as Record<string, unknown>[]) : []);
-    const was = rows(before);
-    const now = rows(after).map((r) => nameOf(r ?? {}, f)?.toLowerCase() ?? null);
-    was.forEach((row, i) => {
-      const name = nameOf(row ?? {}, f)?.toLowerCase() ?? null;
-      const to = name === null ? (i < now.length ? i : -1) : now.indexOf(name);
-      if (to !== i) moves[`${f.key}.${i}`] = to < 0 ? null : `${f.key}.${to}`;
+    const name = (r: Record<string, unknown> | null) => nameOf(r ?? {}, f)?.toLowerCase() ?? null;
+    const was = rows(before).map(name);
+    const now = rows(after).map(name);
+    const to = was.map(() => -1);
+    const taken = new Set<number>();
+    const place = (i: number, at: number) => {
+      to[i] = at;
+      taken.add(at);
+    };
+    was.forEach((n, i) => {
+      if (n === null) return;
+      const at = now.findIndex((m, j) => m === n && !taken.has(j));
+      if (at >= 0) place(i, at);
+    });
+    was.forEach((_, i) => {
+      if (to[i] < 0 && i < now.length && !taken.has(i)) place(i, i);
+    });
+    to.forEach((at, i) => {
+      if (at !== i) moves[`${f.key}.${i}`] = at < 0 ? null : `${f.key}.${at}`;
     });
   }
   return moves;

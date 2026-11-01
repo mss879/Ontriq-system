@@ -5,7 +5,8 @@ import { notFound, redirect } from "next/navigation";
 import { ArrowLeft, IdCard } from "lucide-react";
 import { Eyebrow, Page, SectionSkeleton } from "@/components/layout/page";
 import { Surface, SurfaceHeader, TH } from "@/components/admin/surface";
-import { ChecksProgress, ResultBadge, StagePill, statusLabel } from "@/components/cases/badges";
+import { ChecksProgress, ResultBadge, shownResult, StagePill } from "@/components/cases/badges";
+import { statusLabeller } from "@/lib/server/cases/status-catalog";
 import { PersonAvatar } from "@/components/cases/person";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { getStaffViewer } from "@/lib/server/viewer";
@@ -36,7 +37,7 @@ async function Candidate({ params }: Pick<PageProps<"/app/candidates/[candidateI
   if (!canAny(viewer, ["cases.read", "candidates.manage", "cases.read_assigned"])) redirect("/app");
   const candidate = /^[0-9a-f-]{36}$/.test(candidateId) ? await getCandidate(candidateId) : null;
   if (!candidate) notFound();
-  const cases = await getCandidateCases(candidate.id);
+  const [cases, labelFor] = await Promise.all([getCandidateCases(candidate.id), statusLabeller()]);
   const nic = candidate.nic ? parseNic(candidate.nic) : null;
 
   const details: [string, React.ReactNode][] = [
@@ -94,14 +95,14 @@ async function Candidate({ params }: Pick<PageProps<"/app/candidates/[candidateI
                     <TableCell>
                       <div className="flex flex-col items-start gap-1">
                         <StagePill stage={c.stage} onHold={c.onHold} />
-                        <span className="text-[11px] text-muted-foreground">{statusLabel(c.statusKey)}</span>
+                        <span className="text-[11px] text-muted-foreground">{labelFor(c.statusKey)}</span>
                       </div>
                     </TableCell>
                     <TableCell className="hidden sm:table-cell">
                       <ChecksProgress done={c.checksDone} total={c.checksTotal} />
                     </TableCell>
                     <TableCell className="pr-5">
-                      <ResultBadge result={c.finalResult ?? c.proposedResult} />
+                      <ResultBadge result={shownResult(c)} />
                     </TableCell>
                   </TableRow>
                 ))}

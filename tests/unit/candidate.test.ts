@@ -44,6 +44,17 @@ describe("candidate steps", () => {
     expect(candidateProgress(view)).toBe(40);
     expect(candidateProgress({ ...view, requirements: [], requests: [], consent: { status: "submitted" } })).toBe(100);
   });
+
+  it("stops counting files once uploads close, but not questions", () => {
+    const view = {
+      requirements: [{ status: "pending", min_count: 1, received_count: 0 }],
+      requests: [{ status: "open", kind: "document" }, { status: "open", kind: "question" }],
+      consent: { status: "rejected" },
+      case: { stage: "post_qc" },
+    };
+    expect(candidateOutstanding(view)).toEqual({ documents: 0, requests: 1, consent: false });
+    expect(candidateOutstanding({ ...view, case: { stage: "verification" } })).toEqual({ documents: 1, requests: 2, consent: true });
+  });
 });
 
 describe("candidate reminders", () => {

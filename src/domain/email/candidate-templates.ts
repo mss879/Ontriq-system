@@ -14,6 +14,8 @@ type LinkCopy = {
   hello: (first: string) => string;
   asked: (client: string, org: string, position: string | null) => string;
   what: string;
+  /** Leads the list of what is needed: the flowchart's formal email requesting the documents. */
+  need: string;
   cta: string;
   note: (date: string, org: string, contact: string) => string;
 };
@@ -26,6 +28,7 @@ const LINK: Record<CandidateLanguage, LinkCopy> = {
     asked: (client, org, position) =>
       position ? `${client} has asked ${org} to verify your background for the ${position} role.` : `${client} has asked ${org} to complete a background verification for you.`,
     what: "Open your secure page to see the documents we need, upload them from your phone or computer, and sign the consent form. It takes about 10 minutes.",
+    need: "We need these from you:",
     cta: "Open my secure page",
     note: (date, org, contact) => `This link is personal to you and expires on ${date}. Please don't forward it. If you weren't expecting this, contact ${org}${contact ? ` at ${contact}` : ""}.`,
   },
@@ -38,6 +41,7 @@ const LINK: Record<CandidateLanguage, LinkCopy> = {
         ? `${position} තනතුර සඳහා ඔබගේ පසුබිම සත්‍යාපනය කරන ලෙස ${client} ආයතනය ${org} වෙතින් ඉල්ලා ඇත.`
         : `ඔබගේ පසුබිම් සත්‍යාපනයක් සිදු කරන ලෙස ${client} ආයතනය ${org} වෙතින් ඉල්ලා ඇත.`,
     what: "අපට අවශ්‍ය ලේඛන බැලීමට, ඒවා ඔබගේ දුරකථනයෙන් හෝ පරිගණකයෙන් උඩුගත කිරීමට සහ කැමැත්ත පත්‍රය අත්සන් කිරීමට ඔබගේ ආරක්ෂිත පිටුව විවෘත කරන්න. මේ සඳහා මිනිත්තු 10ක් පමණ ගත වේ.",
+    need: "අපට ඔබෙන් මේවා අවශ්‍යයි:",
     cta: "මගේ ආරක්ෂිත පිටුව විවෘත කරන්න",
     note: (date, org, contact) => `මෙම සබැඳිය ඔබට පමණක් අයත් වන අතර ${date} දින කල් ඉකුත් වේ. කරුණාකර එය වෙනත් අයෙකුට යොමු නොකරන්න. ඔබ මෙය අපේක්ෂා නොකළේ නම්, ${org}${contact ? ` (${contact})` : ""} අමතන්න.`,
   },
@@ -50,6 +54,7 @@ const LINK: Record<CandidateLanguage, LinkCopy> = {
         ? `${position} பதவிக்காக உங்கள் பின்னணியைச் சரிபார்க்குமாறு ${client} நிறுவனம் ${org} இடம் கேட்டுள்ளது.`
         : `உங்களுக்கான பின்னணி சரிபார்ப்பை மேற்கொள்ளுமாறு ${client} நிறுவனம் ${org} இடம் கேட்டுள்ளது.`,
     what: "எங்களுக்குத் தேவையான ஆவணங்களைப் பார்க்கவும், அவற்றை உங்கள் தொலைபேசி அல்லது கணினியிலிருந்து பதிவேற்றவும், ஒப்புதல் படிவத்தில் கையொப்பமிடவும் உங்கள் பாதுகாப்பான பக்கத்தைத் திறக்கவும். இதற்கு சுமார் 10 நிமிடங்கள் ஆகும்.",
+    need: "உங்களிடமிருந்து எங்களுக்கு இவை தேவை:",
     cta: "எனது பாதுகாப்பான பக்கத்தைத் திற",
     note: (date, org, contact) => `இந்த இணைப்பு உங்களுக்கு மட்டுமே உரியது, ${date} அன்று காலாவதியாகும். தயவுசெய்து இதை வேறு யாருக்கும் அனுப்ப வேண்டாம். நீங்கள் இதை எதிர்பார்க்கவில்லை என்றால், ${org}${contact ? ` (${contact})` : ""} ஐத் தொடர்பு கொள்ளவும்.`,
   },
@@ -115,7 +120,7 @@ export function formatExpiry(iso: string): string {
 }
 
 export function candidateLinkEmail(
-  input: { language?: string | null; candidateName: string; clientName: string; position: string | null; orgName: string; contact: string; url: string; expiresAt: string },
+  input: { language?: string | null; candidateName: string; clientName: string; position: string | null; orgName: string; contact: string; url: string; expiresAt: string; documents?: string[] },
   brand: EmailBrand = DEFAULT_BRAND,
 ) {
   const c = LINK[lang(input.language)];
@@ -123,7 +128,12 @@ export function candidateLinkEmail(
     {
       preheader: c.what,
       heading: c.heading,
-      paragraphs: [c.hello(firstName(input.candidateName)), c.asked(input.clientName, input.orgName, input.position), c.what],
+      paragraphs: [
+        c.hello(firstName(input.candidateName)),
+        c.asked(input.clientName, input.orgName, input.position),
+        c.what,
+        ...(input.documents?.length ? [`${c.need} ${input.documents.join(", ")}.`] : []),
+      ],
       cta: { label: c.cta, url: input.url },
       note: c.note(formatExpiry(input.expiresAt), input.orgName, input.contact),
     },

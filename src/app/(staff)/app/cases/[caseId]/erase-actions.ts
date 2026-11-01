@@ -7,7 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requireViewer } from "@/lib/server/viewer";
 import { AuthError, authErrorMessage, rpcErrorMessage } from "@/lib/server/errors";
 import { fail, type ActionResult } from "@/lib/server/action-result";
-import { removeObjects } from "@/jobs/storage";
+import { drainStorageDeletions } from "@/jobs/storage";
 
 const Input = z.object({
   caseId: z.uuid(),
@@ -18,9 +18,10 @@ const Input = z.object({
 /**
  * Erase a finished case's personal data on request (0035). Super Admin with
  * two-step verification only (the database checks again), confirmed by
- * typing the case reference. Files are deleted from Storage afterwards.
+ * typing the case reference. The database lists the files first; what Storage
+ * refuses now stays on the list for the nightly job to try again.
  */
-export async function eraseCaseData(input: z.input<typeof Input>): Promise<ActionResult<{ files: number }>> {
+export async function eraseCaseData(input: z.input<typeof Input>): Promise<ActionResult<{ files: number; left: number }>> {
   try {
     const viewer = await requireViewer({ kind: "staff" });
     if (!viewer.permissions.includes("*")) return fail("Only the Super Admin can erase personal data.");
@@ -34,9 +35,9 @@ export async function eraseCaseData(input: z.input<typeof Input>): Promise<Actio
   const { data: c } = await supabase.from("cases").select("reference").eq("id", parsed.data.caseId).maybeSingle();
   if (!c) return fail("Case not found.");
   if (parsed.data.confirmReference.toUpperCase() !== c.reference.toUpperCase()) return fail(`Type ${c.reference} to confirm.`);
-  const { data, error } = await supabase.rpc("erase_case", { p_case: parsed.data.caseId, p_reason: parsed.data.reason });
+  const { error } = await supabase.rpc("erase_case", { p_case: parsed.data.caseId, p_reason: parsed.data.reason });
   if (error) return fail(rpcErrorMessage(error));
-  const files = await removeObjects(createAdminClient(), ((data as { objects?: { bucket: string; path: string }[] } | null)?.objects ?? []));
+  const { removed, failed } = await drainStorageDeletions(createAdminClient(), { caseId: parsed.data.caseId });
   refresh();
-  return { ok: true, files };
+  return { ok: true, files: removed, left: failed };
 }

@@ -54,7 +54,7 @@ export type CaseAi = {
   postqc?: Suggestion;
   summary?: Suggestion;
   checks: Record<string, CheckAi>;
-  documents: Record<string, { quality?: Suggestion; tamper?: Suggestion }>;
+  documents: Record<string, { quality?: Suggestion; tamper?: Suggestion; contains?: Suggestion }>;
   /** Anything a person still has to decide. */
   pendingCount: number;
 };
@@ -91,7 +91,8 @@ export function organizeSuggestions(list: Suggestion[], caseId: string): CaseAi 
   for (const id of docIds) {
     const here = list.filter((s) => s.entityType === "document" && s.entityId === id);
     out.documents[id] = {
-      quality: newest(here, (s) => s.capability === "document.classify", { pendingOnly: true }),
+      quality: newest(here, (s) => s.capability === "document.classify" && s.fieldKey !== "contains", { pendingOnly: true }),
+      contains: newest(here, (s) => s.capability === "document.classify" && s.fieldKey === "contains", { pendingOnly: true }),
       tamper: newest(here, (s) => s.capability === "document.tamper", { pendingOnly: true }),
     };
   }
@@ -137,6 +138,7 @@ export function canRerun(cap: RerunCapability, stage: Stage, onHold: boolean, ca
 export const DECIDE_PERMISSIONS: Record<string, string[]> = {
   "document.extract": ["checks.data_entry", "checks.verify"],
   "document.classify": ["cases.update", "qc.pre"],
+  "candidate.report": ["cases.update", "qc.pre"],
   "document.tamper": ["qc.pre", "qc.post", "cases.update"],
   "case.consistency": ["qc.pre", "qc.post"],
   "case.preqc": ["qc.pre"],

@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import { connection } from "next/server";
 import { CheckCircle2, CircleDashed } from "lucide-react";
 import { Logo } from "@/components/brand/logo";
@@ -58,6 +59,8 @@ export default function SetupPage() {
 
 async function Status() {
   await connection();
+  // Once the database is connected this page has nothing to say, and what is set up is nobody's business.
+  if (isSupabaseConfigured()) redirect("/login");
   const items = integrationStatus();
   return (
     <Card>

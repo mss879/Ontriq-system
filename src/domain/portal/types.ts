@@ -16,8 +16,10 @@ export type PortalCaseRow = {
   status_label: string;
   priority: "normal" | "high" | "urgent";
   on_hold: boolean;
-  checks_total: number;
-  checks_done: number;
+  /** Null when Ontriq keeps this client's progress off: the numbers go with the list. */
+  checks_total: number | null;
+  checks_done: number | null;
+  checks: { label: string; state: PortalCheck["state"] }[];
   received_at: string;
   due_at: string | null;
   released_at: string | null;
@@ -25,8 +27,14 @@ export type PortalCaseRow = {
   process_type: "client_supplied" | "candidate_collected";
   created_via: "staff" | "portal" | "import" | "assistant";
   needs_documents: number;
+  report_status: PortalReportStatus;
+  /** Set once a released report is theirs to open. */
+  report_version_id: string | null;
   final_result: "green" | "amber" | "red" | null;
 };
+
+/** Spec 8: the client can tell a report being prepared, awaiting approval or released. */
+export type PortalReportStatus = "not_ready" | "preparing" | "awaiting_approval" | "completed" | "revising" | "released" | "cancelled";
 
 export type PortalStatusFilter = "all" | "action" | "active" | "released" | "cancelled";
 
@@ -65,7 +73,7 @@ export type PortalCheck = {
   label: string;
   key: string;
   icon: string;
-  state: "not_started" | "in_progress" | "needs_information" | "done" | "not_required";
+  state: "not_started" | "in_progress" | "needs_information" | "waiting_for_candidate" | "done" | "not_required";
   completed_at: string | null;
   result_tone: "green" | "amber" | "red" | null;
   result_label: string | null;
@@ -129,7 +137,7 @@ export type PortalCaseDetail = {
   documents: PortalDocument[];
   candidate_progress: { invited_at: string | null; active: boolean; opened: boolean; consent: boolean } | null;
   timeline: { id: number; kind: string; at: string; title: string; body: string | null }[];
-  report: { status: "not_ready" | "in_preparation" | "released" | "cancelled"; released_at: string | null };
+  report: { status: PortalReportStatus; released_at: string | null };
 };
 
 export type PortalTeamMember = {

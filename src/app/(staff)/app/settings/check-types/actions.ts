@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireViewer } from "@/lib/server/viewer";
 import { AuthError, authErrorMessage, rpcErrorMessage } from "@/lib/server/errors";
 import { fail, zodFieldErrors, type ActionResult } from "@/lib/server/action-result";
-import { checkTypeSchema } from "@/domain/check-types/schema";
+import { checkTypeSchema, publishIssues } from "@/domain/check-types/schema";
 import type { Json } from "@/lib/supabase/database.types";
 
 /**
@@ -85,6 +85,11 @@ export async function updateCheckTypeDetails(id: string, input: z.input<typeof d
 export async function setCheckTypeArchived(id: string, archived: boolean): Promise<ActionResult> {
   return guarded(async () => {
     const supabase = await createClient();
+    if (archived) {
+      const { data: items } = await supabase.from("package_items").select("package:packages(name)").eq("check_type_id", id);
+      const inUse = [...new Set((items ?? []).flatMap((i) => (i.package ? [i.package.name] : [])))];
+      if (inUse.length) return fail(`Take this check out of ${inUse.join(", ")} first. New cases on that package would fail without it.`);
+    }
     const { error } = await supabase
       .from("check_types")
       .update({ archived_at: archived ? new Date().toISOString() : null })
@@ -117,6 +122,14 @@ export async function publishCheckType(id: string, schema: unknown, notes: strin
     const parsed = checkTypeSchema.safeParse(schema);
     if (!parsed.success) return { ok: false, error: "Some parts of the definition need fixing.", fieldErrors: schemaIssues(parsed.error.issues) };
     const supabase = await createClient();
+    // The sanction rules hang on these (set_check_state, the report's annexure).
+    const { data: type } = await supabase.from("check_types").select("key").eq("id", id).maybeSingle();
+    if (type?.key === "sanction") {
+      if (!parsed.data.fields.some((f) => f.key === "sanctions_found")) return fail("The Global Sanction check must keep its \"Sanctions found\" field: a hit can't be recorded as clear without it.");
+      if (!parsed.data.fixed_annexure) return fail("The Global Sanction check must keep its fixed annexure: the report goes in unchanged.");
+    }
+    const issues = publishIssues(parsed.data);
+    if (issues.length) return fail(issues.join(" "));
     const saved = await supabase.rpc("save_check_type_draft", { p_check_type: id, p_schema: parsed.data as unknown as Json });
     if (saved.error) return fail(rpcErrorMessage(saved.error));
     const { data, error } = await supabase.rpc("publish_check_type", { p_check_type: id, p_notes: notes.trim() || undefined });

@@ -131,6 +131,12 @@ async function Result({ params }: Pick<PageProps<"/verify/[id]">, "params">) {
           <div className="mt-4 rounded-xl bg-muted/60 px-3 py-2.5">
             <p className="text-[11px] font-semibold tracking-[0.16em] text-muted-foreground uppercase">File fingerprint (SHA-256)</p>
             <p className="mt-1 font-mono text-xs break-all">{result.sha256}</p>
+            {result.parts.map((p) => (
+              <div key={p.part} className="mt-2">
+                <p className="text-[11px] font-semibold tracking-[0.16em] text-muted-foreground uppercase">Part {p.part}</p>
+                <p className="mt-1 font-mono text-xs break-all">{p.sha256}</p>
+              </div>
+            ))}
           </div>
         ) : null}
       </section>
@@ -139,7 +145,7 @@ async function Result({ params }: Pick<PageProps<"/verify/[id]">, "params">) {
         <section className="rounded-2xl bg-card p-5 shadow-soft ring-1 ring-foreground/[0.07] md:p-6">
           <h2 className="font-display text-base font-semibold">Check a file</h2>
           <p className="mt-1 mb-4 text-sm text-muted-foreground">Have the PDF? Check it hasn’t been changed since Ontriq issued it.</p>
-          <FileCheck expected={result.sha256} />
+          <FileCheck files={[{ name: "the report", sha256: result.sha256 }, ...result.parts.map((p) => ({ name: `part ${p.part} of the report`, sha256: p.sha256 }))]} />
         </section>
       ) : null}
     </div>

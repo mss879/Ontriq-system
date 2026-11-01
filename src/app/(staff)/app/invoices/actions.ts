@@ -86,6 +86,8 @@ const lineSchema = z.object({
 });
 const draftSchema = z.object({
   lines: z.array(lineSchema).max(500),
+  /** The lines the form opened with. A case the month's job adds meanwhile isn't removed by not being on it. */
+  known: z.array(z.uuid()).max(500).default([]),
   message: z.string().trim().max(2000),
   internal_notes: z.string().trim().max(4000),
   contact_id: z.uuid().nullable(),
@@ -118,7 +120,7 @@ export async function saveInvoiceDraft(invoiceId: string, input: InvoiceDraftInp
     const { data: existing } = await supabase.from("invoice_items").select("id").eq("invoice_id", invoiceId);
     const current = new Set((existing ?? []).map((e) => e.id));
     const keep = new Set(v.lines.map((l) => l.id).filter((id): id is string => Boolean(id && current.has(id))));
-    const gone = [...current].filter((id) => !keep.has(id));
+    const gone = v.known.filter((id) => current.has(id) && !keep.has(id));
     if (gone.length) {
       const { error } = await supabase.from("invoice_items").delete().in("id", gone);
       if (error) return fail(rpcErrorMessage(error));

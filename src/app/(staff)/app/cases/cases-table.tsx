@@ -55,6 +55,7 @@ export function CasesTable({ items, staff, canAssign }: { items: CaseListItem[];
             aside={canAssign ? <Checkbox aria-label={`Select ${c.reference}`} checked={selected.has(c.id)} onCheckedChange={(v) => toggle(c.id, v === true)} /> : undefined}
           >
             <StagePill stage={c.stage} onHold={c.onHold} />
+            {statusNote(c.statusKey, c.statusLabel) ? <span className="text-xs text-muted-foreground">{c.statusLabel}</span> : null}
             <PriorityBadge priority={c.priority} />
             {result ? <ResultBadge result={result} /> : null}
             <SlaBadge dueAt={c.dueAt} startedAt={c.receivedAt} done={c.stage === "released" || c.stage === "cancelled"} compact />
@@ -89,7 +90,7 @@ export function CasesTable({ items, staff, canAssign }: { items: CaseListItem[];
           {items.map((c) => {
             const isSelected = selected.has(c.id);
             const result = shownResult(c);
-            const note = statusNote(c.statusKey);
+            const note = statusNote(c.statusKey, c.statusLabel);
             return (
               <TableRow key={c.id} data-state={isSelected ? "selected" : undefined} className={cn("group", ROW)}>
                 {canAssign ? (
@@ -114,7 +115,7 @@ export function CasesTable({ items, staff, canAssign }: { items: CaseListItem[];
                 <TableCell>
                   <div className="flex flex-col items-start gap-1">
                     <StagePill stage={c.stage} onHold={c.onHold} />
-                    {note ? <span className={cn("text-xs", c.statusKey === "returned_for_correction" ? "font-medium text-warning-foreground dark:text-warning" : "text-muted-foreground")}>{note}</span> : null}
+                    {note ? <span className={cn("text-xs", c.statusKey.startsWith("returned_") ? "font-medium text-warning-foreground dark:text-warning" : "text-muted-foreground")}>{note}</span> : null}
                     {result ? <ResultBadge result={result} className="min-[1400px]:hidden" /> : null}
                   </div>
                 </TableCell>

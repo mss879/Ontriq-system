@@ -7,7 +7,8 @@ import { ResultBadge } from "@/components/cases/badges";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { getClientViewer } from "@/lib/server/viewer";
-import { parsePortalFilters, portalCases } from "@/lib/server/portal/queries";
+import { parsePortalFilters, portalCases, PORTAL_PAGE_SIZE } from "@/lib/server/portal/queries";
+import { Pagination } from "@/components/admin/pagination";
 import { getPortalReport } from "@/lib/server/reports/queries";
 import { formatDate } from "@/lib/format";
 import { PortalCasesFilters } from "../cases/cases-filters";
@@ -55,12 +56,23 @@ async function Content({ searchParams }: Pick<PageProps<"/portal/reports">, "sea
                       {[r.position_title, r.client_reference ? `Your ref. ${r.client_reference}` : null, `Released ${formatDate(file?.releasedAt ?? r.released_at)}`].filter(Boolean).join(" · ")}
                     </p>
                   </div>
-                  {file ? (
-                    <Button asChild size="sm" variant="outline" className="shrink-0 self-start sm:self-auto">
-                      <a href={`/api/reports/${file.versionId}?download=1`} aria-label={`Download the report for ${r.reference}`}>
-                        <Download /> Download
-                      </a>
-                    </Button>
+                  {file?.fileRemoved ? (
+                    <span className="text-xs text-muted-foreground">Removed under the retention policy</span>
+                  ) : file ? (
+                    <div className="flex shrink-0 flex-wrap gap-2 self-start sm:self-auto">
+                      <Button asChild size="sm" variant="outline">
+                        <a href={`/api/reports/${file.versionId}?download=1`} aria-label={`Download the report for ${r.reference}`}>
+                          <Download /> Download
+                        </a>
+                      </Button>
+                      {Array.from({ length: file.extraParts }, (_, n) => (
+                        <Button key={n} asChild size="sm" variant="ghost">
+                          <a href={`/api/reports/${file.versionId}?download=1&part=${n + 2}`} aria-label={`Download part ${n + 2} of the report for ${r.reference}`}>
+                            Part {n + 2}
+                          </a>
+                        </Button>
+                      ))}
+                    </div>
                   ) : (
                     <span className="text-xs text-muted-foreground">Ask Ontriq for a copy</span>
                   )}
@@ -80,7 +92,7 @@ async function Content({ searchParams }: Pick<PageProps<"/portal/reports">, "sea
           </Empty>
         )}
       </div>
-      {total > rows.length ? <p className="text-sm text-muted-foreground">Showing the latest {rows.length} of {total}. Search to find older reports.</p> : null}
+      {total > PORTAL_PAGE_SIZE ? <Pagination page={filters.page ?? 1} pageSize={PORTAL_PAGE_SIZE} total={total} params={Object.fromEntries(new URLSearchParams(query))} basePath="/portal/reports" /> : null}
     </div>
   );
 }

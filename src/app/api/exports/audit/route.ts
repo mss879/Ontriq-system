@@ -1,7 +1,7 @@
 import { connection, type NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { csvResponse, exportViewer, readAll } from "@/lib/server/analytics/exports";
-import { AUDITED_TABLES } from "@/lib/server/admin/audit";
+import { AUDITED_TABLES, caseAuditFilter, caseIdFor } from "@/lib/server/admin/audit";
 import { can } from "@/domain/permissions";
 import { csvDateTime, csvFilename } from "@/domain/analytics/csv";
 
@@ -19,8 +19,8 @@ function changes(op: string, keys: string[], before: Record<string, unknown> | n
 
 /**
  * The audit trail as CSV (audit.read), newest first, with the viewer's
- * filters: table, op, actor ("system" or a user id), from and to (Sri Lanka
- * days). At most 10,000 rows.
+ * filters: table, op, actor ("system" or a user id), q (a case reference),
+ * from and to (Sri Lanka days). At most 10,000 rows.
  */
 export async function GET(request: NextRequest) {
   await connection();
@@ -33,6 +33,7 @@ export async function GET(request: NextRequest) {
   const from = sp.get("from");
   const to = sp.get("to");
   const supabase = await createClient();
+  const caseId = await caseIdFor(supabase, sp.get("q") ?? undefined);
 
   const build = () => {
     let q = supabase.from("audit_log").select("id, table_name, row_id, op, actor_id, actor_kind, changed_keys, before, after, ip, at");
@@ -42,6 +43,8 @@ export async function GET(request: NextRequest) {
     else if (actor && /^[0-9a-f-]{36}$/i.test(actor)) q = q.eq("actor_id", actor);
     if (from && DATE.test(from)) q = q.gte("at", `${from}T00:00:00+05:30`);
     if (to && DATE.test(to)) q = q.lte("at", `${to}T23:59:59.999+05:30`);
+    // A reference that matches nothing exports nothing.
+    if (caseId !== undefined) q = q.or(caseAuditFilter(caseId ?? "00000000-0000-0000-0000-000000000000"));
     return q.order("at", { ascending: false }).order("id", { ascending: false });
   };
 

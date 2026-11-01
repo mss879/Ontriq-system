@@ -4,6 +4,7 @@ import { refresh } from "next/cache";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { requireViewer } from "@/lib/server/viewer";
+import { portalClientProfile } from "@/lib/server/portal/queries";
 import { AuthError, authErrorMessage, friendlyDbError } from "@/lib/server/errors";
 import { fail, zodFieldErrors, type ActionResult } from "@/lib/server/action-result";
 
@@ -51,23 +52,20 @@ export async function saveClientPackage(input: PackageInput): Promise<ActionResu
     const v = parsed.data;
     const supabase = await createClient();
 
-    const [{ data: client }, { data: settings }, { data: allowed }] = await Promise.all([
-      supabase.from("clients").select("code").eq("id", viewer.clientId ?? "").maybeSingle(),
-      supabase.from("client_settings").select("portal").eq("client_id", viewer.clientId ?? "").maybeSingle(),
-      supabase.rpc("portal_price_list"),
-    ]);
-    const portal = (settings?.portal ?? {}) as Record<string, boolean>;
-    if (portal.client_packages === false) return fail("Building your own packages isn't switched on for your company. Ask Ontriq to turn it on.");
+    const [client, { data: allowed }] = await Promise.all([portalClientProfile(), supabase.rpc("portal_price_list")]);
+    const portal = client?.portal;
+    if (portal?.client_packages === false) return fail("Building your own packages isn't switched on for your company. Ask Ontriq to turn it on.");
     const allowedIds = new Set((allowed ?? []).map((r) => r.check_type_id));
     if (v.checkTypeIds.some((id) => !allowedIds.has(id))) return fail("One of these checks isn't available to your company.");
-    const needsApproval = portal.client_packages_need_approval === true;
+    const needsApproval = portal?.client_packages_need_approval === true;
 
     let id = v.id;
     let pendingApproval = needsApproval;
     if (id) {
       const { data: existing } = await supabase.from("packages").select("id, owner_scope, needs_approval").eq("id", id).maybeSingle();
       if (!existing || existing.owner_scope !== "client") return fail("That package can't be edited here.");
-      pendingApproval = existing.needs_approval;
+      // Changing a package goes back to Ontriq when Ontriq approves them (public.package_items_client_review).
+      pendingApproval = existing.needs_approval || needsApproval;
       const { error } = await supabase.from("packages").update({ name: v.name, description: v.description }).eq("id", id);
       if (error) return fail(friendlyDbError(error));
       const { error: delError } = await supabase.from("package_items").delete().eq("package_id", id);

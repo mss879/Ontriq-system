@@ -27,12 +27,15 @@ export function CasesFilters({
   view,
   staff,
   clients,
+  statuses,
 }: {
   query: string;
   filters: CaseFilters;
   view: "table" | "board";
   staff: Option[];
   clients: Option[];
+  /** Ontriq's wording for each status, their own included. */
+  statuses: { key: string; label: string }[];
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -63,6 +66,7 @@ export function CasesFilters({
   };
   add("q", filters.q ? `“${filters.q}”` : undefined);
   add("stage", filters.stage && filters.stage !== "active" ? (STAGE_GROUPS[filters.stage] ?? STAGE_LABELS[filters.stage as Stage]) : undefined);
+  add("status", filters.status ? (statuses.find((s) => s.key === filters.status)?.label ?? "Status") : undefined);
   add("client", filters.client ? (clients.find((c) => c.id === filters.client)?.name ?? "Client") : undefined);
   add("assignee", filters.assignee ? (OWNER_WORDS[filters.assignee] ?? staff.find((p) => p.id === filters.assignee)?.name ?? "Owner") : undefined);
   add("priority", filters.priority ? `${filters.priority.charAt(0).toUpperCase()}${filters.priority.slice(1)} priority` : undefined);
@@ -108,6 +112,20 @@ export function CasesFilters({
                 </SelectItem>
               ))}
             </SelectGroup>
+          </SelectContent>
+        </Select>
+
+        <Select value={filters.status ?? ALL} onValueChange={(v) => go({ status: v === ALL ? null : v })}>
+          <SelectTrigger className="h-9 max-w-52 min-w-32 bg-card" aria-label="Status">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL}>Any status</SelectItem>
+            {statuses.map((s) => (
+              <SelectItem key={s.key} value={s.key}>
+                {s.label}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
 

@@ -1,6 +1,7 @@
 import "server-only";
 import { cache } from "react";
 import { createRequestClient } from "@/lib/supabase/server";
+import { portalClientProfile } from "@/lib/server/portal/queries";
 import { issuerFromBranding, TEMPLATE_KEYS, type Issuer, type TemplateKey } from "@/domain/documents/model";
 import { documentAddress, type DocClient, type QuoteStatus } from "@/components/quotes/types";
 
@@ -78,15 +79,16 @@ export const portalQuote = cache(async (quoteId: string): Promise<PortalQuote | 
 });
 
 /** What the document preview needs besides the quotation: Ontriq's details, the client's own address, the PDF. */
-export async function portalQuoteContext(quoteId: string, orgId: string, clientId: string): Promise<{ issuer: Issuer; client: DocClient; documentId: string | null }> {
+export async function portalQuoteContext(quoteId: string): Promise<{ issuer: Issuer; client: DocClient; documentId: string | null }> {
   const supabase = await createRequestClient();
-  const [{ data: org }, { data: client }, { data: doc }] = await Promise.all([
-    supabase.from("orgs").select("name, branding").eq("id", orgId).single(),
-    supabase.from("clients").select("name, address, email, phone").eq("id", clientId).single(),
+  const [{ data: profile }, client, { data: doc }] = await Promise.all([
+    supabase.rpc("portal_org_profile"),
+    portalClientProfile(),
     supabase.from("generated_documents").select("id").eq("entity_type", "quote").eq("entity_id", quoteId).eq("status", "ready").order("version", { ascending: false }).limit(1).maybeSingle(),
   ]);
+  const org = profile as { name?: string; branding?: Record<string, unknown> } | null;
   return {
-    issuer: issuerFromBranding({ name: org?.name ?? "Ontriq", branding: (org?.branding ?? {}) as Record<string, unknown> }),
+    issuer: issuerFromBranding({ name: org?.name ?? "Ontriq", branding: org?.branding ?? {} }),
     client: { name: client?.name ?? "", address: documentAddress(client?.address), email: client?.email ?? null, phone: client?.phone ?? null },
     documentId: doc?.id ?? null,
   };

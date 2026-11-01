@@ -68,6 +68,7 @@ export async function draftNudge(userId: string, tone: NudgeTone): Promise<Actio
             ),
           ],
           schema: NudgeSchema,
+          limitMs: 20_000,
         },
       );
       if (r.ok && r.data.message.trim()) {

@@ -4,7 +4,8 @@ import { createRequestClient } from "@/lib/supabase/server";
 import { can } from "@/domain/permissions";
 import { ACTIVE_STAGES, TERMINAL_CHECK_STATES, type CheckState, type FinalResult, type Priority, type Stage } from "@/domain/workflow/stages";
 import type { Viewer } from "@/lib/server/viewer";
-import { peopleById, type CaseListItem } from "./queries";
+import { peopleById, withClientNames, type CaseListItem } from "./queries";
+import { statusLabeller } from "./status-catalog";
 
 /**
  * Reads for the queues ("My work"), the dashboard tiles and saved views.
@@ -35,8 +36,8 @@ type CaseRow = {
 };
 
 async function toItems(rows: CaseRow[]): Promise<CaseListItem[]> {
-  const people = await peopleById();
-  return rows.map((c) => ({
+  const [people, statusLabel] = await Promise.all([peopleById(), statusLabeller()]);
+  const items: CaseListItem[] = rows.map((c) => ({
     id: c.id,
     reference: c.reference,
     candidateName: c.candidate_name,
@@ -44,6 +45,7 @@ async function toItems(rows: CaseRow[]): Promise<CaseListItem[]> {
     clientName: (c.client as { name: string } | null)?.name ?? "",
     stage: c.stage,
     statusKey: c.status_key,
+    statusLabel: statusLabel(c.status_key),
     priority: c.priority as Priority,
     onHold: c.on_hold,
     proposedResult: c.proposed_result as FinalResult | null,
@@ -55,6 +57,7 @@ async function toItems(rows: CaseRow[]): Promise<CaseListItem[]> {
     processType: c.process_type,
     packageName: ((c.package_snapshot as { name?: string } | null)?.name ?? "") || "Custom",
   }));
+  return withClientNames(items);
 }
 
 export const QUEUE_TABS = ["mine", "unassigned", "pre_qc", "data_entry", "post_qc", "returned", "overdue"] as const;

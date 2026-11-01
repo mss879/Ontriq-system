@@ -61,7 +61,9 @@ async function Filters() {
   );
 }
 
-function FileActions({ reference, version, versionId }: { reference: string; version: number; versionId: string }) {
+function FileActions({ reference, version, versionId, fileRemoved, extraParts, closed }: { reference: string; version: number; versionId: string; fileRemoved: boolean; extraParts: number; closed?: boolean }) {
+  if (fileRemoved) return <span className="text-xs text-muted-foreground">File removed under the retention policy</span>;
+  if (closed) return <span className="text-xs text-muted-foreground">Holds sensitive evidence your role can&rsquo;t open</span>;
   return (
     <>
       <Button asChild variant="ghost" size="icon-sm" aria-label={`Open ${reference} version ${version}`}>
@@ -74,6 +76,13 @@ function FileActions({ reference, version, versionId }: { reference: string; ver
           <Download />
         </a>
       </Button>
+      {Array.from({ length: extraParts }, (_, i) => (
+        <Button key={i} asChild variant="ghost" size="sm">
+          <a href={`/api/reports/${versionId}?download=1&part=${i + 2}`} aria-label={`Download ${reference} version ${version}, part ${i + 2}`}>
+            Part {i + 2}
+          </a>
+        </Button>
+      ))}
     </>
   );
 }
@@ -118,7 +127,7 @@ async function Archive({ searchParams }: Pick<PageProps<"/app/reports">, "search
           >
             {r.status === "superseded" ? <ToneChip tone="neutral">Replaced</ToneChip> : null}
             <span className={`ml-auto flex gap-1 ${ROW_ACTION}`}>
-              <FileActions reference={r.reference} version={r.version} versionId={r.versionId} />
+              <FileActions reference={r.reference} version={r.version} versionId={r.versionId} fileRemoved={r.fileRemoved} extraParts={r.extraParts} closed={r.closedToViewer} />
             </span>
           </ListCard>
         ))}
@@ -155,7 +164,7 @@ async function Archive({ searchParams }: Pick<PageProps<"/app/reports">, "search
                   </TableCell>
                   <TableCell className={`pr-5 text-right ${ROW_ACTION}`}>
                     <div className="flex justify-end gap-1">
-                      <FileActions reference={r.reference} version={r.version} versionId={r.versionId} />
+                      <FileActions reference={r.reference} version={r.version} versionId={r.versionId} fileRemoved={r.fileRemoved} extraParts={r.extraParts} closed={r.closedToViewer} />
                     </div>
                   </TableCell>
                 </TableRow>

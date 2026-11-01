@@ -40,7 +40,7 @@ async function Content({ params }: Pick<PageProps<"/portal/invoices/[invoiceId]"
   if (!can(viewer, "portal.invoices.view")) redirect("/portal");
   const inv = /^[0-9a-f-]{36}$/.test(invoiceId) ? await portalInvoiceDetail(invoiceId) : null;
   if (!inv) notFound();
-  const parties = await portalParties(viewer.clientId ?? "");
+  const parties = await portalParties();
   const model = invoiceModel({ issuer: parties.issuer, client: parties.client, contact: inv.contact, invoice: inv, items: inv.items });
   const open = ["sent", "viewed", "partially_paid", "overdue"].includes(inv.status) && inv.balance > 0;
 

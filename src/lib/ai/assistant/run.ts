@@ -36,6 +36,7 @@ const BASE = `You are Ask Ontriq, the assistant inside Ontriq's background verif
 
 How to work:
 - Look things up with the tools. Never guess references, names, numbers, dates or amounts. If a tool finds nothing, say so plainly.
+- Use the tools first and speak afterwards: no commentary before or between tool calls.
 - The screen draws tool results as tables and cards beside your reply, so don't repeat a whole table. Answer in one to three short sentences: the count, the total, what stands out, what to do next.
 - To change anything, call an action tool. That only shows the person a confirm card; nothing happens until they press Confirm. Never say an action is done: say it is ready for them to confirm.
 - You see only what this person may see. When something isn't found, don't speculate whether it exists.
@@ -144,6 +145,8 @@ export async function* runAssistant(ctx: ToolContext, kind: "staff" | "command")
     const remaining = BUDGET_MS - (Date.now() - started);
     if (remaining < 2_000) break;
     const t0 = Date.now();
+    // A new model turn starts a new paragraph, so text from before a tool call never runs into the next.
+    let gap = blocks[blocks.length - 1]?.type === "text" ? "\n\n" : "";
     const stream = anthropic().messages.stream(
       { model: cap.model, max_tokens: cap.max_tokens, system, messages, tools: apiTools, thinking: { type: "adaptive" }, output_config: { effort: cap.effort } },
       { signal: AbortSignal.timeout(remaining) },
@@ -152,8 +155,10 @@ export async function* runAssistant(ctx: ToolContext, kind: "staff" | "command")
     try {
       for await (const ev of stream) {
         if (ev.type === "content_block_delta" && ev.delta.type === "text_delta") {
-          say(ev.delta.text);
-          yield { type: "text", delta: ev.delta.text };
+          const delta = gap + ev.delta.text;
+          gap = "";
+          say(delta);
+          yield { type: "text", delta };
         }
       }
       message = await stream.finalMessage();

@@ -26,6 +26,8 @@ export function ReasonDialog({
   onSubmit,
   open: controlledOpen,
   onOpenChange,
+  initial,
+  maxLength,
 }: {
   trigger?: React.ReactNode;
   title: string;
@@ -39,6 +41,9 @@ export function ReasonDialog({
   onSubmit: (text: string) => Promise<Result>;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  /** What the box starts with, when this edits something. */
+  initial?: string;
+  maxLength?: number;
 }) {
   const [innerOpen, setInnerOpen] = useState(false);
   const open = controlledOpen ?? innerOpen;
@@ -66,6 +71,8 @@ export function ReasonDialog({
           confirmLabel={confirmLabel}
           required={required}
           destructive={destructive}
+          initial={initial}
+          maxLength={maxLength}
           onSubmit={onSubmit}
           onDone={() => {
             if (success) toast.success(success);
@@ -86,6 +93,8 @@ function ReasonForm({
   confirmLabel,
   required,
   destructive,
+  initial,
+  maxLength,
   onSubmit,
   onDone,
 }: {
@@ -96,10 +105,12 @@ function ReasonForm({
   confirmLabel: string;
   required: boolean;
   destructive: boolean;
+  initial?: string;
+  maxLength?: number;
   onSubmit: (text: string) => Promise<Result>;
   onDone: () => void;
 }) {
-  const [text, setText] = useState("");
+  const [text, setText] = useState(initial ?? "");
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const id = `reason-${title.replace(/\W+/g, "-").toLowerCase()}`;
@@ -127,7 +138,7 @@ function ReasonForm({
           {label}
           {required ? null : <span className="font-normal text-muted-foreground"> (optional)</span>}
         </label>
-        <Textarea id={id} value={text} onChange={(e) => setText(e.target.value)} placeholder={placeholder} rows={3} aria-invalid={Boolean(error) || undefined} autoFocus />
+        <Textarea id={id} value={text} onChange={(e) => setText(e.target.value)} placeholder={placeholder} rows={3} maxLength={maxLength} aria-invalid={Boolean(error) || undefined} autoFocus />
         {error ? (
           <p role="alert" className="text-sm text-destructive">
             {error}

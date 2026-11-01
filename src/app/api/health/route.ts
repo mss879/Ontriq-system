@@ -1,9 +1,13 @@
 import { connection, NextResponse } from "next/server";
 import { integrationStatus, isSupabaseConfigured, serviceRoleKey } from "@/lib/env";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { isAuthorizedMachine } from "@/lib/server/cron-auth";
 
-/** Liveness for uptime monitors: database reachable, scheduler recently ran. */
-export async function GET() {
+/**
+ * Liveness for uptime monitors: database reachable, scheduler recently ran.
+ * The status code is enough for a monitor. The detail goes to a caller with the secret.
+ */
+export async function GET(request: Request) {
   await connection();
   const checks: Record<string, { ok: boolean; detail?: string }> = {};
 
@@ -38,5 +42,6 @@ export async function GET() {
   }
 
   const ok = Object.values(checks).every((c) => c.ok);
-  return NextResponse.json({ ok, checks, at: new Date().toISOString() }, { status: ok ? 200 : 503 });
+  const at = new Date().toISOString();
+  return NextResponse.json(isAuthorizedMachine(request) ? { ok, checks, at } : { ok, at }, { status: ok ? 200 : 503 });
 }

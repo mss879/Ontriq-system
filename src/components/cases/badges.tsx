@@ -61,11 +61,9 @@ export function statusLabel(key: string): string {
   return STATUS_LABELS[key] ?? key.replace(/_/g, " ");
 }
 
-const INFORMATIVE_STATUS = new Set(["returned_for_correction", "pending_information", "document_review", "partially_completed"]);
-
-/** A status worth printing beside the stage. The others only repeat what the stage says. */
-export function statusNote(key: string): string | null {
-  return INFORMATIVE_STATUS.has(key) ? statusLabel(key) : null;
+/** The status to print beside the stage (spec 10). The pill already says on hold, released or cancelled. */
+export function statusNote(key: string, label: string): string | null {
+  return key === "on_hold" || key === "report_released" || key === "cancelled" ? null : label;
 }
 
 export function CheckStatePill({ state, className }: { state: CheckState; className?: string }) {

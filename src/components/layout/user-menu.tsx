@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronsUpDown, LogOut, ShieldCheck, UserRound } from "lucide-react";
+import { ChevronsUpDown, LogOut, ShieldCheck } from "lucide-react";
 import { signOut } from "@/app/(auth)/actions";
 import { PersonAvatar } from "@/components/cases/person";
 import {
@@ -38,9 +38,6 @@ export function UserMenu({ viewer }: { viewer: { userId: string; fullName: strin
               <span className="block truncate text-xs text-muted-foreground">{viewer.email}</span>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem disabled>
-              <UserRound /> Profile (coming soon)
-            </DropdownMenuItem>
             <DropdownMenuItem disabled>
               <ShieldCheck className={viewer.aal === "aal2" ? "text-success" : undefined} />
               {viewer.aal === "aal2" ? "Two-step verification on" : "Two-step verification off"}

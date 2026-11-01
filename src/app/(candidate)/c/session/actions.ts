@@ -7,6 +7,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { CandidateSessionError, isLinkExpired, requireCandidateSession } from "@/lib/server/candidate/session";
 import { clientIp, rateLimit } from "@/lib/server/request-meta";
 import { fail, type ActionResult } from "@/lib/server/action-result";
+import { kickWorker } from "@/lib/server/jobs/kick";
 
 /**
  * The candidate's actions. Each one renews the signed session, rate-limits
@@ -117,9 +118,30 @@ export async function finalizeUpload(documentId: string, sha256?: string): Promi
   });
 }
 
+// ---------------------------------------------------------------- confirming
+
+/** The candidate's last step: everything is in, and it's true. The report gets written from here. */
+export async function confirmSubmission(agree: boolean): Promise<ActionResult> {
+  return withLink(async (linkId) => {
+    if (!agree) return fail("notReady");
+    const { error } = await createAdminClient().rpc("candidate_confirm_submission", { p_link: linkId });
+    if (error) return /still needed/.test(error.message ?? "") ? fail("notReady") : dbFail(error);
+    kickWorker();
+    refresh();
+    return { ok: true };
+  });
+}
+
 // ---------------------------------------------------------------- requests and messages
 
-const answerSchema = z.object({ requestId: uuid, value: z.string().trim().min(1).max(4000) });
+const answerSchema = z.object({
+  requestId: uuid,
+  value: z.union([
+    z.string().trim().min(1).max(4000),
+    z.array(z.string().max(200)).min(1).max(50),
+    z.object({ from: z.string().min(1).max(10), to: z.string().max(10).optional(), present: z.boolean().optional() }),
+  ]),
+});
 
 export async function answerRequest(input: z.input<typeof answerSchema>): Promise<ActionResult> {
   return withLink(async (linkId) => {
@@ -139,7 +161,7 @@ export async function answerRequest(input: z.input<typeof answerSchema>): Promis
 const rowsSchema = z.object({
   requestId: uuid,
   rows: z
-    .array(z.record(z.string().max(48), z.union([z.string().trim().max(500), z.object({ from: z.string().max(10).optional(), to: z.string().max(10).optional(), present: z.boolean().optional() })])))
+    .array(z.record(z.string().max(48), z.union([z.string().trim().max(4000), z.array(z.string().max(200)).max(50), z.object({ from: z.string().max(10).optional(), to: z.string().max(10).optional(), present: z.boolean().optional() })])))
     .min(1)
     .max(20),
 });

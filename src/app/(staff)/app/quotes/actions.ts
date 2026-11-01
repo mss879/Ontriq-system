@@ -12,6 +12,7 @@ import { queueEmail } from "@/lib/server/jobs/enqueue";
 import { emailBrand } from "@/lib/server/email-brand";
 import { appOrigin } from "@/lib/env";
 import { runStructured } from "@/lib/ai/claude";
+import { QUOTE_SYSTEM, QUOTE_VERSION, QuoteDraftSchema } from "@/lib/ai/prompts";
 import { quoteEmail } from "@/domain/email/commercial-templates";
 import { defaultQuoteText, type QuoteDraftText } from "@/domain/pricing/quote-draft";
 import { TEMPLATE_KEYS } from "@/domain/documents/model";
@@ -172,23 +173,6 @@ export async function saveQuoteDraft(quoteId: string, input: QuoteDraftInput): P
 
 // ---------------------------------------------------------------- drafting text
 
-const DraftSchema = z.object({
-  intro: z.string().describe("Two or three sentences thanking the client and stating what the quotation covers"),
-  scope: z.string().describe("What Ontriq does for each candidate, naming the quoted checks"),
-  assumptions: z.string().describe("Conditions the turnaround and pricing rely on, without amounts"),
-  tat_text: z.string().describe("The turnaround commitment in working days"),
-  closing: z.string().describe("One or two sentences inviting the client to accept in the portal"),
-});
-
-const SYSTEM = [
-  "You write quotation text for Ontriq (Pvt) Ltd, a Sri Lankan background verification company, in clear British English.",
-  "Write only the five sections asked for. Keep each to two or three short sentences; no headings, no bullet characters, no placeholders.",
-  "Never state, invent or change prices, discounts, currencies, percentages or totals: the line items carry all pricing.",
-  "Describe only the services in the lines given. Do not promise anything Ontriq did not list, legal outcomes, or turnaround faster than the days given.",
-  "Mention that reports are released through the client portal and that turnaround counts working days from receipt of all documents.",
-  "Tone: professional and warm. 'friendly' means slightly more conversational; 'formal' means more reserved.",
-].join("\n");
-
 const MONEY_LIKE = /\b(LKR|Rs\.?|USD|\$)\s?\d|\d+(\.\d+)?\s?%|\b\d{1,3}(,\d{3})+(\.\d{2})?\b/i;
 
 export async function draftQuoteText(
@@ -210,9 +194,9 @@ export async function draftQuoteText(
     const result = await runStructured(
       createAdminClient(),
       "commercial.draft",
-      { orgId: viewer.orgId, clientId: q.client_id, userId: viewer.userId, source: "quotes/draft-text", promptVersion: "quote-text-v1" },
+      { orgId: viewer.orgId, clientId: q.client_id, userId: viewer.userId, source: "quotes/draft-text", promptVersion: QUOTE_VERSION },
       {
-        system: SYSTEM,
+        system: QUOTE_SYSTEM,
         content: [
           {
             type: "text",
@@ -227,7 +211,8 @@ export async function draftQuoteText(
             ].join("\n"),
           },
         ],
-        schema: DraftSchema,
+        schema: QuoteDraftSchema,
+        limitMs: 20_000,
       },
     );
     if (!result.ok) return { ok: true, text: standard, source: "standard", note: `${result.message} Filled from Ontriq's standard wording instead.` };

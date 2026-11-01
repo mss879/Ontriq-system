@@ -7,6 +7,7 @@ import { queueEmail } from "@/lib/server/jobs/enqueue";
 import { kickWorker } from "@/lib/server/jobs/kick";
 import { rpcErrorMessage } from "@/lib/server/errors";
 import { fail, type ActionResult } from "@/lib/server/action-result";
+import { candidateDict, categoryLabel, type CandidateLang } from "@/domain/candidate/i18n";
 import { candidateLinkEmail, candidateLinkSms, candidateUpdateEmail } from "@/domain/email/candidate-templates";
 import {
   candidateLinkUrl,
@@ -38,32 +39,43 @@ type CaseContact = {
   clientName: string;
   orgName: string;
   contact: string;
+  processType: string;
 };
 
 async function caseContact(caseId: string): Promise<CaseContact | null> {
   const admin = createAdminClient();
   const { data: c } = await admin
     .from("cases")
-    .select("id, org_id, reference, position_title, client:clients(name), candidate:candidates(full_name, email, phone, preferred_language), org:orgs(name, branding)")
+    .select("id, org_id, reference, position_title, process_type, intake_candidate, client:clients(name), candidate:candidates(full_name, email, phone, preferred_language), org:orgs(name, branding)")
     .eq("id", caseId)
     .maybeSingle();
   if (!c) return null;
   const cand = c.candidate as { full_name: string; email: string | null; phone: string | null; preferred_language: string } | null;
   const org = c.org as { name: string; branding: Record<string, string> | null } | null;
   const lang = cand?.preferred_language;
+  // On a portal request, the person the client named: a record on file may be someone else's until staff say otherwise.
+  const typed = c.intake_candidate as { full_name?: string; email?: string; phone?: string } | null;
   return {
     caseId: c.id,
     orgId: c.org_id,
     reference: c.reference,
     position: c.position_title,
-    candidateName: cand?.full_name ?? "",
-    email: cand?.email ?? null,
-    phone: cand?.phone ?? null,
+    candidateName: typed?.full_name ?? cand?.full_name ?? "",
+    email: typed?.email ?? cand?.email ?? null,
+    phone: typed?.phone ?? cand?.phone ?? null,
     language: lang === "si" || lang === "ta" ? lang : "en",
     clientName: (c.client as { name: string } | null)?.name ?? "",
     orgName: org?.branding?.display_name || org?.name || "Ontriq",
     contact: org?.branding?.email || org?.branding?.phone || "",
+    processType: c.process_type,
   };
+}
+
+/** What the candidate is being asked for, in their language: the list in the formal email (flowchart step 2). */
+async function documentsNeeded(caseId: string, language: string): Promise<string[]> {
+  const { data } = await createAdminClient().from("case_check_requirements").select("category, label").eq("case_id", caseId).eq("status", "pending").eq("stage", "documents");
+  const t = candidateDict(language as CandidateLang);
+  return [...new Set((data ?? []).map((r) => (language === "en" ? r.label : categoryLabel(t, r.category, r.label))))];
 }
 
 async function deliver(link: { id: string; url: string; expiresAt: string; language: string }, contact: CaseContact, channels: Channel[], actorId: string) {
@@ -71,7 +83,17 @@ async function deliver(link: { id: string; url: string; expiresAt: string; langu
   const admin = createAdminClient();
   if (channels.includes("email") && contact.email) {
     const mail = candidateLinkEmail(
-      { language: link.language, candidateName: contact.candidateName, clientName: contact.clientName, position: contact.position, orgName: contact.orgName, contact: contact.contact, url: link.url, expiresAt: link.expiresAt },
+      {
+        language: link.language,
+        candidateName: contact.candidateName,
+        clientName: contact.clientName,
+        position: contact.position,
+        orgName: contact.orgName,
+        contact: contact.contact,
+        url: link.url,
+        expiresAt: link.expiresAt,
+        documents: await documentsNeeded(contact.caseId, link.language),
+      },
       emailBrand(),
     );
     await queueEmail({ to: [contact.email], subject: mail.subject, html: mail.html, text: mail.text, templateKey: "candidate.link", entityType: "case", entityId: contact.caseId, createdBy: actorId, orgId: contact.orgId });
@@ -117,6 +139,11 @@ export async function issueCandidateLink(input: { caseId: string; actorId: strin
     p_days: input.days ?? 14,
   });
   if (error || !linkId) return fail(rpcErrorMessage(error));
+  // Ontriq collects from this candidate, so the page opens with the BGV form on it.
+  if (contact.processType === "candidate_collected") {
+    const form = await supabase.rpc("issue_bgv_form", { p_case: input.caseId });
+    if (form.error) console.warn("[candidate link] BGV form not issued", form.error.message);
+  }
   const { data: row } = await createAdminClient().from("candidate_links").select("expires_at").eq("id", linkId).single();
   const url = candidateLinkUrl(appOrigin(), secret);
   const sent = await deliver({ id: linkId, url, expiresAt: row?.expires_at ?? new Date().toISOString(), language }, contact, input.channels, input.actorId);
@@ -137,8 +164,10 @@ export async function autoCandidateLink(caseId: string, actorId: string, contact
     if (active) return [];
     let cand = contact ?? null;
     if (!cand) {
-      const { data: c } = await supabase.from("cases").select("candidate:candidates(email, phone)").eq("id", caseId).maybeSingle();
-      cand = (c?.candidate as { email: string | null; phone: string | null } | null) ?? null;
+      const { data: c } = await supabase.from("cases").select("intake_candidate, candidate:candidates(email, phone)").eq("id", caseId).maybeSingle();
+      const onFile = c?.candidate as { email: string | null; phone: string | null } | null;
+      const typed = c?.intake_candidate as { email?: string; phone?: string } | null;
+      cand = { email: typed?.email ?? onFile?.email ?? null, phone: typed?.phone ?? onFile?.phone ?? null };
     }
     const channels: Channel[] = [...(cand?.email ? (["email"] as const) : []), ...(cand?.phone ? (["sms"] as const) : [])];
     if (!channels.length) return [];
@@ -164,7 +193,11 @@ export async function activeLinkUrl(linkId: string): Promise<ActionResult<{ url:
 export async function resendCandidateLink(input: { linkId: string; actorId: string; channels: Channel[] }): Promise<ActionResult<{ sent: Channel[]; missing: Channel[] }>> {
   const link = await activeLinkUrl(input.linkId);
   if (!link.ok) return link;
-  const { data: row } = await createAdminClient().from("candidate_links").select("case_id").eq("id", input.linkId).single();
+  const { data: row } = await createAdminClient().from("candidate_links").select("case_id, case:cases(stage, on_hold)").eq("id", input.linkId).single();
+  const state = row?.case as { stage: string; on_hold: boolean } | null;
+  // The send records itself only after the message is queued, so the case's rule is checked first (public.require_case_open).
+  if (state?.on_hold) return fail("This case is on hold. Resume it first.");
+  if (state?.stage === "released" || state?.stage === "cancelled") return fail("This case is closed.");
   const contact = row ? await caseContact(row.case_id) : null;
   if (!contact) return fail("That case no longer exists.");
   const sent = await deliver({ id: input.linkId, url: link.url, expiresAt: link.expiresAt, language: link.language }, contact, input.channels, input.actorId);

@@ -23,7 +23,8 @@ export const notifyEmail: JobHandler = async (job, { admin }) => {
       orgName: branding.display_name || org?.name || "Ontriq",
       recipientName: profile.full_name ?? "",
       title: n.title,
-      body: n.body,
+      // To clients the email only points at the portal: names and questions stay signed in.
+      body: n.type.startsWith("portal.") ? "" : n.body,
       url: n.link ? `${origin}${n.link.startsWith("/") ? n.link : `/${n.link}`}` : null,
     },
     { ...DEFAULT_BRAND, logoUrl: `${origin}/brand/ontriq-logo.png` },

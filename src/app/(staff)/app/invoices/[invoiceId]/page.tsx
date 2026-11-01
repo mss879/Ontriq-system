@@ -126,6 +126,8 @@ async function Body({ params }: Pick<PageProps<"/app/invoices/[invoiceId]">, "pa
     return (
       <div className="space-y-6">
         <InvoiceEditor
+          // Saving can add lines, or show ones added meanwhile: the form starts again from what is there.
+          key={detail.lines.map((l) => l.id).join()}
           invoiceId={i.id}
           issuer={issuer}
           client={{ name: client.name, address: client.address, email: client.email, phone: client.phone }}

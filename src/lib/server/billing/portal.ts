@@ -1,6 +1,7 @@
 import "server-only";
 import { cache } from "react";
 import { createRequestClient } from "@/lib/supabase/server";
+import { portalClientProfile } from "@/lib/server/portal/queries";
 import { issuerFromBranding, TEMPLATE_KEYS, type Issuer, type TemplateKey } from "@/domain/documents/model";
 
 /**
@@ -84,15 +85,13 @@ export const portalInvoiceDetail = cache(async (id: string): Promise<PortalInvoi
 });
 
 /** The issuer block, the client's own address and their default design (statements and lists). */
-export async function portalParties(clientId: string): Promise<{ issuer: Issuer; client: { name: string; address: Record<string, string> | null; email: string | null }; template: TemplateKey }> {
+export async function portalParties(): Promise<{ issuer: Issuer; client: { name: string; address: Record<string, string> | null; email: string | null }; template: TemplateKey }> {
   const supabase = await createRequestClient();
-  const [{ data: org }, { data: client }] = await Promise.all([
-    supabase.from("orgs").select("name, branding").maybeSingle(),
-    supabase.from("clients").select("name, address, email, default_template").eq("id", clientId).maybeSingle(),
-  ]);
+  const [{ data: profile }, client] = await Promise.all([supabase.rpc("portal_org_profile"), portalClientProfile()]);
+  const org = profile as { name?: string; branding?: Record<string, unknown> } | null;
   const template = (TEMPLATE_KEYS as readonly string[]).includes(client?.default_template ?? "") ? (client!.default_template as TemplateKey) : "executive";
   return {
-    issuer: issuerFromBranding({ name: org?.name ?? "Ontriq", branding: (org?.branding ?? {}) as Record<string, unknown> }),
+    issuer: issuerFromBranding({ name: org?.name ?? "Ontriq", branding: org?.branding ?? {} }),
     client: { name: client?.name ?? "", address: (client?.address ?? null) as Record<string, string> | null, email: client?.email ?? null },
     template,
   };

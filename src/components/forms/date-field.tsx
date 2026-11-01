@@ -79,11 +79,8 @@ export function DateField({ className, wrapperClassName, value, defaultValue, on
         onChange={(e) => {
           const text = maskDate(e.target.value);
           setDraft(text);
-          if (!text) emit("");
-          else {
-            const parsed = parseDate(text, false);
-            if (parsed) emit(parsed);
-          }
+          // Half-typed or wrong, the old date doesn't quietly stay behind the new text.
+          emit(text ? (parseDate(text, false) ?? "") : "");
         }}
         onBlur={(e) => {
           const parsed = draft ? parseDate(draft, true) : null;

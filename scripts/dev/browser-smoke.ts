@@ -28,7 +28,7 @@ type Visit = { role: string; client?: string; paths: string[]; dark?: string[] }
 const PLAN: Visit[] = [
   {
     role: "super_admin",
-    paths: ["/app", "/app/command", "/app/queues", "/app/cases", "/app/clients", "/app/candidates", "/app/reports", "/app/quotes", "/app/invoices", "/app/payments", "/app/team", "/app/team/performance", "/app/analytics", "/app/audit", "/app/settings", "/app/settings/ai", "/app/settings/branding", "/app/settings/billing", "/app/settings/assignment", "/app/settings/check-types", "/app/settings/packages"],
+    paths: ["/app", "/app/command", "/app/queues", "/app/cases", "/app/clients", "/app/candidates", "/app/reports", "/app/quotes", "/app/invoices", "/app/payments", "/app/team", "/app/team/performance", "/app/analytics", "/app/audit", "/app/settings", "/app/settings/ai", "/app/settings/branding", "/app/settings/billing", "/app/settings/assignment", "/app/settings/check-types", "/app/settings/packages", "/app/settings/workflow"],
     dark: ["/app", "/app/cases", "/app/invoices", "/app/team/performance", "/app/analytics"],
   },
   { role: "admin", paths: ["/app", "/app/cases", "/app/cases/new", "/app/cases/import", "/app/clients", "/app/team", "/app/team/performance", "/app/analytics"] },
@@ -138,9 +138,15 @@ async function tryInteractions(browser: Browser) {
   if (opened) {
     await composer.fill("Which cases are overdue?");
     await page.keyboard.press("Enter");
-    const answer = page.getByText(/isn.t set up|AI isn.t|not set up/i).first();
-    const got = await answer.waitFor({ state: "visible", timeout: 30000 }).then(() => true).catch(() => false);
-    record("The assistant answers (AI not set up locally)", got, got ? (await answer.innerText()).slice(0, 80) : "no answer shown");
+    // With a key it answers from the data; without one it says AI isn't set up. Either way the person gets a reply.
+    const panel = page.getByRole("dialog").last();
+    const busy = panel.getByText(/^(Thinking|Writing)/);
+    await busy.first().waitFor({ state: "visible", timeout: 5000 }).catch(() => undefined);
+    await busy.first().waitFor({ state: "hidden", timeout: 30000 }).catch(() => undefined);
+    await page.waitForTimeout(500);
+    const said = ((await panel.innerText().catch(() => "")) ?? "").replaceAll("Which cases are overdue?", "");
+    const got = /overdue|set up/i.test(said);
+    record("The assistant answers", got, got ? said.replace(/\s+/g, " ").slice(0, 200) : "no answer shown");
   }
   if (shots) await page.screenshot({ path: path.join(shots, "interaction_assistant.png") }).catch(() => undefined);
   record("No errors during the interactions", problems.length === 0, problems.join(" | ").slice(0, 300));
@@ -159,9 +165,21 @@ function cachedShell(): string | undefined {
   return undefined;
 }
 
+/** A real case, so the long case page gets the same checks as the lists. */
+async function addCasePage(browser: Browser) {
+  const ctx = await contextFor(browser, PLAN[0], {});
+  const page = await ctx.newPage();
+  await page.goto(`${base}/app/cases`, { waitUntil: "networkidle" });
+  const href = await page.locator('a[href*="/app/cases/"]').evaluateAll((links) => links.map((a) => a.getAttribute("href")).find((h) => /\/app\/cases\/[0-9a-f-]{36}$/.test(h ?? "")));
+  await ctx.close();
+  if (href) PLAN[0].paths.push(href);
+  else console.warn("No case found, so the case page wasn't checked.");
+}
+
 async function main() {
   const browser = await chromium.launch().catch(() => chromium.launch({ executablePath: cachedShell() }));
   try {
+    if (!only || only.includes("super_admin")) await addCasePage(browser);
     for (const v of PLAN) {
       if (only && !only.includes(v.role)) continue;
       const desktop = await contextFor(browser, v, {});

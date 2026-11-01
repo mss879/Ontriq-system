@@ -23,7 +23,7 @@ export default function AuditPage({ searchParams }: PageProps<"/app/audit">) {
       <PageHeader
         eyebrow="Administration"
         title="Audit log"
-        description="Every change to cases, checks, documents, clients, people and settings, with who made it and when. Entries can't be edited or deleted."
+        description="Every change to cases, checks, documents, QC decisions, reports, clients, people and settings, with who made it and when. Nobody can edit or delete an entry. Erasing a case's personal data blanks its entries but keeps who did what and when."
       />
       <Suspense fallback={null}>
         <Filters />
@@ -41,6 +41,7 @@ async function Filters() {
   const staff = await staffOptions();
   return (
     <ListFilters
+      placeholder="Case reference, e.g. ONT-2026-000123"
       selects={[
         {
           name: "table",
@@ -77,6 +78,8 @@ const OP: Record<AuditRow["op"], { label: string; tone: "success" | "info" | "da
   DELETE: { label: "Removed", tone: "danger" },
 };
 
+const ACTOR: Record<string, string> = { system: "System", candidate: "The candidate", worker: "Background job" };
+
 const HIDDEN_KEYS = new Set(["updated_at", "created_at", "org_id", "id"]);
 
 function show(value: unknown): string {
@@ -93,8 +96,9 @@ function label(key: string) {
 async function AuditList({ searchParams }: Pick<PageProps<"/app/audit">, "searchParams">) {
   const [viewer, params] = await Promise.all([getStaffViewer(), searchParams]);
   if (!can(viewer, "audit.read")) return null;
-  const filters = { table: one(params.table), op: one(params.op), actor: one(params.actor), from: one(params.from), to: one(params.to), page: pageParam(params.page) };
+  const filters = { table: one(params.table), op: one(params.op), actor: one(params.actor), from: one(params.from), to: one(params.to), caseRef: one(params.q), page: pageParam(params.page) };
   const [{ rows, total }, people] = await Promise.all([listAudit(filters), peopleById()]);
+  const exportQuery = new URLSearchParams(Object.entries({ q: filters.caseRef, table: filters.table, op: filters.op, actor: filters.actor, from: filters.from, to: filters.to }).flatMap(([k, v]) => (v ? [[k, v]] : []))).toString();
 
   if (!rows.length) {
     return (
@@ -116,7 +120,12 @@ async function AuditList({ searchParams }: Pick<PageProps<"/app/audit">, "search
     <Surface>
       <div className="flex items-center justify-between border-b px-5 py-3.5">
         <p className="text-sm font-semibold">{total.toLocaleString("en-GB")} entries</p>
-        <p className="text-xs text-muted-foreground">Times in Sri Lanka time</p>
+        <p className="flex items-center gap-3 text-xs text-muted-foreground">
+          Times in Sri Lanka time
+          <a href={`/api/exports/audit${exportQuery ? `?${exportQuery}` : ""}`} className="font-medium text-primary hover:underline dark:text-brand-sky">
+            Export CSV
+          </a>
+        </p>
       </div>
       <ol className="divide-y">
         {rows.map((r) => {
@@ -143,7 +152,7 @@ async function AuditList({ searchParams }: Pick<PageProps<"/app/audit">, "search
                   )}
                   <div className="min-w-0 flex-1">
                     <p className="text-sm">
-                      <span className="font-medium">{person?.name ?? (r.actorKind === "system" ? "System" : r.actorKind)}</span>{" "}
+                      <span className="font-medium">{person?.name ?? ACTOR[r.actorKind] ?? r.actorKind}</span>{" "}
                       <span className="text-muted-foreground">{OP[r.op].label.toLowerCase()}</span> {AUDITED_TABLES[r.table] ?? r.table}
                       {name ? <span className="font-medium"> · {name}</span> : null}
                     </p>
@@ -198,7 +207,7 @@ async function AuditList({ searchParams }: Pick<PageProps<"/app/audit">, "search
           );
         })}
       </ol>
-      <Pagination page={filters.page} pageSize={AUDIT_PAGE_SIZE} total={total} params={{ table: filters.table, op: filters.op, actor: filters.actor, from: filters.from, to: filters.to }} basePath="/app/audit" />
+      <Pagination page={filters.page} pageSize={AUDIT_PAGE_SIZE} total={total} params={{ q: filters.caseRef, table: filters.table, op: filters.op, actor: filters.actor, from: filters.from, to: filters.to }} basePath="/app/audit" />
     </Surface>
   );
 }

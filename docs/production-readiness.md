@@ -1,33 +1,39 @@
 # Production readiness
 
-State on 31 October 2026, after the client requirements audit and an independent re-audit.
+State on 1 November 2026, after the client requirements audit and the independent audits of the finished build.
 
-**Verdict:** every requirement in the client's two documents is built and tested, and every role works end to end on the hosted database. It is ready for a client demonstration and for UAT once a host is chosen. It is not yet ready for real candidate data: the items under "Before real data" come first, and the AI features have not yet run against a real model.
+**Verdict:** every requirement in the client's two documents is built and tested. The line-by-line result is in [the requirements audit](verification/requirements-audit-2026-10-31.md). The final work, migrations 0044 to 0049, has run on the local stack only, so it needs pushing to the hosted database and a hosted simulation before a client demonstration or UAT. It is not yet ready for real candidate data: the items under "Before real data" come first. The AI features have run against the real models, on invented documents: see `docs/verification/ai-evaluation-2026-10-31.md`.
 
 ## What was verified
 
-Numbers come from the final run recorded in `docs/verification/`.
+Numbers come from the final run, recorded in `docs/verification/simulation-2026-11-01-local.md` and the audit below.
 
 | Check | Result |
 |---|---|
-| Hosted simulation: every role, end to end, on the live Supabase project | All passed, nothing left behind |
-| Browser smoke test on the production build: 11 roles, desktop, phone and dark mode | 135 of 135 page views clean, 6 of 6 interactions passed |
-| Demo walkthrough and layout check on hosted data | Clean; all 10 pages fit at 8 widths |
-| Unit tests and database suites (permissions, row level security, workflow, money, retention, client visibility) | All passed |
+| Unit tests | 301 of 301 |
+| Database suites on a clean Postgres, every migration applied | All passed, including a suite that replays each audit finding |
 | Type check, lint, production build | Clean |
-| Independent security review of the code before the requirements work | 10 findings, all fixed in `0038_security_fixes.sql`, each with a test that replays the attack |
+| Full simulation against the production build, every role, on the local stack | 153 of 155. The other two need hosted: live updates and the password rule |
+| Browser smoke test, 11 roles, desktop, phone and dark mode | 139 of 139 page views clean, 6 of 6 interactions passed |
+| Walkthrough of the real screens, each step signed in as the right role | 47 of 47 steps, screenshots reviewed |
+| Demo data seeded through the app's own functions on the final rules | 65 cases at every stage, 21 released |
+| A released report read page by page | Sinhala and Tamil print correctly |
+| AI evaluation on invented documents | 2,158 of 2,166, before this work. See `ai-evaluation-2026-10-31.md` |
+| Independent security review before the requirements work | 10 findings, all fixed in `0038_security_fixes.sql` |
 | Independent re-audit against the client's documents | 12 findings, all fixed in `0042_review_fixes.sql` |
+| Independent audits of the finished build, four readers, then two readers of the fixes | No requirement missing. Every finding fixed in `0049_final_audit_fixes.sql`, or recorded as a decision, with a test that replays it |
 
-The code added after the security review (migrations 0040 to 0042, the portal questions, the contact log and the candidate rows form) has database tests, but has not had a separate security review.
+The hosted run on record predates migrations 0044 to 0049. The local stack has no live-update service, and its password check is looser than hosted Auth, so those two simulation checks wait for a hosted run.
 
 ## Before real data
 
 | Item | Who | Notes |
 |---|---|---|
+| Push migrations 0044 to 0049, then run the hosted simulation | Developer | The hosted project stops at 0043. `npm run simulate -- --app … --report docs/verification/simulation-<date>.md` proves live updates and the password rule, which the local stack can't. |
 | Make the GitHub repository private | Owner | It is public. It holds no keys, but it does hold the project reference, the cost document and how the system works. |
 | Remove the demo data | Developer | `npx tsx scripts/seed-demo.ts --env .env.hosted --clean`, then delete `demo-logins.local.md`. Removes the sample clients, cases, sign-ins and prices, and resets numbering. |
 | Turn two-step verification on for staff | Super Admin | Settings → Organisation → Security. It is off so the system could be tested and demonstrated. |
-| Add `ANTHROPIC_API_KEY` and run the AI live | Developer | No AI feature has run against a real model yet. They work without a key by saying so. Run the document set through it, check accuracy, then refresh the cost document with measured numbers. |
+| Add `ANTHROPIC_API_KEY` to the host, and test the AI on real documents | Developer and Ontriq | The AI passed on invented documents only. Run 30 to 50 real, consented documents first, especially handwritten Sinhala and Tamil. |
 | Deploy to Netlify on a paid plan | Developer | No site exists yet; background jobs need a paid plan. Until then nothing runs jobs automatically (reports, invoices, reminders, AI). Set every variable in `.env.example`. See the [runbook](runbook.md). |
 | Verify the sending domain in Resend; set up Notify.lk | Ontriq and developer | Without them, email and SMS are recorded but not sent. |
 | Push the 24-hour email link setting | Developer | `otp_expiry` in `supabase/config.toml` is not live yet; links last one hour. |
@@ -35,7 +41,7 @@ The code added after the security review (migrations 0040 to 0042, the portal qu
 
 ## Ontriq to confirm
 
-The working assumptions in [Client requirements](features/0041-client-requirements.md): what "BGV form", "reference form" and "Global sanctions screening details" mean, whether referee contact details should print, and whether steps must run in order. Also: Real prices (package prices are empty once demo data is removed), VAT and SSCL rules, bank details on invoices, the consent form wording, Sinhala and Tamil wording on the candidate page, default retention period, and who may see revenue figures (currently finance roles only: Admin, Client Relations, Super Admin).
+The working assumptions in [Client requirements](features/0041-client-requirements.md): what "BGV form", "reference form" and "Global sanctions screening details" mean, whether referee contact details should print, whether steps must run in order, whether the police report should hold up Pre-QC, whether clients should see Post-QC returns, and whether the second-person release rule and the 24-month retention default are wanted. Also: Real prices (package prices are empty once demo data is removed), VAT and SSCL rules, bank details on invoices, the consent form wording, Sinhala and Tamil wording on the candidate page, default retention period, and who may see revenue figures (currently finance roles only: Admin, Client Relations, Super Admin).
 
 ## Known limits
 

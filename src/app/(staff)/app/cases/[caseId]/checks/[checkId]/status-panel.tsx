@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Ban, CheckCircle2, Clock, HelpCircle, MessageCircleQuestion, PlayCircle, RotateCcw, TriangleAlert } from "lucide-react";
+import { Ban, CheckCircle2, Clock, HelpCircle, MessageCircleQuestion, PenLine, PlayCircle, RotateCcw, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
-import { assignCheck, setCheckState } from "../../../actions";
+import { assignCheck, requestCheckInformation, setCheckRemarks, setCheckState } from "../../../actions";
 import type { Person, StaffOption } from "@/lib/server/cases/queries";
 import type { ResultOption } from "@/domain/check-types/schema";
 import { cn } from "@/lib/utils";
@@ -21,6 +21,8 @@ const TONE = { green: "success", amber: "warning", red: "danger" } as const;
 const UNASSIGNED = "__none__";
 
 export function StatusPanel({
+  caseId,
+  processType,
   checkId,
   state,
   result,
@@ -30,9 +32,13 @@ export function StatusPanel({
   stage,
   onHold,
   valuesValid,
+  entryReady,
   canVerify,
   canWaive,
+  canWord,
 }: {
+  caseId: string;
+  processType: "client_supplied" | "candidate_collected";
   checkId: string;
   state: CheckState;
   result: string | null;
@@ -42,13 +48,19 @@ export function StatusPanel({
   stage: Stage;
   onHold: boolean;
   valuesValid: boolean;
+  /** Data Entry's part is done: enough to say a source couldn't confirm. */
+  entryReady: boolean;
   canVerify: boolean;
   canWaive: boolean;
+  /** May reword what the report says for this check, now (public.set_check_remarks). */
+  canWord: boolean;
 }) {
   const [pending, start] = useTransition();
   const [outcomeOpen, setOutcomeOpen] = useState(false);
   const [outcomeKey, setOutcomeKey] = useState(0);
   const [waiving, setWaiving] = useState(false);
+  const [asking, setAsking] = useState(false);
+  const [wording, setWording] = useState(false);
   const terminal = isTerminalCheck(state);
   const working = ["intake", "documents", "pre_qc", "data_entry", "verification"].includes(stage);
   const option = options.find((o) => o.key === result);
@@ -73,12 +85,24 @@ export function StatusPanel({
           {clientNote}
         </p>
       ) : null}
+      {terminal && canWord ? (
+        <Button variant="ghost" size="sm" className="mt-1" onClick={() => setWording(true)}>
+          <PenLine /> {clientNote ? "Edit the remarks" : "Add remarks"}
+        </Button>
+      ) : null}
 
       <div className="mt-4 space-y-2 border-t pt-4">
         {onHold ? (
           <p className="text-sm text-muted-foreground">The case is on hold. Resume it to update this check.</p>
         ) : !canVerify ? (
-          <p className="text-sm text-muted-foreground">Only the officer on this check, the case owner or a manager can change its status.</p>
+          <>
+            <p className="text-sm text-muted-foreground">Only the officer on this check, the case owner or a manager can change its status.</p>
+            {canWaive && working && state !== "waived" && state !== "discrepancy" && (!terminal || stage === "verification") ? (
+              <Button variant="ghost" size="sm" onClick={() => setWaiving(true)} disabled={pending}>
+                <Ban /> Waive
+              </Button>
+            ) : null}
+          </>
         ) : terminal ? (
           stage === "verification" ? (
             <Button variant="outline" className="w-full" onClick={() => quick("in_progress", "Check reopened")} disabled={pending}>
@@ -91,10 +115,14 @@ export function StatusPanel({
           <>
             {stage === "verification" ? (
               <>
-                <Button className="w-full" onClick={() => setOutcomeOpen(true)} disabled={pending || !valuesValid}>
+                <Button className="w-full" onClick={() => setOutcomeOpen(true)} disabled={pending || (!valuesValid && !entryReady)}>
                   <CheckCircle2 /> Record outcome
                 </Button>
-                {!valuesValid ? <p className="text-xs text-muted-foreground">Complete the check&rsquo;s details first, then record the outcome.</p> : null}
+                {!valuesValid ? (
+                  <p className="text-xs text-muted-foreground">
+                    {entryReady ? "Record what the source confirmed to verify this check. Until then it can only be marked unable to verify." : "Complete the check’s details first, then record the outcome."}
+                  </p>
+                ) : null}
               </>
             ) : (
               <p className="text-sm text-muted-foreground">
@@ -108,7 +136,7 @@ export function StatusPanel({
                 </Button>
               ) : null}
               {state !== "pending_info" ? (
-                <Button variant="outline" size="sm" onClick={() => quick("pending_info", "Marked pending information")} disabled={pending}>
+                <Button variant="outline" size="sm" onClick={() => setAsking(true)} disabled={pending}>
                   <MessageCircleQuestion /> Needs info
                 </Button>
               ) : null}
@@ -141,6 +169,8 @@ export function StatusPanel({
             key={outcomeKey}
             checkId={checkId}
             options={options}
+            sourceRecorded={valuesValid}
+            earlierFinding={clientNote}
             onDone={() => {
               setOutcomeOpen(false);
               setOutcomeKey((k) => k + 1);
@@ -157,6 +187,34 @@ export function StatusPanel({
         confirmLabel="Waive check"
         success="Check waived"
         onSubmit={(note) => setCheckState(checkId, { state: "waived", note })}
+      />
+      <ReasonDialog
+        open={asking}
+        onOpenChange={setAsking}
+        title="Ask for the information"
+        description={`The ${processType === "candidate_collected" ? "candidate" : "client"} gets this as a question, and the check waits for the answer. If you're waiting on a school, employer or other source, use Awaiting reply.`}
+        label="What do you need?"
+        placeholder="e.g. Which branch of the company did they work at?"
+        confirmLabel="Send the question"
+        success="Sent. The check shows as waiting for information"
+        onSubmit={async (text) => {
+          const r = await requestCheckInformation(caseId, checkId, text);
+          if (r.ok && r.warning) toast.warning(r.warning);
+          return r;
+        }}
+      />
+      <ReasonDialog
+        key={clientNote ?? ""}
+        open={wording}
+        onOpenChange={setWording}
+        title={clientNote ? "Edit the remarks" : "Add remarks"}
+        description="The final report prints this, and the client reads it once the report is released. If a draft exists, make a new one afterwards."
+        label="Remarks"
+        required={state === "discrepancy" || state === "unable_to_verify"}
+        initial={clientNote ?? ""}
+        confirmLabel="Save remarks"
+        success="Remarks saved"
+        onSubmit={(text) => setCheckRemarks(checkId, text)}
       />
     </section>
   );
@@ -176,27 +234,41 @@ export function OutcomeForm({
   options,
   onDone,
   initial,
+  earlierFinding,
+  sourceRecorded = true,
   description = "A person decides every result, and Post-QC reviews each one before the report.",
 }: {
   checkId: string;
   options: ResultOption[];
   onDone: (values: OutcomeValues) => void;
   initial?: Partial<OutcomeValues>;
+  /** The check's note from before it was reopened. It stays out of a clear result unless someone puts it back. */
+  earlierFinding?: string | null;
+  /** What the source confirmed is on the check. Without it, only "unable to verify" can be said. */
+  sourceRecorded?: boolean;
   description?: string;
 }) {
-  const [outcome, setOutcome] = useState<Outcome>(initial?.outcome ?? "completed");
+  const offered = sourceRecorded ? OUTCOMES : OUTCOMES.filter((o) => o.key === "unable_to_verify");
+  const [outcome, setOutcome] = useState<Outcome>(sourceRecorded ? (initial?.outcome ?? "completed") : "unable_to_verify");
   const pick = (o: Outcome) =>
     o === "completed"
       ? options.filter((x) => x.tone !== "red" && x.key !== "unable_to_verify" && x.key !== "pending")
       : o === "discrepancy"
         ? options.filter((x) => x.tone === "red")
         : options.filter((x) => x.tone === "amber" && x.key !== "pending").sort((a, b) => Number(b.key === "unable_to_verify") - Number(a.key === "unable_to_verify"));
-  const [result, setResult] = useState<string>(() => (initial?.result && pick(initial.outcome ?? "completed").some((o) => o.key === initial.result) ? initial.result : (pick(initial?.outcome ?? "completed")[0]?.key ?? "")));
+  const [result, setResult] = useState<string>(() => (initial?.result && pick(outcome).some((o) => o.key === initial.result) ? initial.result : (pick(outcome)[0]?.key ?? "")));
   const [note, setNote] = useState(initial?.note ?? "");
-  const [clientNote, setClientNote] = useState(initial?.clientNote ?? "");
+  const [clientNote, setClientNote] = useState(initial?.clientNote ?? (outcome === "completed" ? "" : (earlierFinding ?? "")));
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const choices = pick(outcome);
+  const choose = (next: Outcome) => {
+    setOutcome(next);
+    setResult(pick(next)[0]?.key ?? "");
+    if (!earlierFinding) return;
+    if (next === "completed" && clientNote === earlierFinding) setClientNote("");
+    if (next !== "completed" && !clientNote.trim()) setClientNote(earlierFinding);
+  };
 
   return (
     <form
@@ -218,16 +290,13 @@ export function OutcomeForm({
       </DialogHeader>
       <div className="space-y-4">
         <div role="radiogroup" aria-label="Outcome" className="grid gap-2 sm:grid-cols-3">
-          {OUTCOMES.map((o) => (
+          {offered.map((o) => (
             <button
               key={o.key}
               type="button"
               role="radio"
               aria-checked={outcome === o.key}
-              onClick={() => {
-                setOutcome(o.key);
-                setResult(pick(o.key)[0]?.key ?? "");
-              }}
+              onClick={() => choose(o.key)}
               className={cn(
                 "flex flex-col items-start gap-1 rounded-xl border px-3 py-2.5 text-left text-sm transition-colors outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
                 outcome === o.key ? "border-brand-blue/50 bg-brand-blue/5 dark:border-brand-sky/50 dark:bg-brand-sky/10" : "hover:bg-muted",
@@ -276,6 +345,14 @@ export function OutcomeForm({
             )}
           </label>
           <Textarea id="outcome-client" value={clientNote} onChange={(e) => setClientNote(e.target.value)} rows={2} placeholder={outcome === "completed" ? "A short, factual summary the client may read." : "What was found. The client reads this in the report."} />
+          {outcome === "completed" && earlierFinding && clientNote !== earlierFinding ? (
+            <p className="text-xs text-muted-foreground">
+              This check had a note: “{earlierFinding}”{" "}
+              <button type="button" onClick={() => setClientNote(earlierFinding)} className="font-medium text-foreground underline-offset-4 hover:underline">
+                Use it again
+              </button>
+            </p>
+          ) : null}
         </div>
         {error ? (
           <p role="alert" className="text-sm text-destructive">

@@ -2,6 +2,10 @@ import "server-only";
 import { cache } from "react";
 import { createRequestClient } from "@/lib/supabase/server";
 import { peopleById, type Person } from "./queries";
+import { getCaseSuggestions } from "@/lib/server/ai/queries";
+import { newest } from "@/domain/ai/suggestions";
+import type { AnswerValue } from "@/domain/candidate/answers";
+import type { CandidateReportBody } from "@/domain/candidate/report";
 
 /**
  * Staff reads for the candidate side of a case (0008): the link, requests,
@@ -38,13 +42,19 @@ export type CandidateRequestItem = {
   kind: "document" | "field" | "question";
   title: string;
   help: string | null;
+  /** Part of the candidate's BGV form. */
+  form: boolean;
   fieldKey: string | null;
   fieldType: string | null;
   caseCheckId: string | null;
   requirementId: string | null;
   dueAt: string | null;
   status: "open" | "answered" | "accepted" | "cancelled";
-  answer: { value?: string; document_id?: string; rows?: Record<string, unknown>[] } | null;
+  answer: { value?: AnswerValue; document_id?: string; rows?: Record<string, unknown>[] } | null;
+  /** Choices for a single detail, to show an answer in the words the candidate read. */
+  options: { value: string; label: string }[];
+  /** The columns, when the candidate filled in rows. */
+  rowFields: { key: string; label: string; options?: { value: string; label: string }[] }[];
   answeredAt: string | null;
   reviewNote: string | null;
   reviewedBy: Person | null;
@@ -69,10 +79,30 @@ export type ConsentInfo = {
   reviewedAt: string | null;
 };
 
+/** The latest candidate report, for staff. Its AI text is left out for anyone who can't open the file. */
+export type CandidateReportInfo = {
+  id: string;
+  version: number;
+  status: "queued" | "ready" | "failed";
+  pageCount: number | null;
+  createdAt: string;
+  confirmedAt: string | null;
+  ai: Pick<CandidateReportBody, "summary" | "points_to_check"> | null;
+  /** Waiting for someone to read it. */
+  suggestionId: string | null;
+  /** It holds sensitive evidence this person can't open. */
+  locked: boolean;
+};
+
 export type CandidatePanelData = {
+  report: CandidateReportInfo | null;
+  /** The candidate has files on the case, so staff can have a report made. */
+  hasFiles: boolean;
   link: CandidateLinkInfo | null;
   /** Any link was ever issued: from then on consent is needed before Pre-QC (0008 guard). */
   everIssued: boolean;
+  /** Any link reached them by email: the flowchart's formal request. */
+  linkEmailed: boolean;
   requests: CandidateRequestItem[];
   messages: CandidateMessageItem[];
   consent: ConsentInfo | null;
@@ -82,13 +112,21 @@ const person = (people: Map<string, Person>, id: string | null) => (id ? (people
 
 export const getCandidatePanel = cache(async (caseId: string): Promise<CandidatePanelData> => {
   const supabase = await createRequestClient();
-  const [links, requests, messages, consent, people] = await Promise.all([
+  const [links, requests, messages, consent, people, report, files, confirmed, suggestions] = await Promise.all([
     supabase.from("candidate_links").select(LINK_COLUMNS).eq("case_id", caseId).order("created_at", { ascending: false }).limit(5),
     supabase.from("candidate_requests").select("*").eq("case_id", caseId).neq("status", "cancelled").order("created_at"),
     supabase.from("candidate_messages").select("*").eq("case_id", caseId).order("created_at").limit(200),
     supabase.from("consent_forms").select("*").eq("case_id", caseId).maybeSingle(),
     peopleById(),
+    supabase.from("generated_documents").select("id, version, status, page_count, created_at").eq("entity_type", "case").eq("entity_id", caseId).eq("kind", "candidate_report").in("status", ["queued", "ready", "failed"]).order("version", { ascending: false }).limit(1).maybeSingle(),
+    supabase.from("documents").select("id, sensitive").eq("case_id", caseId).eq("uploaded_by_kind", "candidate").in("status", ["uploaded", "accepted"]),
+    supabase.from("cases").select("candidate_confirmed_at").eq("id", caseId).maybeSingle(),
+    getCaseSuggestions(caseId),
   ]);
+  const written = newest(suggestions, (s) => s.capability === "candidate.report");
+  const body = written?.value as CandidateReportBody | undefined;
+  const r = report.data;
+  const confirmedAt = confirmed.data?.candidate_confirmed_at ?? null;
   const now = Date.now();
   const l = links.data?.[0];
   const link: CandidateLinkInfo | null = l
@@ -114,12 +152,31 @@ export const getCandidatePanel = cache(async (caseId: string): Promise<Candidate
     : null;
   const c = consent.data;
   return {
+    report: r
+      ? {
+          id: r.id,
+          version: r.version,
+          status: r.status as CandidateReportInfo["status"],
+          pageCount: r.page_count,
+          createdAt: r.created_at,
+          confirmedAt,
+          ai: body ? { summary: body.summary, points_to_check: body.points_to_check } : null,
+          suggestionId: written?.decision === "pending" ? written.id : null,
+          locked: false,
+        }
+      : // Row level security hides a report from anyone who can't open its files (0047).
+        confirmedAt
+        ? { id: "", version: 0, status: "ready", pageCount: null, createdAt: "", confirmedAt, ai: null, suggestionId: null, locked: true }
+        : null,
+    hasFiles: Boolean(files.data?.length),
     link,
     everIssued: Boolean(links.data?.length),
+    linkEmailed: Boolean(links.data?.some((l) => l.sent_at && l.sent_via?.includes("email"))),
     requests: (requests.data ?? []).map((q) => ({
       id: q.id,
       kind: q.kind as CandidateRequestItem["kind"],
       title: q.title,
+      form: q.form === true,
       help: q.help,
       fieldKey: q.field_key,
       fieldType: q.field_type,
@@ -128,6 +185,8 @@ export const getCandidatePanel = cache(async (caseId: string): Promise<Candidate
       dueAt: q.due_at,
       status: q.status as CandidateRequestItem["status"],
       answer: (q.answer ?? null) as CandidateRequestItem["answer"],
+      options: Array.isArray(q.options) ? (q.options as { value: string; label: string }[]).filter((o) => typeof o === "object") : [],
+      rowFields: Array.isArray(q.options) ? [] : (((q.options as { fields?: unknown } | null)?.fields ?? []) as CandidateRequestItem["rowFields"]),
       answeredAt: q.answered_at,
       reviewNote: q.review_note,
       reviewedBy: person(people, q.reviewed_by),
@@ -164,6 +223,12 @@ export const getCandidatePanel = cache(async (caseId: string): Promise<Candidate
 /** The guard in 0008 (cases_consent_guard): a link was issued and consent is not in yet. */
 export function consentMissing(panel: Pick<CandidatePanelData, "everIssued" | "consent">, processType: string): boolean {
   return (panel.everIssued || processType === "candidate_collected") && !(panel.consent && (panel.consent.status === "submitted" || panel.consent.status === "accepted"));
+}
+
+/** public.case_consent_missing (0049): past Pre-QC, a client-supplied case carries its consent among the documents, unless a form was rejected. */
+export function consentRefused(panel: Pick<CandidatePanelData, "consent">, processType: string): boolean {
+  const given = panel.consent?.status === "submitted" || panel.consent?.status === "accepted";
+  return !given && (processType === "candidate_collected" || panel.consent?.status === "rejected");
 }
 
 export type CandidateReply = {

@@ -30,7 +30,7 @@ export default function PackagesPage() {
 
 async function canBuild() {
   const viewer = await getClientViewer();
-  const settings = await portalSettings(viewer.clientId ?? "");
+  const settings = await portalSettings();
   return { viewer, settings, build: can(viewer, "portal.packages.manage") && settings.client_packages };
 }
 
@@ -70,7 +70,11 @@ async function Content() {
         <div className="space-y-0.5">
           <h2 className="font-display text-lg font-semibold tracking-tight">Your packages</h2>
           <p className="text-sm text-muted-foreground">
-            {settings.client_packages ? "Packages your company built. They appear in New request straight away." : "Ask Ontriq to switch on custom packages for your company."}
+            {settings.client_packages
+              ? settings.client_packages_need_approval
+                ? "Packages your company built. They appear in New request once Ontriq approves them."
+                : "Packages your company built. They appear in New request straight away."
+              : "Ask Ontriq to switch on custom packages for your company."}
           </p>
         </div>
         {own.length ? (

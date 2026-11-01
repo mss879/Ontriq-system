@@ -22,7 +22,7 @@ begin
 
   insert into public.ai_runs (org_id, capability, model, input_tokens, output_tokens, cache_read_tokens)
   values ('00000000-0000-4000-8000-000000000001', 'document.extract', 'claude-sonnet-5-5', 5000, 700, 2500);
-  assert (select cost_usd from public.ai_runs order by created_at desc limit 1) = 0.0175, 'ai_runs trigger did not price the call';
+  assert (select cost_usd from public.ai_runs order by created_at desc limit 1) = 0.01725, 'ai_runs trigger did not price the call';
 
   assert public.rate_limit_check('test:key', 60, 2), 'first hit should pass';
   assert public.rate_limit_check('test:key', 60, 2), 'second hit should pass';

@@ -232,6 +232,7 @@ export function AskCandidateDialog({
   categories,
   linkActive,
   initial,
+  askDocuments,
   onSent,
 }: {
   open: boolean;
@@ -241,6 +242,7 @@ export function AskCandidateDialog({
   categories: { key: string; name: string; guide: string }[];
   linkActive: boolean;
   initial?: AskPrefill;
+  askDocuments: boolean;
   onSent?: () => void;
 }) {
   return (
@@ -253,6 +255,7 @@ export function AskCandidateDialog({
             categories={categories}
             linkActive={linkActive}
             initial={initial}
+            askDocuments={askDocuments}
             onDone={() => {
               onOpenChange(false);
               onSent?.();
@@ -270,6 +273,7 @@ function AskForm({
   categories,
   linkActive,
   initial,
+  askDocuments,
   onDone,
 }: {
   caseId: string;
@@ -277,10 +281,13 @@ function AskForm({
   categories: { key: string; name: string; guide: string }[];
   linkActive: boolean;
   initial?: AskPrefill;
+  /** Files can still come in. After verification the candidate can only answer. */
+  askDocuments: boolean;
   onDone: () => void;
 }) {
   const askable = checks.filter((c) => c.fields.length > 0);
-  const [kind, setKind] = useState<Kind>(initial?.kind ?? "document");
+  const kinds = (Object.keys(KIND_LABEL) as Kind[]).filter((k) => k !== "document" || askDocuments);
+  const [kind, setKind] = useState<Kind>(initial?.kind ?? kinds[0]);
   const [category, setCategory] = useState(initial?.category && categories.some((c) => c.key === initial.category) ? initial.category : "");
   const [checkId, setCheckId] = useState(initial?.checkId ?? WHOLE_CASE);
   const [fieldCheck, setFieldCheck] = useState(askable[0]?.id ?? "");
@@ -332,7 +339,7 @@ function AskForm({
       ) : null}
       <fieldset disabled={pending} className="space-y-5">
         <div role="radiogroup" aria-label="What to ask for" className="grid gap-2 sm:grid-cols-3">
-          {(Object.keys(KIND_LABEL) as Kind[]).map((k) => (
+          {kinds.map((k) => (
             <button
               key={k}
               type="button"

@@ -8,7 +8,8 @@
 import { Document, Image, Page, Text, View, renderToBuffer } from "@react-pdf/renderer";
 import type { ReactNode } from "react";
 import QRCode from "qrcode";
-import { C, LogoLockup, LogoMark, registerFonts, s } from "../documents/pdf-kit";
+import { BODY_FONTS, C, DISPLAY_FONTS, LogoLockup, LogoMark, registerFonts, s } from "../documents/pdf-kit";
+import type { AnnexureOutcome } from "./assemble";
 import { RESULT_WORDS, type ReportSnapshot } from "../../domain/reports/compile-core";
 import type { ResultTone } from "../../domain/check-types/schema";
 
@@ -23,7 +24,23 @@ export type ReportRenderOptions = {
   verifyUrl: string | null;
   generatedOn: string;
   revisionReason: string | null;
+  /** What became of each file, so the list below says what the PDF really holds. */
+  annexures?: AnnexureOutcome[];
 };
+
+const ORIGINAL: Record<string, string> = { original: "original seen", certified_copy: "certified copy", copy: "copy" };
+
+/** How one annexure stands, after its name in the list. */
+function annexureNote(a: ReportSnapshot["annexures"][number], outcome: AnnexureOutcome | undefined) {
+  const notes: string[] = [];
+  if (a.original) notes.push(ORIGINAL[a.original]);
+  if (outcome?.altered) notes.push("changed since it was uploaded");
+  if (outcome?.status === "attached") notes.push("protected: held inside this PDF as the file itself");
+  else if (outcome && outcome.status !== "embedded") notes.push("could not be included");
+  else if (a.kind === "fixed" && !outcome?.altered) notes.push("attached unchanged");
+  if (outcome && outcome.part > 1) notes.push(`in part ${outcome.part} of this report`);
+  return notes.length ? ` · ${notes.join(" · ")}` : "";
+}
 
 function Chip({ tone, label }: { tone: ResultTone | null; label: string }) {
   const color = tone ? TONE[tone] : C.muted;
@@ -38,7 +55,7 @@ function Chip({ tone, label }: { tone: ResultTone | null; label: string }) {
 function Watermark() {
   return (
     <View fixed style={{ position: "absolute", top: 330, left: 70, transform: "rotate(-30deg)" }}>
-      <Text style={{ fontFamily: "StackSans", fontSize: 110, fontWeight: 700, color: C.red, opacity: 0.08, letterSpacing: 8 }}>DRAFT</Text>
+      <Text style={{ fontFamily: DISPLAY_FONTS, fontSize: 110, fontWeight: 700, color: C.red, opacity: 0.08, letterSpacing: 8 }}>DRAFT</Text>
     </View>
   );
 }
@@ -60,7 +77,7 @@ function Frame({ snapshot, opts, children }: { snapshot: ReportSnapshot; opts: R
       {children}
       <View style={s.footer} fixed>
         <Text>{snapshot.org.legal_name} · Strictly confidential · Prepared for {snapshot.case.client}</Text>
-        <Text render={({ pageNumber, totalPages }) => `Page ${pageNumber} of ${totalPages}`} />
+        <Text render={({ pageNumber, totalPages }) => `Report page ${pageNumber} of ${totalPages}`} />
       </View>
     </Page>
   );
@@ -79,6 +96,9 @@ function KV({ rows }: { rows: { label: string; value: string }[] }) {
   );
 }
 
+/** A row kept whole past this many characters would run off the page and lose its end. */
+const LONG_ROW = 1200;
+
 function GroupTable({ label, columns, rows }: { label: string; columns: string[]; rows: string[][] }) {
   const w = `${100 / Math.max(columns.length, 1)}%`;
   // Too many columns to read across a page: each row becomes its own block.
@@ -87,7 +107,7 @@ function GroupTable({ label, columns, rows }: { label: string; columns: string[]
       <View style={{ marginTop: 8 }}>
         <Text style={{ fontSize: 8.5, fontWeight: 600, color: C.ink, marginBottom: 4 }}>{label}</Text>
         {rows.map((row, i) => (
-          <View key={i} wrap={false} style={{ marginBottom: 6, borderWidth: 0.75, borderColor: C.line, borderRadius: 4, flexDirection: "row", flexWrap: "wrap", padding: 3 }}>
+          <View key={i} wrap={row.join("").length > LONG_ROW} style={{ marginBottom: 6, borderWidth: 0.75, borderColor: C.line, borderRadius: 4, flexDirection: "row", flexWrap: "wrap", padding: 3 }}>
             {row.map((cell, j) => (
               <View key={j} style={{ width: "50%", padding: 3 }}>
                 <Text style={{ fontSize: 7, fontWeight: 600, color: C.muted }}>{columns[j]}</Text>
@@ -109,7 +129,7 @@ function GroupTable({ label, columns, rows }: { label: string; columns: string[]
           ))}
         </View>
         {rows.map((row, i) => (
-          <View key={i} style={{ flexDirection: "row", borderTopWidth: 0.75, borderTopColor: C.line }} wrap={false}>
+          <View key={i} style={{ flexDirection: "row", borderTopWidth: 0.75, borderTopColor: C.line }} wrap={row.join("").length > LONG_ROW}>
             {row.map((cell, j) => (
               <Text key={j} style={{ width: w, padding: 5, fontSize: 8.5, color: C.ink }}>{cell}</Text>
             ))}
@@ -124,12 +144,12 @@ function Cover({ snapshot, opts, qr }: { snapshot: ReportSnapshot; opts: ReportR
   const tone = opts.kind === "final" ? opts.finalResult : snapshot.proposed_result;
   const word = tone ? RESULT_WORDS[tone] : null;
   return (
-    <Page size="A4" style={{ fontFamily: "Inter", color: C.body, backgroundColor: C.white }}>
+    <Page size="A4" style={{ fontFamily: BODY_FONTS, color: C.body, backgroundColor: C.white }}>
       {opts.kind === "draft" ? <Watermark /> : null}
       <View style={{ backgroundColor: C.navyDeep, paddingHorizontal: 48, paddingTop: 44, paddingBottom: 36 }}>
         <LogoLockup height={34} ink={C.white} />
         <Text style={{ marginTop: 42, fontSize: 8, letterSpacing: 2, color: "#9FB6D3", fontWeight: 600 }}>BACKGROUND VERIFICATION REPORT</Text>
-        <Text style={{ marginTop: 8, fontFamily: "StackSans", fontSize: 28, fontWeight: 700, color: C.white, lineHeight: 1.15 }}>{snapshot.candidate.full_name}</Text>
+        <Text style={{ marginTop: 8, fontFamily: DISPLAY_FONTS, fontSize: 28, fontWeight: 700, color: C.white, lineHeight: 1.15 }}>{snapshot.candidate.full_name}</Text>
         <Text style={{ marginTop: 6, fontSize: 10.5, color: "#C9D6E8" }}>
           {[snapshot.case.position, snapshot.case.client].filter(Boolean).join(" · ")}
         </Text>
@@ -143,6 +163,7 @@ function Cover({ snapshot, opts, qr }: { snapshot: ReportSnapshot; opts: ReportR
                 { label: "Reference", value: snapshot.case.reference },
                 ...(snapshot.case.client_reference ? [{ label: "Client reference", value: snapshot.case.client_reference }] : []),
                 { label: "Requested by", value: snapshot.case.client },
+                ...(snapshot.case.client_address ? [{ label: "Client address", value: snapshot.case.client_address }] : []),
                 ...(snapshot.case.package ? [{ label: "Package", value: snapshot.case.package }] : []),
                 ...(snapshot.candidate.nic ? [{ label: "NIC", value: snapshot.candidate.nic }] : []),
                 { label: "Received", value: snapshot.case.received_on },
@@ -155,8 +176,8 @@ function Cover({ snapshot, opts, qr }: { snapshot: ReportSnapshot; opts: ReportR
             <Text style={{ fontSize: 7.5, letterSpacing: 1.4, fontWeight: 600, color: C.muted }}>{opts.kind === "final" ? "FINAL RESULT" : "PROPOSED RESULT"}</Text>
             {word && tone ? (
               <>
-                <View style={{ marginTop: 10, width: 54, height: 54, borderRadius: 27, backgroundColor: TONE[tone], alignItems: "center", justifyContent: "center" }}>
-                  <Text style={{ color: C.white, fontWeight: 700, fontSize: 10 }}>{word.label.toUpperCase()}</Text>
+                <View style={{ marginTop: 10, alignSelf: "stretch", borderRadius: 6, paddingVertical: 8, paddingHorizontal: 6, backgroundColor: TONE[tone], alignItems: "center" }}>
+                  <Text style={{ color: C.white, fontWeight: 700, fontSize: 9.5, textAlign: "center" }}>{word.label.toUpperCase()}</Text>
                 </View>
                 <Text style={{ marginTop: 10, fontSize: 8, textAlign: "center", color: C.body }}>{word.meaning}</Text>
               </>
@@ -238,11 +259,14 @@ export function ReportDocument({ snapshot, opts, qr }: { snapshot: ReportSnapsho
         ))}
 
         {snapshot.annexures.length ? (
-          <View style={{ marginTop: 16 }} wrap={false}>
-            <Text style={s.h2}>Annexures</Text>
+          <View style={{ marginTop: 16 }}>
+            <Text style={s.h2} minPresenceAhead={30}>
+              Annexures
+            </Text>
             {snapshot.annexures.map((a, i) => (
-              <Text key={a.document_id} style={{ fontSize: 8.5, marginBottom: 2 }}>
-                Annexure {i + 1}: {a.title} ({a.filename}){a.kind === "fixed" ? " · attached unchanged" : ""}
+              <Text key={a.document_id} style={{ fontSize: 8.5, marginBottom: 2 }} wrap={false}>
+                Annexure {i + 1}: {a.title} ({a.filename}){a.contents?.length ? `: ${a.contents.join("; ")}` : ""}
+                {annexureNote(a, opts.annexures?.find((o) => o.document_id === a.document_id))}
               </Text>
             ))}
           </View>

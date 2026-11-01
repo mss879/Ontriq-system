@@ -3,6 +3,7 @@
  * candidate's page may show. Types only.
  */
 import type { Stage } from "../workflow/stages";
+import type { AnswerValue } from "./answers";
 
 export type CandidateRequirement = {
   id: string;
@@ -20,9 +21,9 @@ export type CandidateRequirement = {
   files: { id: string; filename: string; status: "uploaded" | "accepted" | "rejected" | "superseded"; rejection_reason: string | null; created_at: string }[];
 };
 
-export type CandidateRowField = { key: string; label: string; type: string; required: boolean; options: { value: string; label: string }[] };
+export type CandidateRowField = { key: string; label: string; type: string; required: boolean; options: { value: string; label: string }[]; help?: string | null };
 export type CandidateRowForm = { min: number; max: number; item_label: string; fields: CandidateRowField[] };
-export type CandidateRow = Record<string, string | { from?: string; to?: string; present?: boolean }>;
+export type CandidateRow = Record<string, string | string[] | { from?: string; to?: string; present?: boolean }>;
 
 export type CandidateRequest = {
   id: string;
@@ -33,9 +34,13 @@ export type CandidateRequest = {
   /** Choices for a single detail, or the columns when the candidate fills in rows. */
   options: { value: string; label: string }[] | string[] | CandidateRowForm;
   requirement_id: string | null;
+  /** Part of the BGV form: its wording comes from the page, in the candidate's language. */
+  form?: boolean;
+  field_key?: string | null;
+  check_key?: string | null;
   due_at: string | null;
   status: "open" | "answered" | "accepted";
-  answer: { value?: string; document_id?: string; rows?: CandidateRow[] } | null;
+  answer: { value?: AnswerValue; document_id?: string; rows?: CandidateRow[] } | null;
   answered_at: string | null;
   review_note: string | null;
   created_at: string;
@@ -60,6 +65,8 @@ export type CandidateView = {
   requirements: CandidateRequirement[];
   requests: CandidateRequest[];
   messages: { id: string; from: "staff" | "candidate"; body: string; at: string }[];
+  /** When they last confirmed, and whether they've given anything new since. */
+  submission: { confirmed_at: string | null; changed_since: boolean };
   consent: { status: "pending" | "submitted" | "accepted" | "rejected"; method: "esign" | "upload" | "staff" | null; signed_name: string | null; signed_at: string | null; review_note: string | null } | null;
   timeline: { id: number; kind: string; at: string; title: string; body: string | null; data: { to: string | null; category: string | null } }[];
 };

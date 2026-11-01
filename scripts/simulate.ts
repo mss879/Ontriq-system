@@ -455,7 +455,8 @@ async function main() {
   const probes: Probe[] = [
     {
       name: "client companies visible",
-      expect: (p) => (p.kind === "client" ? 1 : has(p, "super_admin", "admin", "operations_manager", "client_relations", "qc_officer", "viewer") ? 2 : 0),
+      // Client users read their company through portal_client_profile: the table holds Ontriq's notes (0048).
+      expect: (p) => (p.kind === "client" ? 0 : has(p, "super_admin", "admin", "operations_manager", "client_relations", "qc_officer", "viewer") ? 2 : 0),
       run: async (p) => (await p.db.from("clients").select("id").in("id", [clientA, clientB])).data?.length ?? 0,
     },
     {
@@ -468,8 +469,8 @@ async function main() {
       expect: (p) => (p.kind === "client" ? true : "n/a"),
       run: async (p) => {
         if (p.kind !== "client") return "n/a";
-        const { data } = await p.db.from("clients").select("id");
-        return (data ?? []).every((c) => c.id === own(p)) && (data?.length ?? 0) === 1;
+        const { data } = await p.db.rpc("portal_client_profile");
+        return (data as { id?: string } | null)?.id === own(p);
       },
     },
     {
@@ -769,11 +770,14 @@ async function main() {
         });
       });
     const [a, b] = await Promise.all([subscribed(mine), subscribed(spy)]);
-    if (a !== "SUBSCRIBED") return `owner channel ${a}`;
-    if (b !== "SUBSCRIBED") return `second channel ${b}`;
+    const send = () => service.rpc("notify_users", { p_user_ids: [viewer.id], p_type: "sim", p_title: `${TAG} live`, p_org: ORG_ID });
+    if (a !== "SUBSCRIBED" || b !== "SUBSCRIBED") {
+      await send(); // The two checks below read it, with live updates or without.
+      return a !== "SUBSCRIBED" ? `owner channel ${a}` : `second channel ${b}`;
+    }
     for (let i = 0; i < 40 && !(ready.own && ready.spy); i++) await sleep(250);
     await sleep(500);
-    const sent = await service.rpc("notify_users", { p_user_ids: [viewer.id], p_type: "sim", p_title: `${TAG} live`, p_org: ORG_ID });
+    const sent = await send();
     if (sent.error) return sent.error.message;
     for (let i = 0; i < 30 && received.length === 0; i++) await sleep(500);
     await sleep(1500);
@@ -801,7 +805,11 @@ async function main() {
 
   section("File storage");
 
-  const pdf = Buffer.from("%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n");
+  // A real one-page PDF. The final report refuses evidence that has nothing in it.
+  const { PDFDocument } = await import("pdf-lib");
+  const onePage = await PDFDocument.create();
+  onePage.addPage([200, 200]);
+  const pdf = Buffer.from(await onePage.save());
   const docPath = `sim/${RUN}/evidence.pdf`;
   await check("A browser can upload through a signed upload link", async () => {
     const signed = await service.storage.from("documents").createSignedUploadUrl(docPath);
@@ -930,7 +938,7 @@ async function main() {
     const checks = (await service.from("case_checks").select("id").eq("case_id", case1)).data?.length;
     const pending = (await service.from("case_check_requirements").select("id").eq("case_id", case1).eq("status", "pending")).data?.length;
     if (!/^ONT-\d{4}-\d{6}$/.test(reference)) return `reference ${reference}`;
-    return expectEq([checks, pending], [3, 4], "checks and required documents, with the BGV form");
+    return expectEq([checks, pending], [3, 5], "checks and required documents, with the CV and BGV form");
   });
 
   await check("The same person is matched by NIC whichever card they show", async () => {
@@ -994,11 +1002,12 @@ async function main() {
     return expectEq([data?.status, data?.received_count], ["received", 1], "NIC requirement");
   });
 
-  await check("Sensitive evidence is hidden from staff without access", async () => {
+  await check("Sensitive evidence opens for those working on the case, and stays hidden from a viewer", async () => {
     policeDoc = await uploadAs(verifier, "police_report", "police clearance.pdf");
     const mine = (await verifier.db.from("documents").select("id").eq("case_id", case1)).data?.length ?? 0;
+    const onlooker = (await viewer.db.from("documents").select("id").eq("case_id", case1)).data?.length ?? 0;
     const managers = (await ops.db.from("documents").select("id").eq("case_id", case1)).data?.length ?? 0;
-    return expectEq([mine, managers], [1, 2], "documents visible to the officer and the operations manager");
+    return expectEq([mine, onlooker, managers], [2, 1, 2], "documents visible to the officer on the case, a viewer and the operations manager");
   });
 
   await check("A manager waives the rest and sends the case to Pre-QC", async () => {
@@ -1025,10 +1034,31 @@ async function main() {
 
   const goodValues: Record<string, Record<string, unknown>> = {
     nic: { nic_number: oldNic.display, name_on_nic: candidateName, validation_source: "drp" },
-    education: { candidate_name: candidateName, qualification_level: "degree", qualification: "BSc Computer Science", institution: "University of Moratuwa", student_number: "CS2015001", year_of_completion: 2019 },
+    education: {
+      candidate_name: candidateName,
+      qualification_level: "degree",
+      qualification: "BSc Computer Science",
+      institution: "University of Moratuwa",
+      student_number: "CS2015001",
+      year_of_completion: 2019,
+      confirmed_by: "Senior Assistant Registrar",
+      confirmation_channel: "email",
+      confirmed_on: "2026-10-01",
+    },
     employment: {
       candidate_name: candidateName,
-      employers: [{ company: "Dialog Axiata", designation: "Engineer", period: { from: "2019-07-01", to: "2023-06-30" }, employee_code: "D1234", employment_type: "permanent" }],
+      employers: [
+        {
+          company: "Dialog Axiata",
+          designation: "Engineer",
+          period: { from: "2019-07-01", to: "2023-06-30" },
+          employee_code: "D1234",
+          employment_type: "permanent",
+          confirmed_by: "HR Manager",
+          confirmed_on: "2026-10-01",
+          employer_response: "Dates, role and employment type confirmed.",
+        },
+      ],
     },
   };
   await check("Data entry checks every field against the check's form before verification", async () => {
@@ -1083,7 +1113,7 @@ async function main() {
     if (redo.error) return redo.error.message;
     const again = await verifier.db.rpc("case_transition", { p_case: case1, p_event: "submit_post_qc" });
     if (again.error) return again.error.message;
-    const ok = await qcOfficer.db.rpc("record_qc_review", { p_case: case1, p_kind: "post", p_decision: "approved" });
+    const ok = await qcOfficer.db.rpc("record_qc_review", { p_case: case1, p_kind: "post", p_decision: "approved", p_checklist: [{ item: "Findings match the evidence", ok: true }] });
     if (ok.error) return ok.error.message;
     const { data: c } = await service.from("cases").select("stage, proposed_result, completed_at").eq("id", case1).single();
     return expectEq([c?.stage, c?.proposed_result, Boolean(c?.completed_at)], ["report", "red", true], "stage, proposed result, completed");
@@ -1162,7 +1192,7 @@ async function main() {
   const relations = by("relations");
   const alphaViewer = by("alpha-viewer");
   const sealed = (secret: string) => (isCandidateSecretConfigured() ? sealLinkSecret(secret) : null);
-  const tinyPdf = Buffer.from("%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[]/Count 0>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n");
+  const tinyPdf = pdf;
   const putFile = async (begun: { bucket: string; path: string }) => {
     made.objects.push({ bucket: begun.bucket, path: begun.path });
     const signed = await service.storage.from(begun.bucket).createSignedUploadUrl(begun.path);
@@ -1223,8 +1253,8 @@ async function main() {
     if (/result_tone|assigned_to/.test(text)) return "results or assignees reached the candidate";
     const signedIn = await alphaAdmin.db.rpc("candidate_link_view", { p_link: linkId });
     if (!signedIn.error) return "a signed-in client called the candidate view";
-    // Standard: NIC, certificates and service letters are required; transcript and resignation letters are optional.
-    return expectEq([v.requirements.filter((r) => r.min_count > 0).length, v.requirements.length, v.checks.length, v.link.language], [3, 5, 3, "si"], "required slots, all slots, checks and language");
+    // Standard: the CV, NIC, certificates and service letters are required; transcript and resignation letters are optional.
+    return expectEq([v.requirements.filter((r) => r.min_count > 0).length, v.requirements.length, v.checks.length, v.link.language], [4, 6, 3, "si"], "required slots, all slots, checks and language");
   });
 
   await check("The candidate uploads into a document slot straight to private storage", async () => {
@@ -1262,9 +1292,15 @@ async function main() {
     return expectEq([q?.status, (q?.answer as { value?: string })?.value], ["accepted", "March 2021"], "status and answer");
   });
 
-  await check("Pre-QC waits for the candidate's consent", async () => {
+  await check("Pre-QC waits for contact with the candidate, then for their consent", async () => {
     const { data: pending } = await service.from("case_check_requirements").select("id").eq("case_id", case3).eq("status", "pending");
     for (const r of pending ?? []) await ops.db.rpc("waive_requirement", { p_requirement: r.id, p_reason: "simulation" });
+    const uncalled = await ops.db.rpc("case_transition", { p_case: case3, p_event: "submit_pre_qc" });
+    if (!uncalled.error || !/first/.test(uncalled.error.message)) return `got ${uncalled.error?.message ?? "no error"}`;
+    for (const channel of ["phone", "email"]) {
+      const logged = await ops.db.rpc("log_contact", { p_case: case3, p: { counterparty: `Sim Link Candidate ${RUN}`, channel, outcome: "Spoke to them" } });
+      if (logged.error) return logged.error.message;
+    }
     const blocked = await ops.db.rpc("case_transition", { p_case: case3, p_event: "submit_pre_qc" });
     if (!blocked.error || !/consent/.test(blocked.error.message)) return `got ${blocked.error?.message ?? "no error"}`;
     const signed = await service.rpc("candidate_submit_consent", { p_link: linkId, p_method: "esign", p_signed_name: `Sim Link Candidate ${RUN}`, p_document: null as unknown as string, p_ip: "203.0.113.10", p_user_agent: "simulation" });
@@ -1359,7 +1395,8 @@ async function main() {
     const toBeta = (notes ?? []).filter((n) => n.user_id === betaUser.id).length;
     const emails = (await service.from("jobs").select("id").eq("kind", "notify.email").in("entity_id", (notes ?? []).map((n) => n.id))).data ?? [];
     made.jobs.push(...emails.map((j) => j.id));
-    return expectEq([toAlpha, toBeta, emails.length], [3, 0, 3], "client A users told, client B told, email copies queued");
+    // Each of the three hears twice: when the case opened, and when Ontriq asked for one more file.
+    return expectEq([toAlpha, toBeta, emails.length], [6, 0, 6], "client A users told, client B told, email copies queued");
   });
 
   await check("Staff can't use the portal functions, and visibility settings apply", async () => {
@@ -1422,9 +1459,11 @@ async function main() {
     const wrong = await ops.db.rpc("approve_report", { p_case: case1, p_draft: draftId, p_final_result: "red", p_current_hash: "0".repeat(64) });
     if (!wrong.error || !/changed/.test(wrong.error.message)) return "approved a draft against a changed case";
     const { hash } = await currentSnapshot(service, case1);
-    const green = await ops.db.rpc("approve_report", { p_case: case1, p_draft: draftId, p_final_result: "green", p_current_hash: hash });
+    const green = await ops.db.rpc("approve_report", { p_case: case1, p_draft: draftId, p_final_result: "green", p_current_hash: hash, p_reason: "Trying it", p_share_sensitive: true });
     if (!green.error) return "approved green with a discrepancy on the case";
-    const ok = await ops.db.rpc("approve_report", { p_case: case1, p_draft: draftId, p_final_result: "red", p_current_hash: hash });
+    const unasked = await ops.db.rpc("approve_report", { p_case: case1, p_draft: draftId, p_final_result: "red", p_current_hash: hash });
+    if (!unasked.error || !/sensitive/.test(unasked.error.message)) return "sensitive evidence was approved for the client with no decision";
+    const ok = await ops.db.rpc("approve_report", { p_case: case1, p_draft: draftId, p_final_result: "red", p_current_hash: hash, p_share_sensitive: true });
     if (ok.error) return ok.error.message;
     finalId = ok.data as string;
     await drainJobs({ budgetMs: 120_000, reserveMs: 0, maxJobs: 80, workerId: `sim-${RUN}`, admin: service });
@@ -1629,8 +1668,14 @@ async function main() {
     if (r.error) return r.error.message;
     const c = (await service.from("cases").select("candidate_name, erased_at, reference, candidate_id").eq("id", case2).single()).data;
     if (c?.candidate_name !== "Erased candidate" || !c.erased_at) return "the case still shows the candidate";
-    const shared = (await service.from("candidates").select("full_name, erased_at").eq("id", c.candidate_id).single()).data;
+    // The erased case moves onto an anonymous record, so the live case keeps its candidate.
+    if (c.candidate_id) made.candidates.push(c.candidate_id);
+    const liveCase = (await service.from("cases").select("candidate_id").eq("id", case1).single()).data;
+    if (!liveCase?.candidate_id || liveCase.candidate_id === c.candidate_id) return "the erased case still points at the candidate another case needs";
+    const shared = (await service.from("candidates").select("full_name, erased_at").eq("id", liveCase.candidate_id).single()).data;
     if (shared?.erased_at || shared?.full_name !== candidateName) return "the candidate shared with a live case was erased";
+    const detached = c.candidate_id ? (await service.from("candidates").select("full_name, nic_canonical").eq("id", c.candidate_id).single()).data : null;
+    if (detached?.full_name === candidateName || detached?.nic_canonical) return "the erased case still holds the candidate's details";
     const logged = await service.from("system_events").select("id").eq("kind", "data.erased").contains("context", { case_id: case2 });
     return logged.data?.length ? true : "the erasure was not recorded";
   });
@@ -1784,8 +1829,9 @@ async function main() {
       if (!policeDoc) return "no document to open";
       const manager = await get(`/api/files/${policeDoc}`, await cookieHeader(ops.db));
       const officer = await get(`/api/files/${policeDoc}`, await cookieHeader(verifier.db));
+      const onlooker = await get(`/api/files/${policeDoc}`, await cookieHeader(viewer.db));
       const okRedirect = manager.status === 302 && /\/storage\/v1\/object\/sign\//.test(manager.headers.get("location") ?? "");
-      return okRedirect && officer.status === 404 ? true : `manager ${manager.status}, officer ${officer.status}`;
+      return okRedirect && officer.status === 302 && onlooker.status === 404 ? true : `manager ${manager.status}, officer on the case ${officer.status}, viewer ${onlooker.status}`;
     });
 
     await check("The case page opens for its officer", async () => {

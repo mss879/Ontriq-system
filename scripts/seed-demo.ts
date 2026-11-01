@@ -26,6 +26,7 @@ import type { Database } from "../src/lib/supabase/database.types";
 import { parseNic } from "../src/domain/nic-core";
 import { parseCheckTypeSchema } from "../src/domain/check-types/schema";
 import { validateCheckValues } from "../src/domain/check-types/validate";
+import { totp } from "./local-stack/totp";
 
 type DB = SupabaseClient<Database>;
 
@@ -38,6 +39,10 @@ const NOTE = "[demo-seed] Sample company for demonstrations.";
 const CLIENT_DOMAIN = "demo.ontriq.test";
 
 loadEnvFile(arg("env") ?? ".env.hosted");
+// Reports print this address and its QR code, so it must be where the demo runs.
+if (arg("app")) process.env.APP_ORIGIN = arg("app");
+// The sample AI output below is written by this script. The job queue must not call the model for it.
+process.env.ANTHROPIC_API_KEY = "";
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const publishable = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 const secret = process.env.SUPABASE_SECRET_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -83,6 +88,10 @@ const PEOPLE: { key: string; name: string; email: string; role: string; client?:
   { key: "entry", name: "Mohamed Rizwan", email: `entry@${CLIENT_DOMAIN}`, role: "data_entry_officer" },
   { key: "officer2", name: "Tharushi Gunasekara", email: `tharushi@${CLIENT_DOMAIN}`, role: "verification_officer" },
   { key: "officer3", name: "Kavindu Senanayake", email: `kavindu@${CLIENT_DOMAIN}`, role: "verification_officer" },
+  { key: "super", name: "Nadeesha Wickramasinghe", email: `super@${CLIENT_DOMAIN}`, role: "super_admin" },
+  { key: "viewer", name: "Sunil Gamage", email: `viewer@${CLIENT_DOMAIN}`, role: "viewer" },
+  { key: "clientuser", name: "Kamal Rodrigo", email: `kamal@${CLIENT_DOMAIN}`, role: "client_user", client: "LHH" },
+  { key: "clientviewer", name: "Anoma Peiris", email: `anoma@${CLIENT_DOMAIN}`, role: "client_viewer", client: "LHH" },
   { key: "aurora", name: "Rohan Abeysekera", email: `hr@aurora.${CLIENT_DOMAIN}`, role: "client_admin", client: "ALF" },
   { key: "northgate", name: "Sanduni Karunaratne", email: `people@northgate.${CLIENT_DOMAIN}`, role: "client_admin", client: "NGT" },
 ];
@@ -108,6 +117,17 @@ const DEPARTMENTS = ["Technology", "Retail Banking", "Finance", "Operations", "H
 const DISTRICTS = ["Colombo", "Gampaha", "Kandy", "Galle", "Kurunegala", "Matara", "Kalutara", "Jaffna", "Batticaloa", "Anuradhapura"] as const;
 const UNIVERSITIES = ["University of Moratuwa", "University of Colombo", "University of Peradeniya", "University of Kelaniya", "University of Sri Jayewardenepura", "SLIIT", "NSBM Green University"] as const;
 const DEGREES = ["BSc Computer Science", "BBA Finance", "BSc Accounting", "BSc Engineering", "BA Economics", "BCom Marketing"] as const;
+const REFEREES = [
+  ["Anil Wijeratne", "Senior Manager", "line_manager", "3 years"],
+  ["Sharmila Kanagaratnam", "Team Lead", "senior_colleague", "2 years"],
+  ["Roshan Mendis", "Head of Department", "line_manager", "4 years"],
+  ["Fazna Marikkar", "Assistant Manager", "senior_colleague", "2 years"],
+  ["Gayan Rathnayake", "Project Lead", "line_manager", "5 years"],
+  ["Kokila Herath", "Deputy General Manager", "line_manager", "6 years"],
+] as const;
+const GRAMA_NILADHARIS = ["W. A. Dharmasena", "K. P. Samarasinghe", "M. R. Nazeer", "S. Thevarajah", "H. L. Gunawardena"] as const;
+const OFFICERS_IN_CHARGE = ["IP K. Jayalath", "CI R. Abeyratne", "IP S. Kandiah", "SI N. Fonseka"] as const;
+const COLLEGES = ["Royal College, Colombo", "Visakha Vidyalaya, Colombo", "Trinity College, Kandy", "Hindu College, Jaffna", "Zahira College, Colombo"] as const;
 const EMPLOYERS = ["Meridian Software Lanka", "Crestline Finance", "Palmgrove Hotels", "Ocean Gate Shipping", "Redwood Apparel", "Silverline Insurance", "Greenfield Foods"] as const;
 const STREETS = ["Galle Road", "Kandy Road", "Temple Road", "Station Road", "Lake Drive", "Hospital Road", "Main Street"] as const;
 
@@ -151,6 +171,18 @@ type Plan = {
   result?: "green" | "amber" | "red";
   hold?: string;
   returned?: boolean;
+  /** Stays with the client named here instead of being dealt out. */
+  pinned?: boolean;
+  /** All files in, none missing. */
+  allIn?: boolean;
+  /** How many checks are finished at verification. */
+  finished?: number;
+  /** A check at verification waits on a question to the client. */
+  asks?: boolean;
+  /** Final approval done, not yet released. */
+  approved?: boolean;
+  /** A second education record, as the client's section 4.1 has it. */
+  twoEducation?: boolean;
   person: Candidate;
   caseId?: string;
   reference?: string;
@@ -179,6 +211,26 @@ function plans(): Plan[] {
   add("documents", 4, { process: "candidate_collected" });
   add("documents", 1, { returned: true });
   add("intake", 4);
+  // Lanka Horizon is the client signed in for the demo. One case at every status.
+  const pin = { pinned: true, pkg: "COMPREHENSIVE" } as const;
+  add("intake", 1, pin);
+  add("documents", 1, pin);
+  add("documents", 1, { ...pin, allIn: true });
+  add("documents", 1, { ...pin, returned: true });
+  add("documents", 1, { ...pin, process: "candidate_collected" });
+  add("pre_qc", 1, pin);
+  add("data_entry", 1, pin);
+  add("verification", 1, { ...pin, finished: 0 });
+  add("verification", 1, { ...pin, finished: 3 });
+  add("verification", 1, { ...pin, finished: 1, asks: true });
+  add("verification", 1, { ...pin, finished: 2, hold: "Client asked to pause until the offer is confirmed." });
+  add("post_qc", 1, pin);
+  add("report", 1, { ...pin, result: "green" });
+  add("approval", 1, { ...pin, result: "green" });
+  add("approval", 1, { ...pin, result: "green", approved: true });
+  add("released", 1, { ...pin, result: "green", twoEducation: true });
+  add("released", 1, { ...pin, result: "amber" });
+  add("released", 1, { ...pin, result: "red" });
   const order = list.map((p, n) => ({ p, sort: rnd(), n }));
   // Closed work is older than open work, and each client gets its share.
   const mixed = clients.sort(() => rnd() - 0.5);
@@ -189,7 +241,7 @@ function plans(): Plan[] {
     const received = new Date(daysAgo(age).getTime() + int(0, 8) * 3_600_000);
     const tat = p.stage === "cancelled" ? int(1, 4) : p.pkg === "ESSENTIAL" ? int(3, 8) : p.pkg === "STANDARD" ? int(4, 9) : int(6, 13);
     const end = closed ? new Date(received.getTime() + Math.min(tat, age - 1) * DAY) : new Date(Date.now() - int(1, 20) * 3_600_000);
-    return { ...p, client: mixed[i % mixed.length], i, received, end, person: candidate(i) };
+    return { ...p, client: p.pinned ? p.client : mixed[i % mixed.length], i, received, end, person: candidate(i) };
   }).sort((a, b) => a.received.getTime() - b.received.getTime());
 }
 
@@ -225,6 +277,24 @@ async function samplePdf(category: string, person: Candidate, reference: string)
   return pdf.save();
 }
 
+const pickTwo = <T,>(list: readonly T[]) => {
+  const first = int(0, list.length - 1);
+  return [list[first], list[(first + 1 + int(0, list.length - 2)) % list.length]];
+};
+
+function employers(latest: string, from: string, to: string, day: string) {
+  const row = (company: string, period: { from: string; to: string }) => ({
+    company, designation: pick(POSITIONS), period, employee_code: `E${int(1000, 9999)}`, employment_type: pick(["permanent", "permanent", "contract"]), hr_contact: "HR Department",
+    hr_email: `hr@${company.split(" ")[0].toLowerCase()}.example.com`, hr_phone: "+94112345678", confirmed_by: "HR Executive", confirmed_on: day, employer_response: "Dates, role and employment type confirmed.",
+  });
+  const rows = [row(latest, { from, to })];
+  if (rnd() < 0.5) {
+    const year = Number(from.slice(0, 4));
+    rows.push(row(pick(EMPLOYERS.filter((e) => e !== latest)), { from: `${year - 2}-02-01`, to: `${year - 1}-12-31` }));
+  }
+  return rows;
+}
+
 function checkValues(key: string, p: Candidate, seedDate: Date): Record<string, unknown> {
   const grad = int(2012, 2021);
   const from = `${grad}-0${int(1, 9)}-01`;
@@ -237,20 +307,18 @@ function checkValues(key: string, p: Candidate, seedDate: Date): Record<string, 
     case "education":
       return { candidate_name: p.full_name, qualification_level: "degree", qualification: pick(DEGREES), institution: pick(UNIVERSITIES), student_number: `S/${grad - 4}/${int(1000, 9999)}`, year_of_completion: grad, confirmed_by: "Assistant Registrar", confirmation_channel: "email", confirmed_on: day };
     case "employment":
-      return {
-        candidate_name: p.full_name,
-        employers: [{ company: employer, designation: pick(POSITIONS), period: { from, to }, employee_code: `E${int(1000, 9999)}`, employment_type: "permanent", hr_contact: "HR Department", hr_email: `hr@${employer.split(" ")[0].toLowerCase()}.example.com`, hr_phone: "+94112345678", confirmed_by: "HR Executive" }],
-      };
+      return { candidate_name: p.full_name, employers: employers(employer, from, to, day) };
     case "address":
-      return { address: p.address, district: p.district, residence_period: { from, to: day }, verified_by: "Field officer", gn_name: "W. A. Dharmasena", gn_division: `${int(100, 650)}A`, gn_contact: "+94112345679", visit_date: day };
+      return { address: p.address, district: p.district, residence_period: { from, to: day }, verified_by: "Field officer", gn_name: pick(GRAMA_NILADHARIS), gn_division: `${int(100, 650)}A`, gn_contact: "+94112345679", visit_date: day, confirmed_on: day };
     case "police":
-      return { nic: p.nic, permanent_address: p.address, district: p.district, residence_period: { from, to: day }, police_station_area: `${p.district} Police`, verified_by: "Verification Officer", oic_name: "IP K. Jayalath", station_contact: "+94112345680" };
+      return { nic: p.nic, permanent_address: p.address, district: p.district, residence_period: { from, to: day }, police_station_area: `${p.district} Police`, verified_by: "Verification Officer", oic_name: pick(OFFICERS_IN_CHARGE), station_contact: "+94112345680", confirmed_on: day };
     case "reference":
       return {
-        referees: [
-          { full_name: "Anil Wijeratne", current_employer: employer, current_job_title: "Senior Manager", worked_together_at: employer, relationship: "line_manager", acquaintance_duration: "3 years", contact_number: "+94771234561", email: "anil.w@example.com", feedback: "Reliable, works well under pressure." },
-          { full_name: "Sharmila Kanagaratnam", current_employer: employer, current_job_title: "Team Lead", worked_together_at: employer, relationship: "senior_colleague", acquaintance_duration: "2 years", contact_number: "+94771234562", email: "sharmila.k@example.com", feedback: "Good team member, meets deadlines." },
-        ],
+        referees: pickTwo(REFEREES).map(([full_name, title, relationship, years], n) => ({
+          full_name, current_employer: employer, current_job_title: title, worked_together_at: employer, relationship, acquaintance_duration: years,
+          contact_number: `+9477${int(1000000, 9999999)}`, email: `${full_name.split(" ")[0].toLowerCase()}@example.com`,
+          feedback: n ? "Good team member, meets deadlines." : "Reliable, works well under pressure.", details_confirmed: "yes", confirmed_on: day,
+        })),
       };
     case "sanction":
       return { sanctions_found: "no", screening_platform: "Cfirst", screened_on: day };
@@ -280,6 +348,14 @@ async function ensurePerson(p: (typeof PEOPLE)[number], clientIds: Map<string, s
   const db = anon();
   const signed = await db.auth.signInWithPassword({ email: p.email, password });
   if (signed.error) throw new Error(`sign-in ${p.email}: ${signed.error.message}`);
+  // Where staff need a second factor (the local stack), row level security shows them nothing without one.
+  const { data: org } = await service.from("orgs").select("mfa_required_for_staff").eq("id", ORG).single();
+  if (kind === "staff" && org?.mfa_required_for_staff) {
+    const factor = await db.auth.mfa.enroll({ factorType: "totp", friendlyName: "demo" });
+    if (factor.error || !factor.data) throw new Error(`two-step ${p.email}: ${factor.error?.message}`);
+    const verified = await db.auth.mfa.challengeAndVerify({ factorId: factor.data.id, code: totp(factor.data.totp.secret) });
+    if (verified.error) throw new Error(`two-step ${p.email}: ${verified.error.message}`);
+  }
   return { ...p, password, id, db };
 }
 
@@ -304,6 +380,7 @@ async function seed() {
   log("Prices");
   const { data: types } = await service.from("check_types").select("id, key").eq("org_id", ORG);
   const typeKey = new Map((types ?? []).map((t) => [t.id, t.key]));
+  const typeId = (key: string) => [...typeKey].find(([, k]) => k === key)![0];
   for (const t of types ?? []) {
     if (PRICES[t.key]) must(await service.from("package_items").update({ unit_price: PRICES[t.key] }).eq("check_type_id", t.id), "prices");
   }
@@ -373,6 +450,12 @@ async function seed() {
     if (q.state === "declined") must(await service.from("quotes").update({ status: "declined", declined_reason: "We will revisit this next financial year." }).eq("id", q.id), "decline quote");
   }
 
+  // Ontriq's own words for its checks, set the way they would be in Settings.
+  runSql(`update public.check_types t set name = v.name from (values ('education', 'Education Verification'), ('employment', 'Employment Verification'), ('address', 'Address Check'), ('police', 'Criminal Check'), ('nic', 'NIC Verification'), ('reference', 'Reference Verification'), ('sanction', 'Global Sanction Screening')) as v(key, name) where t.key = v.key;
+    alter table public.check_type_versions disable trigger user;
+    update public.check_type_versions set schema = replace(replace(replace(schema::text, '"OIC name"', '"Name of the Officer in Charge"'), '"Station contact number"', '"Police Station Contact Number"'), '"Police station area"', '"Area of Police Station"')::jsonb;
+    alter table public.check_type_versions enable trigger user;`);
+
   // ------------------------------------------------------------ cases
   const all = plans();
   log(`${all.length} cases`);
@@ -385,6 +468,7 @@ async function seed() {
         p: {
           client_id: clientIds.get(p.client), package_id: pkgId(p.pkg), process_type: p.process, position_title: pick(POSITIONS), department: pick(DEPARTMENTS),
           client_reference: `HR-${int(1000, 9999)}`, candidate: p.person,
+          ...(p.twoEducation ? { extra_checks: [{ check_type_id: typeId("education"), label: "Education: Secondary" }] } : {}),
         },
       }),
       `create case for ${p.person.full_name}`,
@@ -432,11 +516,12 @@ async function seed() {
     }
     if (p.stage === "documents") {
       // Part-way through collecting: one or two files in, the rest still missing.
-      for (const r of needed.slice(0, Math.max(1, needed.length - 2))) await upload(p, ops, r);
+      for (const r of p.allIn ? needed : needed.slice(0, Math.max(1, needed.length - 2))) await upload(p, ops, r);
       if (p.returned) {
         for (const r of (await service.from("case_check_requirements").select("id, status").eq("case_id", id).eq("status", "pending")).data ?? []) must(await ops.db.rpc("waive_requirement", { p_requirement: r.id, p_reason: "Client confirmed by email" }), "waive");
         must(await ops.db.rpc("case_transition", { p_case: id, p_event: "submit_pre_qc" }), "to Pre-QC");
         must(await A("qc").db.rpc("record_qc_review", { p_case: id, p_kind: "pre", p_decision: "returned", p_remarks: "The NIC copy is too blurred to read. Please ask for a clearer scan." }), "Pre-QC return");
+        must(await ops.db.rpc("create_client_request", { p_case: id, p_check: null as unknown as string, p_question: "The NIC copy is too blurred to read. Please send a clearer scan." }), "ask the client");
       }
       return;
     }
@@ -446,6 +531,7 @@ async function seed() {
     }
     for (const r of needed) await upload(p, ops, r);
     if (p.process === "candidate_collected") {
+      must(await ops.db.rpc("log_contact", { p_case: id, p: { counterparty: p.person.full_name, channel: "phone", outcome: "Spoke to them and explained what is needed." } }), "log the call");
       must(await service.rpc("candidate_submit_consent", { p_link: links.get(id)!.id, p_method: "esign", p_signed_name: p.person.full_name, p_document: null as unknown as string, p_ip: "203.0.113.40" }), "consent");
     }
     must(await ops.db.rpc("case_transition", { p_case: id, p_event: "submit_pre_qc" }), "to Pre-QC");
@@ -455,20 +541,24 @@ async function seed() {
       "Pre-QC approve",
     );
     const { data: checks } = await service.from("case_checks").select("id, label, assigned_to, check_type_id, version:check_type_versions(schema)").eq("case_id", id).order("sort");
-    const seedDate = p.stage === "released" ? p.end : new Date();
+    const seedDate = p.stage === "released" ? new Date(p.received.getTime() + (p.end.getTime() - p.received.getTime()) * 0.3) : new Date();
     const halfway = p.stage === "data_entry" ? Math.ceil((checks?.length ?? 1) / 2) : (checks?.length ?? 0);
     for (const [n, k] of (checks ?? []).entries()) {
       if (n >= halfway) break;
       const schema = parseCheckTypeSchema((k.version as unknown as { schema: unknown }).schema);
       const key = typeKey.get(k.check_type_id) ?? "";
-      const v = validateCheckValues(schema.fields, checkValues(key, p.person, seedDate), "submit");
+      const values = checkValues(key, p.person, seedDate);
+      if (key === "education" && k.label.includes("Secondary")) Object.assign(values, { qualification_level: "secondary", qualification: "G.C.E. Advanced Level", institution: pick(COLLEGES), student_number: `${int(1000000, 9999999)}`, year_of_completion: Number(values.year_of_completion) - 4 });
+      const v = validateCheckValues(schema.fields, values, "submit");
       if (!v.ok) throw new Error(`${key} values: ${JSON.stringify(v.errors)}`);
       must(await A("entry").db.rpc("save_check_values", { p_check: k.id, p_values: v.values as never, p_valid: true }), `values ${key}`);
     }
     if (!reached(p, "verification")) return;
     must(await A("entry").db.rpc("case_transition", { p_case: id, p_event: "start_verification" }), "start verification");
     const list = checks ?? [];
-    const finish = p.stage === "verification" ? int(0, list.length - 1) : list.length;
+    const finish = p.stage === "verification" ? (p.finished ?? int(0, list.length - 1)) : list.length;
+    // Each finding sits on the check it is about.
+    const flagged = list.find((k) => typeKey.get(k.check_type_id) === (p.result === "red" ? "employment" : "education")) ?? list[list.length - 1];
     const notes: Record<string, string> = {
       nic: "NIC confirmed with the Department of Registration of Persons.",
       education: "The registrar confirmed the qualification and year of completion.",
@@ -478,22 +568,39 @@ async function seed() {
       reference: "Both referees gave positive feedback.",
       sanction: "No matches on the global sanction screening.",
     };
+    const officerOf = (k: (typeof list)[number]) => (k.assigned_to && byId.get(k.assigned_to)) || ops;
     for (const [n, k] of list.entries()) {
-      const officer = (k.assigned_to && byId.get(k.assigned_to)) || ops;
+      const officer = officerOf(k);
       const key = typeKey.get(k.check_type_id) ?? "";
       if (n >= finish) {
-        if (n === finish) must(await officer.db.rpc("set_check_state", { p_check: k.id, p_state: "awaiting_response", p_note: "Email sent to the institution; waiting for their reply." }), "awaiting");
+        if (n === finish && !p.asks) must(await officer.db.rpc("set_check_state", { p_check: k.id, p_state: "awaiting_response", p_note: "Email sent to the institution; waiting for their reply." }), "awaiting");
         continue;
       }
-      const last = n === list.length - 1;
+      // Each employer carries its own letter, as the check requires before it can finish.
+      if (key === "employment") {
+        const { data: row } = await service.from("case_checks").select("values").eq("id", k.id).single();
+        const rows = (row?.values as { employers?: unknown[] } | null)?.employers ?? [];
+        if (rows.length > 1) {
+          const { data: letters } = await service.from("documents").select("id").eq("case_check_id", k.id).eq("category", "service_letter").limit(1);
+          const second = await upload(p, ops, { case_check_id: k.id, category: "service_letter" });
+          const tied = [letters?.[0]?.id ?? (await upload(p, ops, { case_check_id: k.id, category: "service_letter" })), second];
+          for (const [i, document] of tied.entries()) must(await ops.db.rpc("set_document_record", { p_document: document, p_record: `employers.${i}` }), "tie the letter");
+        }
+      }
+      const last = k.id === flagged?.id;
       if (p.result === "red" && last) must(await officer.db.rpc("set_check_state", { p_check: k.id, p_state: "discrepancy", p_note: "The dates given differ by eight months from the employer's records.", p_client_note: "The employment dates could not be matched to the employer's records." }), "discrepancy");
       else if (p.result === "amber" && last) must(await officer.db.rpc("set_check_state", { p_check: k.id, p_state: "unable_to_verify", p_note: "No reply after three follow-ups.", p_client_note: "The institution did not respond after three follow-ups." }), "unable");
       else must(await officer.db.rpc("set_check_state", { p_check: k.id, p_state: "completed", p_result: "clear", p_client_note: notes[key] ?? "Verified." }), "complete");
     }
+    if (p.asks) {
+      const waiting = list[finish];
+      must(await officerOf(waiting).db.rpc("set_check_state", { p_check: waiting.id, p_state: "pending_info", p_note: "The dates on the letter can't be read." }), "needs information");
+      must(await ops.db.rpc("create_client_request", { p_case: id, p_check: waiting.id, p_question: "Please confirm the candidate's last day at this employer." }), "ask the client");
+    }
     if (!reached(p, "post_qc")) return;
     must(await ops.db.rpc("case_transition", { p_case: id, p_event: "submit_post_qc" }), "to Post-QC");
     if (!reached(p, "report")) return;
-    must(await A("qc").db.rpc("record_qc_review", { p_case: id, p_kind: "post", p_decision: "approved", p_remarks: "Findings match the evidence on file." }), "Post-QC approve");
+    must(await A("qc").db.rpc("record_qc_review", { p_case: id, p_kind: "post", p_decision: "approved", p_remarks: "Findings match the evidence on file.", p_checklist: [{ item: "Findings match the evidence", ok: true }] }), "Post-QC approve");
   });
   await drain("after the checks");
 
@@ -505,13 +612,13 @@ async function seed() {
   const finals: Plan[] = [];
   for (const p of toReport) {
     must(await A("ops").db.rpc("submit_report", { p_case: p.caseId! }), "submit report");
-    if (p.stage !== "released") continue;
+    if (p.stage !== "released" && !p.approved) continue;
     const { hash } = await currentSnapshot(service, p.caseId!);
-    must(await A("ops").db.rpc("approve_report", { p_case: p.caseId!, p_draft: drafts.get(p.caseId!)!, p_final_result: p.result!, p_current_hash: hash }), `approve ${p.reference}`);
+    must(await A("ops").db.rpc("approve_report", { p_case: p.caseId!, p_draft: drafts.get(p.caseId!)!, p_final_result: p.result!, p_current_hash: hash, p_share_sensitive: true }), `approve ${p.reference}`);
     finals.push(p);
   }
   await drain("final reports");
-  for (const p of finals) {
+  for (const p of finals.filter((f) => f.stage === "released")) {
     const reader = portalActor(p.client);
     must(await A("admin").db.rpc("release_report", { p_case: p.caseId!, p_recipients: reader ? [reader.id] : [] }), `release ${p.reference}`);
   }
@@ -520,7 +627,7 @@ async function seed() {
   // ------------------------------------------------------------ open-case colour
   log("Holds, notes and candidate activity");
   const verifying = all.filter((p) => p.stage === "verification");
-  for (const p of verifying.slice(0, 2)) must(await A("ops").db.rpc("set_case_hold", { p_case: p.caseId!, p_hold: true, p_reason: "Client asked to pause until the offer is confirmed." }), "hold");
+  for (const p of verifying.filter((v) => v.hold || v === verifying.find((x) => !x.pinned))) must(await A("ops").db.rpc("set_case_hold", { p_case: p.caseId!, p_hold: true, p_reason: "Client asked to pause until the offer is confirmed." }), "hold");
   for (const p of verifying.slice(2, 7)) must(await A("ops").db.rpc("add_case_note", { p_case: p.caseId!, p_check: null as unknown as string, p_body: "Called the HR office; they promised a reply by Friday." }), "note");
 
   const collecting = all.filter((p) => p.process === "candidate_collected" && p.stage === "documents");
@@ -629,7 +736,7 @@ async function seed() {
       const capability = pick(Object.keys(models));
       const [model, input, output] = models[capability];
       const when = new Date(p.received.getTime() + rnd() * Math.max(1, p.end.getTime() - p.received.getTime()));
-      runs.push({ org_id: ORG, capability, model, prompt_version: "demo", source: "demo-seed", case_id: id, input_tokens: Math.round(input * (0.7 + rnd() * 0.6)), output_tokens: Math.round(output * (0.7 + rnd() * 0.6)), duration_ms: int(1200, 9000), status: "ok", created_at: when.toISOString() });
+      runs.push({ org_id: ORG, capability, model, prompt_version: "demo", source: "demo-seed", case_id: id, input_tokens: Math.round(input * (0.7 + rnd() * 0.6)), output_tokens: Math.round(output * (0.7 + rnd() * 0.6)), duration_ms: int(1200, 9000), status: "ok", created_at: new Date(Math.min(when.getTime(), Date.now() - 3_600_000)).toISOString() });
     }
   }
   const dataEntryCases = all.filter((p) => p.stage === "data_entry");
@@ -658,6 +765,22 @@ async function seed() {
   });
   const sql = backdateSql(timeline, ledger, quotes.map((q) => q.id), [...clientIds.values()]);
   runSql(sql);
+
+  // The PDFs were drawn before the dates moved, so draw them again to match the case.
+  log("Redrawing reports with their dates");
+  const { buildReportFiles } = await import("../src/jobs/handlers/report-render");
+  const redrawn: Record<string, unknown>[] = [];
+  await mapLimit(toReport, 3, async (p) => {
+    const { data: v } = await service.from("report_versions").select("id, case_id, org_id, version, kind, final_result, approved_by, approved_at, revision_reason").eq("case_id", p.caseId!).not("storage_path", "is", null).order("version", { ascending: false }).limit(1).single();
+    if (!v) throw new Error(`no report for ${p.reference}`);
+    const { snapshot, hash } = await currentSnapshot(service, p.caseId!);
+    const built = await buildReportFiles(service, v as never, snapshot, { run: 2, heartbeat: async () => undefined, issue: 1 });
+    redrawn.push({ id: v.id, snapshot, hash, path: built.path, sha256: built.sha256, pages: built.assembled.pages, size: built.assembled.bytes.byteLength });
+  });
+  runSql(`alter table public.report_versions disable trigger user;
+    update public.report_versions v set snapshot = r.snapshot, snapshot_hash = r.hash, storage_path = r.path, sha256 = r.sha256, page_count = r.pages, size_bytes = r.size
+      from jsonb_to_recordset('${JSON.stringify(redrawn).replace(/'/g, "''")}'::jsonb) as r(id uuid, snapshot jsonb, hash text, path text, sha256 text, pages int, size bigint) where v.id = r.id;
+    alter table public.report_versions enable trigger user;`);
   const pushNote = "Hi Nimal, a couple of items are running past their due date. Could you take a look today, and tell me if anything is blocking you?";
   await A("ops").db.rpc("send_nudge", { p_to: A("staff").id, p_message: pushNote, p_channels: ["in_app"] });
   const second = await A("ops").db.rpc("send_nudge", { p_to: A("officer3").id, p_message: "Hi Kavindu, three checks are overdue this week. Is there anything I can help with?", p_channels: ["in_app"] });
@@ -685,9 +808,18 @@ async function seed() {
         "",
         "| Who | Email | Password |",
         "|---|---|---|",
+        line("super", "Super Admin (Nadeesha Wickramasinghe)"),
         line("admin", "Admin (Amaya Perera)"),
-        line("staff", "Staff: Verification Officer (Nimal Fernando)"),
-        line("client", "Client portal: Lanka Horizon Holdings (Dilani Jayawardena)"),
+        line("ops", "Operations Manager (Ruwan Herath): approves reports"),
+        line("relations", "Client Relations (Shehani de Silva): quotes and invoices"),
+        line("qc", "QC Officer (Priyanka Nair): Pre-QC and Post-QC"),
+        line("entry", "Data Entry Officer (Mohamed Rizwan)"),
+        line("staff", "Verification Officer (Nimal Fernando)"),
+        line("viewer", "Viewer (Sunil Gamage): read only"),
+        line("client", "Client Admin: Lanka Horizon Holdings (Dilani Jayawardena)"),
+        line("clientuser", "Client User: Lanka Horizon Holdings (Kamal Rodrigo)"),
+        line("clientviewer", "Client Viewer: Lanka Horizon Holdings (Anoma Peiris)"),
+        line("aurora", "Client Admin: Aurora Lanka Finance (Rohan Abeysekera)"),
         "",
         "Your own Super Admin login sees everything, including the Command page.",
         "",
@@ -715,7 +847,7 @@ async function seed() {
 function backdateSql(timeline: { case_id?: string; a: string; b: string; due: string }[], ledger: { id: string; issued: string; due: string; paidOn: string | null }[], quoteIds: string[], clientIds: string[]) {
   const q = (v: unknown) => `'${JSON.stringify(v).replace(/'/g, "''")}'::jsonb`;
   const tables = ["cases", "case_checks", "documents", "report_versions", "invoices", "invoice_items", "quotes", "quote_items", "consent_forms", "candidate_requests", "clients", "payments"];
-  const map = (col: string) => `${col} = case when ${col} is null then null else w.a + (w.b - w.a) * least(1, greatest(0, extract(epoch from ${col} - w.s0) / nullif(extract(epoch from w.s1 - w.s0), 0))) end`;
+  const map = (col: string) => `${col} = case when ${col} is null then null else w.a + (w.b - w.a) * power(least(1, greatest(0, extract(epoch from ${col} - w.s0) / nullif(extract(epoch from w.s1 - w.s0), 0))), 0.3) end`;
   return `
 do $$
 declare t text;

@@ -7,10 +7,11 @@
  *
  * The snapshot is stored with each report version. Its canonical JSON hash
  * lets approval refuse a draft when the case changed after it was made
- * (public.approve_report in 0012). Keep it free of timestamps of the moment
- * it is compiled. Pure module (tests/unit/report.test.ts).
+ * (public.approve_report, with the database's own stamp in 0049). Keep it free
+ * of timestamps of the moment it is compiled. Pure module (tests/unit/report.test.ts).
  */
 import { recordLabel } from "../check-types/records";
+import { GENERAL_CATEGORIES, pagesLabel } from "../documents/combined";
 import type { FieldDef } from "../check-types/schema";
 import type { ResultTone } from "../check-types/schema";
 
@@ -39,6 +40,10 @@ export type ReportAnnexure = {
   kind: "evidence" | "fixed";
   check_label: string | null;
   sha256: string | null;
+  /** What a combined file holds, for its cover sheet. */
+  contents?: string[];
+  /** What Pre-QC saw, when someone marked it (the flowchart's copy or original step). */
+  original?: "original" | "certified_copy" | "copy";
 };
 
 export type ReportSnapshot = {
@@ -47,6 +52,7 @@ export type ReportSnapshot = {
   case: {
     reference: string;
     client: string;
+    client_address?: string | null;
     client_reference: string | null;
     position: string | null;
     department: string | null;
@@ -68,6 +74,7 @@ export type ReportInputs = {
   case: {
     reference: string;
     client_name: string;
+    client_address?: string | null;
     client_reference: string | null;
     position_title: string | null;
     department: string | null;
@@ -91,7 +98,23 @@ export type ReportInputs = {
     completed_at: string | null;
     schema: { fields: FieldDef[]; result: { options: { key: string; label: string; tone: ResultTone }[] }; fixed_annexure?: { category: string } };
   }[];
-  documents: { id: string; case_check_id: string | null; category: string; category_name: string; filename: string; mime: string; sha256: string | null; created_at: string; record_key?: string | null }[];
+  documents: {
+    id: string;
+    case_check_id: string | null;
+    category: string;
+    category_name: string;
+    filename: string;
+    mime: string;
+    sha256: string | null;
+    created_at: string;
+    record_key?: string | null;
+    holds?: { check_id: string | null; label: string; pages: string | null }[];
+    /** A file on the case as a whole that counts for this check, as the only slot of its kind. */
+    for_check?: string | null;
+    original_kind?: string | null;
+    /** Sensitive evidence someone decided to keep out of the report. The check says it exists, the file stays with Ontriq. */
+    withheld?: boolean;
+  }[];
   qc: { kind: "pre" | "post"; reviewer: string; created_at: string }[];
 };
 
@@ -123,9 +146,10 @@ export function formatFieldValue(f: FieldDef, raw: unknown): string {
     case "date":
       return fieldDate(String(raw)) ?? "—";
     case "date_range": {
-      const r = raw as { from?: string; to?: string };
+      const r = raw as { from?: string; to?: string; present?: boolean };
       if (!r.from && !r.to) return "—";
-      return `${fieldDate(r.from) ?? "?"} to ${r.to ? fieldDate(r.to) : "present"}`;
+      if (r.to) return `${fieldDate(r.from) ?? "?"} to ${fieldDate(r.to)}`;
+      return r.present ? `${fieldDate(r.from) ?? "?"} to present` : `From ${fieldDate(r.from)}`;
     }
     case "boolean":
       return raw === true ? "Yes" : raw === false ? "No" : String(raw);
@@ -133,9 +157,8 @@ export function formatFieldValue(f: FieldDef, raw: unknown): string {
       return optionLabel(raw);
     case "multi_select":
       return (Array.isArray(raw) ? raw : [raw]).map(optionLabel).join(", ") || "—";
-    case "number":
-      return typeof raw === "number" ? raw.toLocaleString("en-GB") : String(raw);
     default:
+      // Numbers too: a year of completion reads 2015, not 2,015.
       return String(raw);
   }
 }
@@ -159,7 +182,9 @@ function checkStatus(state: string): ReportCheck["status"] {
 export function compileReport(input: ReportInputs): ReportSnapshot {
   const checks = [...input.checks].sort((a, b) => a.sort - b.sort || a.label.localeCompare(b.label));
   const evidenceFor = (checkId: string) =>
-    input.documents.filter((d) => d.case_check_id === checkId).sort((a, b) => a.created_at.localeCompare(b.created_at));
+    input.documents.filter((d) => d.case_check_id === checkId || d.for_check === checkId || d.holds?.some((h) => h.check_id === checkId)).sort((a, b) => a.created_at.localeCompare(b.created_at));
+  const atPages = (filename: string, pages: string | null) => [filename, pagesLabel(pages)].filter(Boolean).join(", ");
+  const firstPage = (h: { pages: string | null }) => Number.parseInt(h.pages ?? "") || Infinity;
 
   const reportChecks: ReportCheck[] = checks.map((k) => {
     const status = checkStatus(k.state);
@@ -188,9 +213,13 @@ export function compileReport(input: ReportInputs): ReportSnapshot {
       result_tone: done ? (k.result_tone ?? option?.tone ?? null) : null,
       fields: done || status === "not_required" ? fields : [],
       groups: done ? groups : [],
-      remarks: k.client_note?.trim() || null,
+      // A reopened check keeps its old note until someone rewrites it, and that isn't a finding.
+      remarks: done || status === "not_required" ? k.client_note?.trim() || null : null,
       completed_on: done ? reportDate(k.completed_at) : null,
       evidence: evidenceFor(k.id).map((d) => {
+        if (d.withheld) return `${d.category_name}: held on file by ${input.org.name}, not attached`;
+        const held = d.case_check_id === k.id ? undefined : d.holds?.find((h) => h.check_id === k.id);
+        if (held) return `${held.label}: ${atPages(d.filename, held.pages)}`;
         const record = recordLabel(k.schema.fields, k.values, d.record_key);
         return `${d.category_name}${record ? ` (${record})` : ""}: ${d.filename}`;
       }),
@@ -203,18 +232,30 @@ export function compileReport(input: ReportInputs): ReportSnapshot {
     const k = checks.find((x) => x.id === d.case_check_id);
     return k ? recordLabel(k.schema.fields, k.values, d.record_key) : null;
   };
-  const docs = [...input.documents].sort((a, b) => a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
+  const home = (d: ReportInputs["documents"][number]) => d.case_check_id ?? d.for_check ?? null;
+  // Annexures follow the report: by check, then by employer or referee, then as they arrived.
+  const place = (d: ReportInputs["documents"][number]) => {
+    const at = checks.findIndex((k) => k.id === home(d));
+    return at < 0 ? checks.length : at;
+  };
+  const docs = input.documents
+    .filter((d) => !d.withheld)
+    .sort((a, b) => place(a) - place(b) || (a.record_key ?? "").localeCompare(b.record_key ?? "") || a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
   const annexures: ReportAnnexure[] = [
     ...docs.filter((d) => !fixedCategories.has(d.category)).map((d) => ({ d, kind: "evidence" as const })),
     ...docs.filter((d) => fixedCategories.has(d.category)).map((d) => ({ d, kind: "fixed" as const })),
   ].map(({ d, kind }) => ({
     document_id: d.id,
-    title: kind === "fixed" ? d.category_name : `${d.case_check_id ? `${checkLabel.get(d.case_check_id) ?? "Case"} · ` : ""}${d.category_name}${recordOf(d) ? ` · ${recordOf(d)}` : ""}`,
+    title: d.holds?.length ? "Combined file" : kind === "fixed" ? d.category_name : `${home(d) ? `${checkLabel.get(home(d) as string) ?? "Case"} · ` : ""}${d.category_name}${recordOf(d) ? ` · ${recordOf(d)}` : ""}`,
     filename: d.filename,
     mime: d.mime,
     kind,
-    check_label: d.case_check_id ? (checkLabel.get(d.case_check_id) ?? null) : null,
+    check_label: home(d) ? (checkLabel.get(home(d) as string) ?? null) : null,
     sha256: d.sha256,
+    ...(d.original_kind === "original" || d.original_kind === "certified_copy" || d.original_kind === "copy" ? { original: d.original_kind } : {}),
+    ...(d.holds?.length
+      ? { contents: [...(GENERAL_CATEGORIES.has(d.category) ? [] : [d.category_name]), ...[...d.holds].sort((a, b) => firstPage(a) - firstPage(b)).map((h) => atPages(h.label, h.pages))] }
+      : {}),
   }));
 
   const latestQc = (kind: "pre" | "post") =>
@@ -226,6 +267,7 @@ export function compileReport(input: ReportInputs): ReportSnapshot {
     case: {
       reference: input.case.reference,
       client: input.case.client_name,
+      ...(input.case.client_address ? { client_address: input.case.client_address } : {}),
       client_reference: input.case.client_reference,
       position: input.case.position_title,
       department: input.case.department,
@@ -260,7 +302,7 @@ export function canonicalJson(value: unknown): string {
 }
 
 export const RESULT_WORDS: Record<ResultTone, { label: string; meaning: string }> = {
-  green: { label: "Clear", meaning: "All checks completed and verified without discrepancies." },
-  amber: { label: "Review", meaning: "Some information could not be verified or is pending; read the findings." },
-  red: { label: "Discrepancy", meaning: "At least one check found information that does not match what was declared." },
+  green: { label: "Clear", meaning: "Checks have been completed without significant discrepancies." },
+  amber: { label: "Pending / Review", meaning: "One or more checks remain pending, or additional evidence or review is required." },
+  red: { label: "Discrepancy Identified", meaning: "A discrepancy has been identified and requires review or appropriate follow-up." },
 };

@@ -3,16 +3,26 @@ import { cn } from "@/lib/utils";
 import { Eyebrow } from "@/components/layout/page";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { CandidateView } from "@/domain/candidate/view";
-import { CANDIDATE_STEPS, candidateOutstanding, candidateProgress, candidateStepIndex } from "@/domain/candidate/steps";
-import { candidateDict, categoryLabel, checkLabel, fmt, timelineTitle, type CandidateDict, type CandidateLang } from "@/domain/candidate/i18n";
+import { DETAILS_FORM_KEY } from "@/domain/candidate/answers";
+import type { CandidateRequest, CandidateView } from "@/domain/candidate/view";
+import { CANDIDATE_STEPS, candidateOutstanding, candidateProgress, candidateStepIndex, UPLOAD_STAGES } from "@/domain/candidate/steps";
+import { shouldConfirm } from "@/domain/candidate/report";
+import { candidateDict, categoryLabel, checkLabel, documentGuide, fieldLabel, fmt, timelineTitle, type CandidateDict, type CandidateLang } from "@/domain/candidate/i18n";
 import { candidateDate, candidateDateTime } from "./format";
 import { CandidateShell } from "./candidate-shell";
 import { DocumentSlot, type SlotData } from "./document-slot";
 import { RequestCard, type RequestData } from "./request-card";
 import { ConsentCard } from "./consent-card";
+import { ConfirmCard } from "./confirm-card";
 import { MessagesCard } from "./messages-card";
 import { KeepAlive } from "./keep-alive";
+
+/** A BGV form's request in the candidate's language. Anything else stays as Ontriq wrote it. */
+function formTitle(t: CandidateDict, lang: CandidateLang, q: CandidateRequest): string {
+  if (!q.form || lang === "en") return q.title;
+  const check = checkLabel(t, q.check_key, q.title.split(":")[0]);
+  return `${check}: ${q.field_key === DETAILS_FORM_KEY ? t.requests.yourDetails : fieldLabel(t, q.field_key ?? "", q.title)}`;
+}
 
 /**
  * The candidate's page: welcome, progress, the documents and answers we
@@ -23,8 +33,12 @@ export function CandidatePage({ view, lang }: { view: CandidateView; lang: Candi
   const t = candidateDict(lang);
   const first = view.candidate.full_name.trim().split(/\s+/)[0] || view.candidate.full_name;
   const left = candidateOutstanding(view);
+  const uploadsOpen = UPLOAD_STAGES.includes(view.case.stage);
   const percent = candidateProgress(view);
   const nothingOwed = left.documents === 0 && left.requests === 0 && !left.consent;
+  const confirming = shouldConfirm(nothingOwed, view.submission, view.case.stage);
+  // Nothing is owed once uploads close, but that isn't the same as everything having arrived.
+  const allIn = !view.requirements.some((r) => r.status === "pending" && r.min_count > r.received_count) && (view.consent?.status === "submitted" || view.consent?.status === "accepted");
   const step = candidateStepIndex(view.case.stage);
   const categoryNames = Object.fromEntries(view.requirements.map((r) => [r.category, r.category_name ?? r.label]));
 
@@ -35,8 +49,8 @@ export function CandidatePage({ view, lang }: { view: CandidateView; lang: Candi
       id: r.id,
       // The slot's own English label is the most specific ("NIC copy (both sides)"); other languages use the category's name.
       label: lang === "en" ? r.label : categoryLabel(t, r.category, r.label),
-      checkLabel: r.check_label,
-      guide: r.description ?? r.guide,
+      checkLabel: r.check_label ? checkLabel(t, view.checks.find((c) => c.label === r.check_label)?.key, r.check_label) : null,
+      guide: documentGuide(t, r.description ?? r.guide),
       requestedNote: r.requested_note,
       status: r.status,
       minCount: r.min_count,
@@ -49,19 +63,20 @@ export function CandidatePage({ view, lang }: { view: CandidateView; lang: Candi
   const order = (s: SlotData) => (s.needsReupload ? 0 : s.status === "pending" ? 1 : s.status === "optional" ? 2 : 3);
   slots.sort((a, b) => order(a) - order(b));
 
-  const requests: RequestData[] = view.requests.map((q) => ({
+  // A file can't come in once uploads close, so nobody is shown a request for one.
+  const requests: RequestData[] = view.requests.filter((q) => uploadsOpen || q.kind !== "document" || q.status !== "open").map((q) => ({
     id: q.id,
     kind: q.kind,
-    title: q.title,
-    help: q.help,
+    title: formTitle(t, lang, q),
+    help: q.form ? t.requests.bgvPart : q.help,
     fieldType: q.field_type,
     options: (Array.isArray(q.options) ? q.options : []).map((o) => (typeof o === "string" ? { value: o, label: o } : { value: String(o.value), label: String(o.label ?? o.value) })),
-    rowForm: q.field_type === "repeatable_group" && !Array.isArray(q.options) ? q.options : null,
+    rowForm: (q.field_type === "repeatable_group" || q.field_type === "check_form") && !Array.isArray(q.options) ? q.options : null,
     rows: q.answer?.rows ?? [],
     requirementId: q.requirement_id,
     dueText: q.due_at ? fmt(t.requests.dueBy, { date: candidateDate(q.due_at, lang) }) : null,
     status: q.status,
-    answer: typeof q.answer?.value === "string" ? q.answer.value : null,
+    answer: q.answer?.value ?? null,
     reviewNote: q.review_note,
   }));
   requests.sort((a, b) => Number(a.status !== "open") - Number(b.status !== "open"));
@@ -124,14 +139,27 @@ export function CandidatePage({ view, lang }: { view: CandidateView; lang: Candi
               </li>
             ))}
           </ol>
+          {view.case.status_label && lang === "en" ? (
+            <p className="mt-4 text-sm">
+              <span className="text-muted-foreground">{t.steps.statusNow}: </span>
+              <span className="font-medium">{view.case.status_label}</span>
+            </p>
+          ) : null}
           <p className="mt-4 text-sm leading-relaxed text-muted-foreground">{t.steps[`hint_${CANDIDATE_STEPS[step]}`]}</p>
 
-          {nothingOwed ? (
+          {confirming ? (
+            <a href="#confirm" className="mt-4 flex items-center gap-2 rounded-2xl bg-brand-orange/[0.06] p-4 text-sm font-semibold ring-1 ring-brand-orange/25 underline-offset-4 hover:underline">
+              <Dot /> {t.confirm.lastStep}
+            </a>
+          ) : nothingOwed && !allIn ? (
+            <p className="mt-4 rounded-2xl bg-muted/50 p-4 text-sm leading-relaxed text-muted-foreground">{t.documents.closed}</p>
+          ) : nothingOwed ? (
             <div className="mt-4 flex items-start gap-3 rounded-2xl bg-success/8 p-4 ring-1 ring-success/20">
               <PartyPopper className="mt-0.5 size-5 shrink-0 text-success" aria-hidden />
               <div>
                 <p className="font-semibold">{t.steps.allDone}</p>
                 <p className="mt-0.5 text-sm leading-relaxed text-muted-foreground">{t.steps.allDoneBody}</p>
+                {view.submission.confirmed_at ? <p className="mt-1 text-sm text-muted-foreground">{fmt(t.confirm.confirmedOn, { date: candidateDate(view.submission.confirmed_at, lang) })}</p> : null}
               </div>
             </div>
           ) : (
@@ -173,9 +201,9 @@ export function CandidatePage({ view, lang }: { view: CandidateView; lang: Candi
         <Section id="documents" title={t.documents.title} subtitle={t.documents.subtitle}>
           {slots.length ? (
             <>
-              <p className="text-xs text-muted-foreground">{t.documents.tips}</p>
+              <p className="text-xs text-muted-foreground">{uploadsOpen ? t.documents.tips : t.documents.closed}</p>
               {slots.map((s) => (
-                <DocumentSlot key={s.id} lang={lang} slot={s} />
+                <DocumentSlot key={s.id} lang={lang} slot={s} uploadsOpen={uploadsOpen} />
               ))}
             </>
           ) : (
@@ -198,8 +226,15 @@ export function CandidatePage({ view, lang }: { view: CandidateView; lang: Candi
             candidateName={view.candidate.full_name}
             orgName={view.org.name}
             clientName={view.case.client_name}
+            uploadsOpen={uploadsOpen}
           />
         </Section>
+
+        {confirming ? (
+          <Section id="confirm" title={t.confirm.title} subtitle={t.confirm.subtitle}>
+            <ConfirmCard lang={lang} />
+          </Section>
+        ) : null}
 
         <Section id="messages" title={t.messages.title} subtitle={t.messages.subtitle}>
           <MessagesCard lang={lang} messages={view.messages.map((m) => ({ id: m.id, from: m.from, body: m.body, at: candidateDateTime(m.at, lang) }))} />

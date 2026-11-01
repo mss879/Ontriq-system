@@ -7,6 +7,9 @@ import { requireViewer } from "@/lib/server/viewer";
 import { AuthError, authErrorMessage, rpcErrorMessage } from "@/lib/server/errors";
 import { fail, zodFieldErrors, type ActionResult } from "@/lib/server/action-result";
 import { activeLinkUrl, emailCandidateUpdate, issueCandidateLink, resendCandidateLink, type Channel } from "@/lib/server/candidate/links";
+import { kickWorker } from "@/lib/server/jobs/kick";
+import { answerText, applyAnswer, type GivenAnswer } from "@/domain/candidate/answers";
+import { fieldDate } from "@/domain/reports/compile-core";
 import { parseCheckTypeSchema } from "@/domain/check-types/schema";
 import { validateCheckValues } from "@/domain/check-types/validate";
 
@@ -28,6 +31,20 @@ async function guarded<T extends object>(run: () => Promise<ActionResult<T>>): P
 
 const staff = () => requireViewer({ kind: "staff" });
 const uuid = z.uuid();
+
+/** Have the candidate report made again, or for the first time if the candidate never confirmed. */
+export async function makeCandidateReport(caseId: string): Promise<ActionResult> {
+  return guarded(async () => {
+    await staff();
+    if (!uuid.safeParse(caseId).success) return fail("Unknown case.");
+    const supabase = await createClient();
+    const { error } = await supabase.rpc("request_candidate_report", { p_case: caseId });
+    if (error) return fail(rpcErrorMessage(error));
+    kickWorker();
+    refresh();
+    return { ok: true };
+  });
+}
 const channelsSchema = z.array(z.enum(["email", "sms"])).min(1, "Choose how to send the link.");
 
 const CHANNEL_NAME: Record<Channel, string> = { email: "email", sms: "SMS" };
@@ -90,6 +107,20 @@ export async function revokeLink(linkId: string, reason: string): Promise<Action
 
 // ---------------------------------------------------------------- requests
 
+/** Put the BGV form on the candidate's page: everything the checks let them fill in. */
+export async function sendBgvForm(caseId: string): Promise<ActionResult<{ added: number }>> {
+  return guarded(async () => {
+    const viewer = await staff();
+    if (!uuid.safeParse(caseId).success) return fail("Unknown case.");
+    const supabase = await createClient();
+    const { data, error } = await supabase.rpc("issue_bgv_form", { p_case: caseId });
+    if (error) return fail(rpcErrorMessage(error));
+    if (data) await emailCandidateUpdate(caseId, viewer.userId).catch(() => false);
+    refresh();
+    return { ok: true, added: data ?? 0 };
+  });
+}
+
 const optionalText = (max: number) =>
   z
     .string()
@@ -151,22 +182,15 @@ export async function askCandidate(caseId: string, input: AskInput): Promise<Act
   });
 }
 
+export type AnswerClash = { label: string; current: string; answer: string };
+
 /**
  * Accept an answer (a detail is copied into its check first, validated against
- * the check's schema), ask again with a note, or withdraw the request.
+ * the check's schema), ask again with a note, or withdraw the request. Where a
+ * form differs from what is on the check, nothing happens until a person
+ * chooses: `conflicts` comes back, and they answer with onConflict.
  */
-function mergeRows(existing: unknown, incoming: Record<string, unknown>[]) {
-  const rows = Array.isArray(existing) ? (existing as Record<string, unknown>[]).filter((r) => Object.keys(r ?? {}).length) : [];
-  const key = (r: Record<string, unknown>) => String(Object.values(r)[0] ?? "").trim().toLowerCase();
-  for (const row of incoming) {
-    const i = rows.findIndex((r) => key(r) === key(row));
-    if (i >= 0) rows[i] = { ...rows[i], ...row };
-    else rows.push(row);
-  }
-  return rows;
-}
-
-export async function reviewRequest(requestId: string, decision: "accept" | "reopen" | "cancel", note?: string): Promise<ActionResult> {
+export async function reviewRequest(requestId: string, decision: "accept" | "reopen" | "cancel", note?: string, onConflict: "ask" | "replace" | "keep" = "ask"): Promise<ActionResult<{ conflicts?: AnswerClash[] }>> {
   return guarded(async () => {
     const viewer = await staff();
     if (!uuid.safeParse(requestId).success || !["accept", "reopen", "cancel"].includes(decision)) return fail("Unknown request.");
@@ -175,23 +199,26 @@ export async function reviewRequest(requestId: string, decision: "accept" | "reo
     if (!q) return fail("That request no longer exists, or you don't have access to it.");
 
     if (decision === "accept" && q.kind === "field" && q.case_check_id && q.field_key) {
-      const given = q.answer as { value?: unknown; rows?: Record<string, unknown>[] } | null;
-      const answer = given?.rows ?? given?.value;
-      if (answer === undefined || answer === null || String(answer).trim() === "") return fail("There is no answer to use yet.");
       const { data: check } = await supabase.from("case_checks").select("id, values, version:check_type_versions(schema)").eq("id", q.case_check_id).maybeSingle();
       if (!check) return fail("That check no longer exists, or you don't have access to it.");
       const schema = parseCheckTypeSchema((check.version as { schema: unknown } | null)?.schema);
-      const current = (check.values ?? {}) as Record<string, unknown>;
-      // Rows join what staff already entered; a row with the same first detail updates it.
-      const merged = { ...current, [q.field_key]: given?.rows ? mergeRows(current[q.field_key], given.rows) : answer };
-      const draft = validateCheckValues(schema.fields, merged, "draft");
+      const applied = applyAnswer(schema.fields, (check.values ?? {}) as Record<string, unknown>, q.field_key, q.answer as GivenAnswer, { replace: onConflict === "replace" });
+      if (!applied.ok) return fail(applied.error);
+      if (applied.conflicts.length && onConflict === "ask") {
+        const words = (key: string, v: unknown) => answerText(v, schema.fields.find((f) => f.key === key)?.options ?? [], { date: (iso) => fieldDate(iso) ?? iso });
+        return { ok: true, conflicts: applied.conflicts.map((c) => ({ label: c.label, current: words(c.key, c.current), answer: words(c.key, c.answer) })) };
+      }
+      const draft = validateCheckValues(schema.fields, applied.values, "draft");
       if (!draft.ok) {
         const message = draft.errors[q.field_key] ?? Object.values(draft.errors)[0];
         return fail(`The answer can't be used as it is: ${message ?? "it doesn't fit this detail."} Ask again, or enter it on the check yourself.`);
       }
       const submit = validateCheckValues(schema.fields, draft.values, "submit");
-      const { error: saveError } = await supabase.rpc("save_check_values", { p_check: check.id, p_values: draft.values as never, p_valid: submit.ok });
-      if (saveError) return fail(rpcErrorMessage(saveError));
+      // In one step: a retry can't add the same rows twice, and the answer can't be marked used if the save fails.
+      const { error: useError } = await supabase.rpc("accept_candidate_answer", { p_request: requestId, p_values: draft.values as never, p_valid: submit.ok });
+      if (useError) return fail(rpcErrorMessage(useError));
+      refresh();
+      return { ok: true };
     }
 
     const { error } = await supabase.rpc("review_candidate_request", { p_request: requestId, p_decision: decision, p_note: note?.trim() || undefined });
@@ -234,15 +261,18 @@ export async function markCandidateMessagesRead(caseId: string): Promise<ActionR
 
 // ---------------------------------------------------------------- consent
 
-export async function reviewConsent(caseId: string, accept: boolean, note?: string): Promise<ActionResult> {
+export async function reviewConsent(caseId: string, accept: boolean, note?: string): Promise<ActionResult<{ warning?: string }>> {
   return guarded(async () => {
-    await staff();
+    const viewer = await staff();
     if (!uuid.safeParse(caseId).success) return fail("Unknown case.");
     const supabase = await createClient();
     const { error } = await supabase.rpc("review_consent", { p_case: caseId, p_accept: accept, p_note: note?.trim() || undefined });
     if (error) return fail(rpcErrorMessage(error));
+    // Sent back, the case waits for them, and their page doesn't call them.
+    const reached = accept || (await emailCandidateUpdate(caseId, viewer.userId).catch(() => false));
+    if (!accept) kickWorker();
     refresh();
-    return { ok: true };
+    return { ok: true, ...(reached ? {} : { warning: "It's back on the candidate's page, but they have no working link to read it. Send a new link from this section." }) };
   });
 }
 

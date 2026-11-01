@@ -234,6 +234,13 @@ reset role;
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"d1000000-0000-4000-8000-000000000001","role":"authenticated","aal":"aal2"}', true);
 do $$ begin
+  -- Spec 2.2: a formal request went out with the link, and the call is on record.
+  begin
+    perform public.case_transition(current_setting('t.case1')::uuid, 'submit_pre_qc');
+    raise exception 'TEST FAILED: Pre-QC started before anyone called the candidate';
+  exception when sqlstate '22023' then null;
+  end;
+  perform public.log_contact(current_setting('t.case1')::uuid, '{"counterparty":"Kasun Silva","channel":"phone","outcome":"Spoke to them"}');
   assert public.case_transition(current_setting('t.case1')::uuid, 'submit_pre_qc') = 'pre_qc', 'consent should let Pre-QC start';
   perform public.revoke_candidate_link(current_setting('t.link')::uuid, 'done');
 end $$;
@@ -333,7 +340,8 @@ do $$ begin
     'the client admin was not told about the CV request';
   assert exists (select 1 from public.jobs j join public.notifications n on j.entity_id = n.id
                   where j.kind = 'notify.email' and n.user_id = 'd1000000-0000-4000-8000-000000000004'), 'no email copy queued for the client';
-  assert not exists (select 1 from public.notifications where user_id = 'd1000000-0000-4000-8000-000000000006' and type like 'portal.%'),
+  assert not exists (select 1 from public.notifications n join public.cases c on c.id = n.entity_id
+                      where n.user_id = 'd1000000-0000-4000-8000-000000000006' and n.type like 'portal.%' and c.client_id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
     'another client heard about Hemas';
 end $$;
 

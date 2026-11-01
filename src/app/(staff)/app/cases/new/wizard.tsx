@@ -27,10 +27,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { formatMoney, formatPlainDate } from "@/lib/format";
-import { DISTRICTS } from "@/domain/districts";
+import { DISTRICT_CHOICES } from "@/domain/districts";
 import { parseNic } from "@/domain/nic-core";
 import { PRIORITY_LABELS, PROCESS_TYPE_LABELS, type Priority, type ProcessType } from "@/domain/workflow/stages";
 import type { CatalogCheckType, CatalogPackage, CatalogTemplate, ClientOption } from "@/lib/server/cases/queries";
+import { ExtraChecksField, type ExtraCheck } from "@/components/cases/extra-checks-field";
 import { createCase, findCandidateByNic } from "../actions";
 import { QuickClientDialog } from "../../clients/quick-client-dialog";
 
@@ -48,6 +49,8 @@ type Form = {
   department: string;
   clientReference: string;
   instructions: string;
+  internalNotes: string;
+  extraChecks: ExtraCheck[];
   candidate: {
     id?: string;
     fullName: string;
@@ -87,7 +90,7 @@ function applyTemplate(f: Form, t: CatalogTemplate): Form {
     priority: t.priority,
     positionTitle: t.defaults.position_title ?? f.positionTitle,
     department: t.defaults.department ?? f.department,
-    instructions: t.defaults.instructions ?? f.instructions,
+    internalNotes: t.defaults.instructions ?? f.internalNotes,
   };
 }
 
@@ -132,6 +135,8 @@ export function NewCaseWizard({
       department: "",
       clientReference: "",
       instructions: "",
+      internalNotes: "",
+      extraChecks: [],
       candidate: { fullName: "", nic: "", email: "", phone: "", address: "", district: "", preferredLanguage: "en" },
     };
     const t = templates.find((x) => x.id === initialTemplateId);
@@ -212,6 +217,10 @@ export function NewCaseWizard({
     if (s >= 3) {
       if (!form.custom && !form.packageId) e.packageId = ["Choose a package or build a custom selection."];
       if (form.custom && form.checkTypeIds.length === 0) e.packageId = ["Choose at least one check."];
+      // Spec 2.2: Type 2 starts by contacting the candidate. Without a way to reach them, nothing would go out.
+      if (form.processType === "candidate_collected" && !form.candidate.email.trim() && !form.candidate.phone.trim()) {
+        e["candidate.email"] = ["Ontriq collects from this candidate, so add an email or phone number to reach them."];
+      }
     }
     return e;
   };
@@ -219,7 +228,11 @@ export function NewCaseWizard({
   const next = () => {
     const e = validate(step);
     setErrors(e);
-    if (Object.keys(e).length) return;
+    // Some answers change what an earlier step needs: go to where the problem is.
+    if (Object.keys(e).length) {
+      setStep((s) => Math.min(s, ...Object.keys(e).map(stepOf)));
+      return;
+    }
     setStep((s) => Math.min(s + 1, STEPS.length - 1));
   };
 
@@ -256,6 +269,8 @@ export function NewCaseWizard({
         department: form.department,
         clientReference: form.clientReference,
         instructions: form.instructions,
+        internalNotes: form.internalNotes,
+        extraChecks: form.extraChecks.filter((x) => chosenTypes.some((t) => t.id === x.checkTypeId)),
         candidate: {
           id: form.candidate.id,
           fullName: form.candidate.fullName,
@@ -275,9 +290,17 @@ export function NewCaseWizard({
         if (keys.length) setStep(Math.min(...keys.map(stepOf)));
         return;
       }
+      const sent = r.candidateLinkSent.map((c) => (c === "sms" ? "SMS" : c)).join(" and ");
       toast.success(`${r.reference} created`, {
-        description: r.candidateReused ? "Linked to the existing candidate record. Assigning the work now." : "Assigning the work to the freest qualified officer now.",
+        description: [
+          r.candidateReused ? "Linked to the existing candidate record." : null,
+          sent ? `The candidate's page went out by ${sent}.` : null,
+          "Assigning the work now.",
+        ]
+          .filter(Boolean)
+          .join(" "),
       });
+      if (form.processType === "candidate_collected" && !sent) toast.warning("The candidate's page didn't go out. Send it from the Candidate section of the case.");
       router.push(`/app/cases/${r.caseId}`);
     });
 
@@ -352,7 +375,7 @@ export function NewCaseWizard({
                       <SelectValue placeholder="Choose a district" />
                     </SelectTrigger>
                     <SelectContent>
-                      {DISTRICTS.map((d) => (
+                      {DISTRICT_CHOICES.map((d) => (
                         <SelectItem key={d} value={d}>
                           {d}
                         </SelectItem>
@@ -756,6 +779,7 @@ function ChecksStep({
             {chosenTypes.length} {chosenTypes.length === 1 ? "check" : "checks"}: {chosenTypes.map((t) => t.name).join(", ")}. Due in {tatDays} working days.
           </p>
         ) : null}
+        <ExtraChecksField types={chosenTypes} value={form.extraChecks} onChange={(next) => set("extraChecks", next)} />
       </div>
 
       <div className="space-y-3">
@@ -805,9 +829,15 @@ function ChecksStep({
         <TextInput id="clientReference" label="Client's reference" value={form.clientReference} onChange={(v) => set("clientReference", v)} errors={errors.clientReference} placeholder="e.g. HR-2026-118" />
         <TextInput id="positionTitle" label="Position" value={form.positionTitle} onChange={(v) => set("positionTitle", v)} errors={errors.positionTitle} placeholder="e.g. Senior Engineer" />
         <TextInput id="department" label="Department" value={form.department} onChange={(v) => set("department", v)} errors={errors.department} placeholder="e.g. Finance" />
+        <Field className="md:col-span-2" data-invalid={errors.internalNotes ? true : undefined}>
+          <FieldLabel htmlFor="internalNotes">Instructions for the team</FieldLabel>
+          <Textarea id="internalNotes" rows={3} value={form.internalNotes} onChange={(e) => set("internalNotes", e.target.value)} placeholder="Anything the officers should know. Clients never see this." />
+          <FieldError errors={errors.internalNotes?.map((message) => ({ message }))} />
+        </Field>
         <Field className="md:col-span-2" data-invalid={errors.instructions ? true : undefined}>
-          <FieldLabel htmlFor="instructions">Instructions for the team</FieldLabel>
-          <Textarea id="instructions" rows={3} value={form.instructions} onChange={(e) => set("instructions", e.target.value)} placeholder="Anything the officers should know, e.g. the client needs the employment check first." />
+          <FieldLabel htmlFor="instructions">Instructions from the client</FieldLabel>
+          <Textarea id="instructions" rows={2} value={form.instructions} onChange={(e) => set("instructions", e.target.value)} placeholder="What the client asked for. They see this on their portal." />
+          <FieldDescription>Optional. The client reads this as their own request.</FieldDescription>
           <FieldError errors={errors.instructions?.map((message) => ({ message }))} />
         </Field>
       </div>
@@ -854,7 +884,9 @@ function ReviewStep({
     { label: "Position", value: [form.positionTitle, form.department].filter(Boolean).join(" · ") || "Not given", step: 3 },
   ];
   if (form.clientReference) rows.push({ label: "Client's reference", value: form.clientReference, step: 3 });
-  if (form.instructions) rows.push({ label: "Instructions", value: form.instructions, step: 3 });
+  if (form.extraChecks.length) rows.push({ label: "Other records", value: form.extraChecks.map((x) => x.label).join(", "), step: 3 });
+  if (form.internalNotes) rows.push({ label: "For the team", value: form.internalNotes, step: 3 });
+  if (form.instructions) rows.push({ label: "From the client", value: form.instructions, step: 3 });
 
   return (
     <section className="space-y-5">

@@ -35,7 +35,8 @@ export type CheckAiProps = {
   /** The outcome can be recorded now (verification stage, details complete, not closed). */
   canRecord: boolean;
   canRemarks: boolean;
-  remarksLocked: boolean;
+  /** Why remarks can't be used now, if they can't. */
+  remarksLocked: string | null;
   closed: boolean;
 };
 
@@ -359,7 +360,7 @@ function Remarks({ item, currentRemarks, canRemarks, remarksLocked }: CheckAiPro
           </Button>
         </div>
       ) : remarksLocked ? (
-        <p className="text-xs text-muted-foreground">Remarks are locked once the report is with the approver.</p>
+        <p className="text-xs text-muted-foreground">{remarksLocked}</p>
       ) : null}
     </div>
   );

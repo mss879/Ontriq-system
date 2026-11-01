@@ -2,7 +2,7 @@
  * Development check: walk a local case through the whole report flow as the
  * real roles, the way the case page's actions do, and print what happened.
  *
- *   npx tsx --env-file=.env.local scripts/dev/report-flow.ts ONT-2026-000001
+ *   npx tsx --env-file=.env.local scripts/dev/report-flow.ts ONT-2026-000001 http://localhost:3100
  *
  * Local stack only. Uses the throwaway users of scripts/dev/as-user.ts
  * (created on first use, passwords never printed).
@@ -59,6 +59,8 @@ async function as(role: string, clientId?: string): Promise<{ db: SupabaseClient
   return { db, id: u.id };
 }
 
+const app = (process.argv[3] ?? "http://localhost:3100").replace(/\/+$/, "");
+const REASON = "Result set by the development walk-through.";
 const results: [string, boolean, string][] = [];
 const check = (name: string, ok: boolean, detail = "") => {
   results.push([name, ok, detail]);
@@ -99,7 +101,7 @@ async function main() {
   const { data: k } = await admin.from("case_checks").select("id, client_note").eq("case_id", c.id).order("sort").limit(1).single();
   await admin.from("case_checks").update({ client_note: `${k?.client_note ?? ""} (edited)` }).eq("id", k!.id);
   const staleHash = (await currentSnapshot(admin, c.id)).hash;
-  const stale = await adminUser.db.rpc("approve_report", { p_case: c.id, p_draft: d1!.id, p_final_result: "amber", p_current_hash: staleHash });
+  const stale = await adminUser.db.rpc("approve_report", { p_case: c.id, p_draft: d1!.id, p_final_result: "amber", p_current_hash: staleHash, p_reason: REASON, p_share_sensitive: true });
   check("Approval is refused when the case changed after the draft", /changed after this draft/.test(stale.error?.message ?? ""), stale.error?.message ?? "approved!");
   await admin.from("case_checks").update({ client_note: k?.client_note ?? null }).eq("id", k!.id);
 
@@ -109,10 +111,10 @@ async function main() {
   const allGreen = (checks ?? []).every((x) => x.state === "completed" && x.result_tone === "green");
   const result = allGreen ? "green" : "amber";
   if (!allGreen) {
-    const g = await adminUser.db.rpc("approve_report", { p_case: c.id, p_draft: d1!.id, p_final_result: "green", p_current_hash: hash });
+    const g = await adminUser.db.rpc("approve_report", { p_case: c.id, p_draft: d1!.id, p_final_result: "green", p_current_hash: hash, p_reason: REASON, p_share_sensitive: true });
     check("Green is refused while a check isn't clear", Boolean(g.error), g.error?.message ?? "approved green!");
   }
-  const approved = await adminUser.db.rpc("approve_report", { p_case: c.id, p_draft: d1!.id, p_final_result: result, p_current_hash: hash });
+  const approved = await adminUser.db.rpc("approve_report", { p_case: c.id, p_draft: d1!.id, p_final_result: result, p_current_hash: hash, p_reason: REASON, p_share_sensitive: true });
   check(`Admin approves as ${result}`, !approved.error, approved.error?.message ?? "");
   await drain();
   const { data: f } = await admin.from("report_versions").select("id, status, page_count, sha256, error").eq("id", approved.data as string).single();
@@ -134,9 +136,9 @@ async function main() {
   const other = await stranger.db.rpc("report_download", { p_version: f!.id });
   check("Another company can't download it", Boolean(other.error), other.error?.code ?? "downloaded!");
 
-  const verify = await fetch(`http://localhost:3000/verify/${f!.id}`).then((r) => r.text());
+  const verify = await fetch(`${app}/verify/${f!.id}`).then((r) => r.text());
   check("/verify shows the report as genuine", verify.includes("Genuine report") && verify.includes(reference), "");
-  const bogus = await fetch(`http://localhost:3000/verify/${d1!.id}`).then((r) => r.text());
+  const bogus = await fetch(`${app}/verify/${d1!.id}`).then((r) => r.text());
   check("/verify doesn't vouch for a draft", bogus.includes("can’t find this report") || bogus.includes("can't find this report"), "");
 
   console.log(JSON.stringify({ caseId: c.id, draft: d1!.id, final: f!.id }));

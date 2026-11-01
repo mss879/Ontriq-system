@@ -35,9 +35,10 @@ export async function POST(request: Request) {
   for (const job of recurring) {
     await admin.rpc("enqueue_job", { p_kind: job.kind, p_idempotency_key: job.key });
   }
-  // Daily: sent quotations past their date expire. On the 1st (Colombo): monthly invoices for last month.
+  // Daily: sent quotations past their date expire. In the first week (Colombo): monthly invoices for last
+  // month, so a day the scheduler was down costs nothing. The idempotency key stops repeats.
   await admin.rpc("expire_quotes");
-  if (colomboNow.getUTCDate() === 1) {
+  if (colomboNow.getUTCDate() <= 7) {
     const lastMonth = new Date(Date.UTC(colomboNow.getUTCFullYear(), colomboNow.getUTCMonth() - 1, 1)).toISOString().slice(0, 10);
     const { data: due } = await admin.rpc("monthly_billing_due", { p_month: lastMonth });
     for (const row of (due ?? []) as { client_id: string }[]) {

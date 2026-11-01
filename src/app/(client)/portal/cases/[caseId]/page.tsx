@@ -7,7 +7,7 @@ import { Page, SectionSkeleton } from "@/components/layout/page";
 import { PriorityBadge, ResultBadge, ToneChip } from "@/components/cases/badges";
 import { SlaBadge } from "@/components/cases/sla-badge";
 import { Button } from "@/components/ui/button";
-import { PortalCheckState, PortalProgressRail, PortalStatusChip } from "@/components/portal/portal-badges";
+import { PortalCheckState, PortalProgressRail, PortalStatusChip, PORTAL_REPORT_LABELS } from "@/components/portal/portal-badges";
 import { getClientViewer } from "@/lib/server/viewer";
 import { portalCaseDetail } from "@/lib/server/portal/queries";
 import { formatBytes, formatDate, formatDateTime } from "@/lib/format";
@@ -121,7 +121,7 @@ async function Header({ params }: Params) {
           <PortalStatusChip row={c} />
           <PriorityBadge priority={c.priority} />
           {c.stage === "released" && c.final_result ? <ResultBadge result={c.final_result} prefix="Result:" /> : null}
-          {c.stage !== "released" && c.stage !== "cancelled" && c.due_at ? <SlaBadge dueAt={c.due_at} startedAt={c.received_at} /> : null}
+          {c.stage !== "released" && c.stage !== "cancelled" && c.report_status !== "revising" && !c.on_hold && c.due_at ? <SlaBadge dueAt={c.due_at} startedAt={c.received_at} /> : null}
         </div>
       </div>
       <div className="rounded-2xl bg-card p-4 shadow-soft ring-1 ring-foreground/[0.07] md:p-5">
@@ -167,21 +167,30 @@ async function Needed({ params }: Params) {
   const d = await load(params);
   const slots = d.requirements.filter((r) => r.status !== "optional" || r.received_count > 0);
   if (!d.requirements.length && !d.can_upload) return null;
-  const pending = d.requirements.filter((r) => r.status === "pending" && r.min_count > r.received_count).length;
   const fromCandidate = d.case.process_type === "candidate_collected";
+  // The stages in which public.portal_case_detail allows an upload. After that nobody is waiting on a file.
+  const uploadsOpen = ["intake", "documents", "pre_qc", "data_entry", "verification"].includes(d.case.stage);
+  const short = d.requirements.filter((r) => r.status === "pending" && r.min_count > r.received_count).length;
+  const pending = uploadsOpen ? short : 0;
   const title = pending && !fromCandidate ? "Documents we need from you" : "Documents";
-  const description = fromCandidate
-    ? pending
-      ? `Ontriq is collecting ${pending === 1 ? "1 document" : `${pending} documents`} from the candidate. If you already have any of them, you can upload them here.`
-      : "Every document Ontriq needs has arrived."
-    : pending
-      ? `${pending} ${pending === 1 ? "document is" : "documents are"} still needed before Ontriq can continue.`
+  const description = !uploadsOpen
+    ? short
+      ? "Uploads have closed for this case. Ontriq will ask if it still needs anything."
       : slots.length
-        ? "Everything Ontriq asked you for has arrived. Thank you."
-        : "You can add a CV or any supporting document.";
+        ? "Everything Ontriq asked for has arrived. Thank you."
+        : "Nothing is needed from you here. Ontriq will ask if that changes."
+    : fromCandidate
+      ? pending
+        ? `Ontriq is collecting ${pending === 1 ? "1 document" : `${pending} documents`} from the candidate. If you already have any of them, you can upload them here.`
+        : "Every document Ontriq needs has arrived."
+      : pending
+        ? `${pending} ${pending === 1 ? "document is" : "documents are"} still needed before Ontriq can continue.`
+        : slots.length
+          ? "Everything Ontriq asked you for has arrived. Thank you."
+          : "You can add a CV or any supporting document.";
   return (
     <Section id="documents-needed" title={title} description={description} className={pending && !fromCandidate ? "ring-brand-orange/30" : undefined}>
-      <DocumentSlots caseId={d.case.id} requirements={d.requirements} canUpload={d.can_upload} fromCandidate={fromCandidate} />
+      <DocumentSlots caseId={d.case.id} requirements={d.requirements} canUpload={d.can_upload} uploadsOpen={uploadsOpen} fromCandidate={fromCandidate} />
     </Section>
   );
 }
@@ -193,7 +202,13 @@ async function Checks({ params }: Params) {
     <Section
       title="Checks"
       description={
-        d.case.results_visible ? "Results for each check, as released by Ontriq." : "Each check's progress. Results appear here once Ontriq releases the report."
+        d.case.results_visible
+          ? d.case.stage === "released"
+            ? "Results for each check, as released by Ontriq."
+            : "Each check's result so far. These can change until Ontriq releases the report."
+          : d.case.stage === "released"
+            ? "Each check's progress. Ontriq gave the results to the people your company named on the report."
+            : "Each check's progress. Results appear here once Ontriq releases the report."
       }
     >
       {d.checks.length ? (
@@ -205,7 +220,7 @@ async function Checks({ params }: Params) {
                   <span
                     className={cn(
                       "flex size-8 shrink-0 items-center justify-center rounded-lg",
-                      k.state === "done" ? "bg-success/12 text-success" : k.state === "needs_information" ? "bg-warning/15 text-warning-foreground dark:text-warning" : "bg-muted text-muted-foreground",
+                      k.state === "done" ? (k.result_tone ? "bg-success/12 text-success" : "bg-primary/8 text-primary") : k.state === "needs_information" ? "bg-warning/15 text-warning-foreground dark:text-warning" : "bg-muted text-muted-foreground",
                     )}
                   >
                     {k.state === "done" ? <CheckCircle2 className="size-4" /> : <CircleDashed className="size-4" />}
@@ -216,7 +231,7 @@ async function Checks({ params }: Params) {
                   </div>
                 </div>
                 <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-                  {k.result_tone ? <ResultBadge result={k.result_tone} label={k.result_label ?? undefined} /> : <PortalCheckState state={k.state} />}
+                  {k.result_tone ? <ResultBadge result={k.result_tone} label={k.result_label ?? undefined} /> : <PortalCheckState state={k.state} quiet={k.state === "done"} />}
                 </div>
               </div>
               {k.client_note || k.fields.length ? (
@@ -227,7 +242,7 @@ async function Checks({ params }: Params) {
                       {k.fields.map((f) => (
                         <div key={f.label} className="min-w-0">
                           <dt className="text-xs text-muted-foreground">{f.label}</dt>
-                          <dd className="break-words">{fieldText(f.value)}</dd>
+                          <dd className="break-words whitespace-pre-line">{fieldText(f.value)}</dd>
                         </div>
                       ))}
                     </dl>
@@ -248,7 +263,7 @@ function fieldText(value: unknown): string {
   if (value === null || value === undefined || value === "") return "—";
   if (typeof value === "boolean") return value ? "Yes" : "No";
   if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) return fieldDate(value) ?? value;
-  if (Array.isArray(value)) return value.map(fieldText).join(", ");
+  if (Array.isArray(value)) return value.map(fieldText).join(value.some((v) => typeof v === "object" && v !== null) ? "\n" : ", ");
   if (typeof value === "object") {
     const v = value as Record<string, unknown>;
     if ("from" in v || "to" in v) return `${fieldDate(v.from as string) ?? "?"} – ${fieldDate(v.to as string) ?? "present"}`;
@@ -327,9 +342,10 @@ async function ReportCard({ params }: Params) {
   const { report, case: c } = await load(params);
   // A released report stays available while a revision is prepared.
   const file = await getPortalReport(c.id);
-  const revising = Boolean(file) && report.status !== "released";
-  const tone = report.status === "released" ? "success" : revising ? "warning" : report.status === "in_preparation" ? "progress" : "neutral";
-  const label = revising ? "Being revised" : { released: "Released", in_preparation: "In preparation", not_ready: "Not ready yet", cancelled: "Cancelled" }[report.status];
+  const revising = report.status === "revising";
+  const preparing = report.status === "preparing" || report.status === "awaiting_approval" || report.status === "completed";
+  const tone = report.status === "released" ? "success" : revising ? "warning" : preparing ? "progress" : "neutral";
+  const label = PORTAL_REPORT_LABELS[report.status];
   return (
     <section className={cn("rounded-2xl p-5 shadow-soft ring-1", report.status === "released" ? "bg-success/6 ring-success/25" : "bg-card ring-foreground/[0.07]")}>
       <div className="flex items-center justify-between gap-2">
@@ -340,17 +356,23 @@ async function ReportCard({ params }: Params) {
         {revising
           ? "Ontriq is revising this report. The version below stays yours until the new one is released."
           : report.status === "released"
-          ? file
-            ? `Released on ${formatDate(file.releasedAt ?? report.released_at)}${file.version > 2 ? " (revised)" : ""}${file.pageCount ? ` · ${file.pageCount} pages` : ""}.`
+          ? file?.fileRemoved
+            ? `Ontriq released the report on ${formatDate(report.released_at)}. The file has since been removed under the retention policy.`
+            : file
+            ? `Released on ${formatDate(file.releasedAt ?? report.released_at)}${file.revised ? " (revised)" : ""}${file.pageCount ? ` · ${file.pageCount} pages` : ""}${file.extraParts ? ` · ${file.extraParts + 1} files` : ""}.`
             : `Ontriq released the report on ${formatDate(report.released_at)} to the people your company named. Ask your Ontriq contact if you need a copy.`
           : report.status === "cancelled"
             ? "No report will be issued for a cancelled request."
-            : report.status === "in_preparation"
-              ? "Ontriq is preparing and approving the report. You can download it here as soon as it's released."
-              : "Your report will be available here once Ontriq releases it."}
+            : report.status === "preparing"
+              ? "Ontriq is preparing the report. You can download it here as soon as it's approved and released."
+              : report.status === "awaiting_approval"
+                ? "The report is waiting for final approval. You can download it here as soon as it's released."
+                : report.status === "completed"
+                  ? "The report is approved and ready. You can download it here as soon as Ontriq releases it."
+                  : "Your report will be available here once Ontriq releases it."}
       </p>
       {c.stage === "released" && c.final_result ? <ResultBadge result={c.final_result} prefix="Overall:" className="mt-3" /> : null}
-      {file ? (
+      {file && !file.fileRemoved ? (
         <div className="mt-4 flex flex-wrap gap-2">
           <Button asChild size="sm">
             <a href={`/api/reports/${file.versionId}?download=1`}>
@@ -362,6 +384,13 @@ async function ReportCard({ params }: Params) {
               <Eye /> Open
             </a>
           </Button>
+          {Array.from({ length: file.extraParts }, (_, i) => (
+            <Button key={i} asChild size="sm" variant="outline">
+              <a href={`/api/reports/${file.versionId}?download=1&part=${i + 2}`}>
+                <Download /> Annexures, part {i + 2}
+              </a>
+            </Button>
+          ))}
         </div>
       ) : null}
     </section>

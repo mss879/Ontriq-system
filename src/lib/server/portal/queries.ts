@@ -134,10 +134,27 @@ export async function portalTemplates(): Promise<PortalTemplate[]> {
   return (data ?? []) as unknown as PortalTemplate[];
 }
 
-/** Portal settings Ontriq set for this client (bulk upload, client packages, approval). */
-export async function portalSettings(clientId: string): Promise<{ bulk_upload: boolean; client_packages: boolean; client_packages_need_approval: boolean }> {
+export type PortalClientProfile = {
+  id: string;
+  name: string;
+  code: string;
+  address: Record<string, string> | null;
+  email: string | null;
+  phone: string | null;
+  default_template: string | null;
+  portal: { bulk_upload: boolean; client_packages: boolean; client_packages_need_approval: boolean };
+};
+
+/** The company as its own users may read it. The clients table holds Ontriq's notes, so they never touch it (0048). */
+export const portalClientProfile = cache(async (): Promise<PortalClientProfile | null> => {
   const supabase = await createRequestClient();
-  const { data } = await supabase.from("client_settings").select("portal").eq("client_id", clientId).maybeSingle();
-  const p = (data?.portal ?? {}) as Record<string, boolean>;
-  return { bulk_upload: p.bulk_upload !== false, client_packages: p.client_packages !== false, client_packages_need_approval: p.client_packages_need_approval === true };
+  const { data, error } = await supabase.rpc("portal_client_profile");
+  if (error) throw new Error(`portal_client_profile: ${error.message}`);
+  return (data ?? null) as unknown as PortalClientProfile | null;
+});
+
+/** Portal settings Ontriq set for this client (bulk upload, client packages, approval). */
+export async function portalSettings(): Promise<PortalClientProfile["portal"]> {
+  const profile = await portalClientProfile();
+  return profile?.portal ?? { bulk_upload: true, client_packages: true, client_packages_need_approval: false };
 }

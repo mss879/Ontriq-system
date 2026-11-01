@@ -99,10 +99,22 @@ do $$ begin
     raise exception 'TEST FAILED: an officer rewrote remarks on a check that isn''t theirs';
   exception when insufficient_privilege then null;
   end;
+  -- After verification the wording is QC's, even on the officer's own check.
+  begin
+    perform public.set_check_remarks(current_setting('t.k1')::uuid, 'Reworded after QC');
+    raise exception 'TEST FAILED: an officer reworded a finding after verification';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+update public.cases set stage = 'verification' where id = current_setting('t.case')::uuid;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"a3800000-0000-4000-8000-000000000003","role":"authenticated","aal":"aal2"}', true);
+do $$ begin
   perform public.set_check_remarks(current_setting('t.k1')::uuid, 'NIC confirmed with the Department of Registration of Persons.');
 end $$;
 reset role;
-update public.cases set on_hold = true, hold_reason = 'test' where id = current_setting('t.case')::uuid;
+update public.cases set stage = 'report', on_hold = true, hold_reason = 'test' where id = current_setting('t.case')::uuid;
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"a3800000-0000-4000-8000-000000000001","role":"authenticated","aal":"aal2"}', true);
 do $$ begin

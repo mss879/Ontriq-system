@@ -81,6 +81,7 @@ export function PortalSettingsCard({
         </Group>
         {vis.show_check_progress && checkTypes.length ? (
           <Group title="Checks shown in their portal">
+            <p className="px-5 pb-2 text-xs text-muted-foreground">A hidden check drops out of their case pages, counts and activity. The final report still covers every check.</p>
             <ul className="grid gap-x-4 gap-y-2 px-5 pb-3 sm:grid-cols-2 lg:grid-cols-1">
               {checkTypes.map((t) => {
                 const id = `hide-${t.id}`;

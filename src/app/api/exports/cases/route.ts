@@ -4,7 +4,8 @@ import { csvResponse, exportViewer, readAll } from "@/lib/server/analytics/expor
 import { canAny } from "@/domain/permissions";
 import { csvDateTime, csvFilename } from "@/domain/analytics/csv";
 import { colomboToday } from "@/domain/analytics/period";
-import { ACTIVE_STAGES, STAGES, STAGE_LABELS, STATUS_LABELS, type Stage } from "@/domain/workflow/stages";
+import { ACTIVE_STAGES, STAGES, STAGE_LABELS, type Stage } from "@/domain/workflow/stages";
+import { statusLabeller } from "@/lib/server/cases/status-catalog";
 
 const MAX_ROWS = 5000;
 const UUID = /^[0-9a-f-]{36}$/i;
@@ -54,6 +55,7 @@ export async function GET(request: NextRequest) {
   } catch {
     return Response.json({ error: "The export isn't available right now." }, { status: 503 });
   }
+  const statusName = await statusLabeller();
   const owners = [...new Set(result.rows.map((r) => r.assigned_to).filter((x): x is string => Boolean(x)))];
   const people = new Map<string, string>();
   for (let i = 0; i < owners.length; i += 200) {
@@ -74,7 +76,7 @@ export async function GET(request: NextRequest) {
       ((c.package_snapshot as { name?: string } | null)?.name ?? "") || "Custom",
       c.process_type === "candidate_collected" ? "Candidate" : "Client",
       STAGE_LABELS[c.stage as Stage] ?? c.stage,
-      STATUS_LABELS[c.status_key] ?? c.status_key,
+      statusName(c.status_key),
       c.priority,
       c.on_hold ? "Yes" : "No",
       c.proposed_result,

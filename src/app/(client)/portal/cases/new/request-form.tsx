@@ -12,12 +12,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Spinner } from "@/components/ui/spinner";
 import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui/field";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { DISTRICTS } from "@/domain/districts";
+import { DISTRICT_CHOICES } from "@/domain/districts";
 import { parseNic } from "@/domain/nic-core";
 import { uploadOne, UPLOAD_ACCEPT_ATTR } from "@/lib/client/upload";
 import type { PortalPackage, PortalTemplate } from "@/lib/server/portal/queries";
 import { createPortalRequest, portalBeginUpload, portalFinalizeUpload, type PortalRequestInput } from "../actions";
 import { PackagePicker, PROCESS_LABEL, priceText, CheckChips, type PackageChoice } from "./package-picker";
+import { ExtraChecksField, type ExtraCheck } from "@/components/cases/extra-checks-field";
 
 const LANGUAGES = { en: "English", si: "Sinhala", ta: "Tamil" } as const;
 const PROCESS_HINT = {
@@ -32,6 +33,7 @@ type Form = {
   department: string;
   clientReference: string;
   instructions: string;
+  extraChecks: ExtraCheck[];
   fullName: string;
   nic: string;
   email: string;
@@ -48,6 +50,7 @@ const EMPTY: Form = {
   department: "",
   clientReference: "",
   instructions: "",
+  extraChecks: [],
   fullName: "",
   nic: "",
   email: "",
@@ -94,6 +97,7 @@ export function RequestForm({ templates, packages, initialTemplateId }: { templa
       department: form.department,
       clientReference: form.clientReference,
       instructions: form.instructions,
+      extraChecks: form.extraChecks.filter((x) => pkg?.items.some((i) => i.check_type_id === x.checkTypeId)),
       candidate: {
         fullName: form.fullName,
         nic: form.nic,
@@ -176,7 +180,7 @@ export function RequestForm({ templates, packages, initialTemplateId }: { templa
                 <SelectValue placeholder="Choose a district">{form.district || undefined}</SelectValue>
               </SelectTrigger>
               <SelectContent>
-                {DISTRICTS.map((d) => (
+                {DISTRICT_CHOICES.map((d) => (
                   <SelectItem key={d} value={d}>
                     {d}
                   </SelectItem>
@@ -251,6 +255,11 @@ export function RequestForm({ templates, packages, initialTemplateId }: { templa
             <Textarea id="instructions" rows={3} value={form.instructions} onChange={(e) => set("instructions", e.target.value)} placeholder="Anything Ontriq should know (optional)" />
             <FieldError errors={err("instructions")?.map((message) => ({ message }))} />
           </Field>
+          {pkg ? (
+            <div className="md:col-span-2">
+              <ExtraChecksField types={pkg.items.map((i) => ({ id: i.check_type_id, name: i.name }))} value={form.extraChecks} onChange={(next) => set("extraChecks", next)} />
+            </div>
+          ) : null}
         </div>
       </Panel>
 
@@ -349,9 +358,9 @@ function Created({ created, clientSupplied, onAnother }: { created: { caseId: st
       <div className="flex flex-col gap-4 p-5 md:p-6">
         <div className="flex flex-col gap-3 rounded-xl border border-dashed p-4 sm:flex-row sm:items-center">
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium">Attach the candidate&apos;s CV (optional)</p>
+            <p className="text-sm font-medium">Attach the candidate&apos;s CV</p>
             <p className="text-[13px] text-muted-foreground">
-              {uploaded.length ? `Uploaded: ${uploaded.join(", ")}` : "A PDF or clear photos, up to 25 MB each."}
+              {uploaded.length ? `Uploaded: ${uploaded.join(", ")}` : "Ontriq needs it to start. A PDF or clear photos, up to 25 MB each."}
             </p>
           </div>
           <label className={cn("inline-flex h-9 shrink-0 cursor-pointer items-center gap-2 rounded-lg px-3 text-sm font-medium ring-1 ring-border transition-colors hover:bg-muted", uploading && "pointer-events-none opacity-60")}>

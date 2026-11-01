@@ -5,7 +5,7 @@ import { notFound, redirect } from "next/navigation";
 import { ArrowLeft, FilePlus2, FolderKanban } from "lucide-react";
 import { Page, SectionSkeleton, Eyebrow } from "@/components/layout/page";
 import { Surface, SurfaceHeader, TH } from "@/components/admin/surface";
-import { ChecksProgress, ResultBadge, StagePill, ToneChip } from "@/components/cases/badges";
+import { ChecksProgress, ResultBadge, shownResult, StagePill, ToneChip } from "@/components/cases/badges";
 import { SlaBadge } from "@/components/cases/sla-badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -291,7 +291,7 @@ async function RecentCases(props: Props) {
                   <ChecksProgress done={c.checksDone} total={c.checksTotal} />
                 </TableCell>
                 <TableCell className="hidden md:table-cell">
-                  <ResultBadge result={c.proposedResult} />
+                  <ResultBadge result={shownResult(c)} />
                 </TableCell>
                 <TableCell className="hidden pr-5 xl:table-cell">
                   {c.stage === "released" || c.stage === "cancelled" ? (

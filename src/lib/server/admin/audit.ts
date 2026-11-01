@@ -33,6 +33,21 @@ export const AUDITED_TABLES: Record<string, string> = {
   staff_availability: "Staff leave",
   assignment_rules: "Assignment rules",
   client_status_catalog: "Status wording",
+  qc_reviews: "QC reviews",
+  report_versions: "Reports",
+  candidate_requests: "Candidate requests",
+  consent_forms: "Consent forms",
+  client_requests: "Questions to clients",
+  requirement_files: "Combined files",
+  quotes: "Quotations",
+  quote_items: "Quotation lines",
+  client_price_lists: "Client price lists",
+  invoices: "Invoices",
+  invoice_items: "Invoice lines",
+  payments: "Payments",
+  payment_slips: "Payment slips",
+  credit_notes: "Credit notes",
+  tax_rates: "Tax rates",
   templates: "Message templates",
   tasks: "Tasks",
   document_templates: "Document designs",
@@ -43,7 +58,7 @@ export const AUDITED_TABLES: Record<string, string> = {
   ai_cost_rates: "AI prices",
 };
 
-export type AuditFilters = { table?: string; op?: string; actor?: string; from?: string; to?: string; page?: number };
+export type AuditFilters = { table?: string; op?: string; actor?: string; from?: string; to?: string; caseRef?: string; page?: number };
 
 export type AuditRow = {
   id: number;
@@ -61,6 +76,17 @@ export type AuditRow = {
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+/** Everything recorded against one case: the case, and every row that carries its id. */
+export const caseAuditFilter = (caseId: string) => `row_id.eq.${caseId},after->>case_id.eq.${caseId},before->>case_id.eq.${caseId}`;
+
+/** The case a reference names, for the audit filter. */
+export async function caseIdFor(supabase: Awaited<ReturnType<typeof createRequestClient>>, reference: string | undefined): Promise<string | null | undefined> {
+  const ref = reference?.trim().toUpperCase();
+  if (!ref) return undefined;
+  const { data } = await supabase.from("cases").select("id").eq("reference", ref).maybeSingle();
+  return data?.id ?? null;
+}
+
 export async function listAudit(filters: AuditFilters): Promise<{ rows: AuditRow[]; total: number }> {
   const supabase = await createRequestClient();
   const page = filters.page && filters.page > 0 ? filters.page : 1;
@@ -73,6 +99,9 @@ export async function listAudit(filters: AuditFilters): Promise<{ rows: AuditRow
   // Dates are Sri Lanka days.
   if (filters.from && DATE.test(filters.from)) query = query.gte("at", `${filters.from}T00:00:00+05:30`);
   if (filters.to && DATE.test(filters.to)) query = query.lte("at", `${filters.to}T23:59:59.999+05:30`);
+  const caseId = await caseIdFor(supabase, filters.caseRef);
+  if (caseId === null) return { rows: [], total: 0 };
+  if (caseId) query = query.or(caseAuditFilter(caseId));
   const { data, count } = await query.range(from, from + AUDIT_PAGE_SIZE - 1);
   const rows = (data ?? []).map((r) => ({
     id: r.id,

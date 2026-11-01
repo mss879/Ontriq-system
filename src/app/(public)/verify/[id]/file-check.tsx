@@ -5,7 +5,7 @@ import { CheckCircle2, FileSearch, TriangleAlert, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Spinner } from "@/components/ui/spinner";
 
-type State = { kind: "idle" } | { kind: "reading" } | { kind: "match"; name: string } | { kind: "mismatch"; name: string; hash: string } | { kind: "error"; message: string };
+type State = { kind: "idle" } | { kind: "reading" } | { kind: "match"; name: string; which: string } | { kind: "mismatch"; name: string; hash: string } | { kind: "error"; message: string };
 
 async function sha256Hex(file: File): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
@@ -16,7 +16,7 @@ async function sha256Hex(file: File): Promise<string> {
  * Compare a PDF someone holds with the report's fingerprint. The file is read
  * and hashed in this browser only; nothing is uploaded.
  */
-export function FileCheck({ expected }: { expected: string }) {
+export function FileCheck({ files }: { files: { name: string; sha256: string }[] }) {
   const [state, setState] = useState<State>({ kind: "idle" });
   const [over, setOver] = useState(false);
   const input = useRef<HTMLInputElement>(null);
@@ -34,7 +34,8 @@ export function FileCheck({ expected }: { expected: string }) {
     setState({ kind: "reading" });
     try {
       const hash = await sha256Hex(file);
-      setState(hash === expected.toLowerCase() ? { kind: "match", name: file.name } : { kind: "mismatch", name: file.name, hash });
+      const hit = files.find((f) => f.sha256.toLowerCase() === hash);
+      setState(hit ? { kind: "match", name: file.name, which: hit.name } : { kind: "mismatch", name: file.name, hash });
     } catch {
       setState({ kind: "error", message: "We couldn't read that file." });
     }
@@ -80,7 +81,7 @@ export function FileCheck({ expected }: { expected: string }) {
           <p className="flex gap-2 rounded-xl border border-success/30 bg-success/[0.07] px-3 py-2.5 text-sm">
             <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" />
             <span>
-              <span className="font-medium">It matches.</span> {state.name} is exactly the report Ontriq issued, unchanged.
+              <span className="font-medium">It matches.</span> {state.name} is exactly {state.which} Ontriq issued, unchanged.
             </span>
           </p>
         ) : state.kind === "mismatch" ? (

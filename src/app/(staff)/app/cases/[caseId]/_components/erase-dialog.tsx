@@ -54,6 +54,7 @@ export function EraseCaseDialog({ caseId, reference }: { caseId: string; referen
               const r = await eraseCaseData({ caseId, reason, confirmReference: confirm });
               if (r.ok) {
                 toast.success(`Personal data erased · ${r.files} file${r.files === 1 ? "" : "s"} removed`);
+                if (r.left) toast.warning(`${r.left} file${r.left === 1 ? "" : "s"} couldn't be removed yet. The nightly job will try again.`);
                 setOpen(false);
               } else setError(r.error);
             });

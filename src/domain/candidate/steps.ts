@@ -62,15 +62,21 @@ export function portalStep(stage: Stage): PortalStep {
 /** What the candidate still owes: drives the progress bar and "what's left". */
 export type CandidateOutstanding = { documents: number; requests: number; consent: boolean };
 
+/** The stages in which public.candidate_begin_upload takes a file. */
+export const UPLOAD_STAGES = ["intake", "documents", "pre_qc", "data_entry", "verification"];
+
 export function candidateOutstanding(view: {
   requirements: { status: string; min_count: number; received_count: number }[];
-  requests: { status: string }[];
+  requests: { status: string; kind?: string }[];
   consent: { status: string } | null;
+  case?: { stage: string };
 }): CandidateOutstanding {
+  const closed = view.case !== undefined && !UPLOAD_STAGES.includes(view.case.stage);
   return {
-    documents: view.requirements.filter((r) => r.status === "pending" && r.min_count > r.received_count).length,
-    requests: view.requests.filter((r) => r.status === "open").length,
-    consent: !view.consent || view.consent.status === "pending" || view.consent.status === "rejected",
+    documents: closed ? 0 : view.requirements.filter((r) => r.status === "pending" && r.min_count > r.received_count).length,
+    // Questions can still be answered. A file can't come in any more.
+    requests: view.requests.filter((r) => r.status === "open" && !(closed && r.kind === "document")).length,
+    consent: !closed && (!view.consent || view.consent.status === "pending" || view.consent.status === "rejected"),
   };
 }
 

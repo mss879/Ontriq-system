@@ -7,7 +7,7 @@ import { setCaseClientVisible, updateCandidate, updateCaseDetails } from "../../
 import type { CaseDetail } from "@/lib/server/cases/queries";
 import { formatDate, formatPlainDate } from "@/lib/format";
 import { parseNic } from "@/domain/nic-core";
-import { DISTRICTS } from "@/domain/districts";
+import { DISTRICT_CHOICES } from "@/domain/districts";
 import { PRIORITY_LABELS, PROCESS_TYPE_LABELS, type Priority } from "@/domain/workflow/stages";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -137,7 +137,8 @@ function CandidateForm({ candidate, onDone }: { candidate: CaseDetail["candidate
       onSubmit={(e) => {
         e.preventDefault();
         start(async () => {
-          const r = await updateCandidate(candidate.id, v);
+          // Left unchanged, a contact stays as it is on the record, which may differ from what a client typed on this request.
+          const r = await updateCandidate(candidate.id, { ...v, email: v.email === (candidate.email ?? "") ? undefined : v.email, phone: v.phone === (candidate.phone ?? "") ? undefined : v.phone });
           if (r.ok) {
             toast.success("Candidate updated");
             onDone();
@@ -186,7 +187,7 @@ function CandidateForm({ candidate, onDone }: { candidate: CaseDetail["candidate
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={NO_DISTRICT}>Not set</SelectItem>
-              {DISTRICTS.map((d) => (
+              {DISTRICT_CHOICES.map((d) => (
                 <SelectItem key={d} value={d}>
                   {d}
                 </SelectItem>
@@ -228,7 +229,7 @@ function CandidateForm({ candidate, onDone }: { candidate: CaseDetail["candidate
 
 export type DetailsView = Pick<
   CaseDetail,
-  "priority" | "positionTitle" | "department" | "clientReference" | "instructions" | "receivedAt" | "dueAt" | "processType" | "createdVia" | "package" | "clientVisible"
+  "priority" | "positionTitle" | "department" | "clientReference" | "instructions" | "internalNotes" | "receivedAt" | "dueAt" | "processType" | "createdVia" | "package" | "clientVisible"
 >;
 
 const VIA = { staff: "Ontriq staff", portal: "Client portal", import: "Bulk import", assistant: "Command assistant" } as Record<string, string>;
@@ -286,7 +287,8 @@ export function DetailsCard({ caseId, details, canEdit, canSetDue, canHide }: { 
           <span className="text-muted-foreground"> · {VIA[details.createdVia] ?? details.createdVia}</span>
         </Row>
         <Row label="Due">{formatDate(details.dueAt)}</Row>
-        {details.instructions ? <Row label="Instructions">{details.instructions}</Row> : null}
+        {details.internalNotes ? <Row label="For the team">{details.internalNotes}</Row> : null}
+        {details.instructions ? <Row label="From the client">{details.instructions}</Row> : null}
         <Row label="Client portal">
           <PortalVisibility caseId={caseId} visible={details.clientVisible} canHide={canHide} />
         </Row>
@@ -322,6 +324,7 @@ function DetailsForm({ caseId, details, canSetDue, onDone }: { caseId: string; d
     department: details.department ?? "",
     clientReference: details.clientReference ?? "",
     instructions: details.instructions ?? "",
+    internalNotes: details.internalNotes ?? "",
     due: colomboDate(details.dueAt),
   });
   const [error, setError] = useState<string | null>(null);
@@ -340,6 +343,7 @@ function DetailsForm({ caseId, details, canSetDue, onDone }: { caseId: string; d
             department: v.department,
             clientReference: v.clientReference,
             instructions: v.instructions,
+            internalNotes: v.internalNotes,
             ...(dueChanged ? { dueAt: `${v.due}T17:30:00+05:30` } : {}),
           });
           if (r.ok) {
@@ -387,7 +391,12 @@ function DetailsForm({ caseId, details, canSetDue, onDone }: { caseId: string; d
           </FieldBlock>
         </div>
         <div className="sm:col-span-2">
-          <FieldBlock id="det-instr" label="Instructions from the client">
+          <FieldBlock id="det-notes" label="Instructions for the team (clients never see this)">
+            <Textarea id="det-notes" value={v.internalNotes} onChange={set("internalNotes")} rows={3} />
+          </FieldBlock>
+        </div>
+        <div className="sm:col-span-2">
+          <FieldBlock id="det-instr" label="Instructions from the client (shown on their portal)">
             <Textarea id="det-instr" value={v.instructions} onChange={set("instructions")} rows={3} />
           </FieldBlock>
         </div>

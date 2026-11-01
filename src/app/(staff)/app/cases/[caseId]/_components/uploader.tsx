@@ -140,7 +140,8 @@ function UploadForm({
           category,
           label: label.trim() || undefined,
           parentId: target.parentId ?? null,
-          recordKey: record === WHOLE_CHECK ? null : record,
+          // Only a choice someone made: a new version keeps its parent's row by itself.
+          recordKey: record === (target.recordKey ?? WHOLE_CHECK) ? undefined : record === WHOLE_CHECK ? null : record,
           filename: it.file.name,
           mime: it.mime,
           size: it.file.size,

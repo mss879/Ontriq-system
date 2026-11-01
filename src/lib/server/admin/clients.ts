@@ -143,6 +143,7 @@ export type ClientCaseRow = {
   stage: Stage;
   onHold: boolean;
   proposedResult: FinalResult | null;
+  finalResult: FinalResult | null;
   checksDone: number;
   checksTotal: number;
   receivedAt: string;
@@ -154,7 +155,7 @@ export async function getClientCases(clientId: string, limit = 10): Promise<Clie
   const supabase = await createRequestClient();
   const { data } = await supabase
     .from("cases")
-    .select("id, reference, candidate_name, stage, on_hold, proposed_result, checks_done, checks_total, received_at, due_at, package_snapshot")
+    .select("id, reference, candidate_name, stage, on_hold, proposed_result, final_result, checks_done, checks_total, received_at, due_at, package_snapshot")
     .eq("client_id", clientId)
     .order("received_at", { ascending: false })
     .limit(limit);
@@ -165,6 +166,7 @@ export async function getClientCases(clientId: string, limit = 10): Promise<Clie
     stage: c.stage,
     onHold: c.on_hold,
     proposedResult: c.proposed_result as FinalResult | null,
+    finalResult: c.final_result as FinalResult | null,
     checksDone: c.checks_done,
     checksTotal: c.checks_total,
     receivedAt: c.received_at,

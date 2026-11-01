@@ -6,11 +6,12 @@ import { isValidPhoneNumber } from "libphonenumber-js";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireViewer, type Viewer } from "@/lib/server/viewer";
+import { portalSettings } from "@/lib/server/portal/queries";
 import { AuthError, authErrorMessage, rpcErrorMessage } from "@/lib/server/errors";
 import { fail, zodFieldErrors, type ActionResult } from "@/lib/server/action-result";
 import { kickWorker } from "@/lib/server/jobs/kick";
 import { parseNic } from "@/domain/nic-core";
-import { DISTRICTS } from "@/domain/districts";
+import { DISTRICT_CHOICES } from "@/domain/districts";
 import { BULK_MAX_ROWS, validateBulk } from "@/domain/portal/bulk-core";
 
 /**
@@ -144,7 +145,7 @@ const candidateSchema = z.object({
     .string()
     .optional()
     .transform((v) => v || undefined)
-    .refine((v) => !v || (DISTRICTS as readonly string[]).includes(v), "Choose a district."),
+    .refine((v) => !v || DISTRICT_CHOICES.includes(v), "Choose a district."),
   preferredLanguage: z.enum(["en", "si", "ta"]).default("en"),
 });
 
@@ -161,6 +162,7 @@ const requestSchema = z
     department: optionalText(120),
     clientReference: optionalText(80),
     instructions: optionalText(2000),
+    extraChecks: z.array(z.object({ checkTypeId: z.uuid(), label: z.string().trim().min(2).max(120) })).max(10).optional(),
     candidate: candidateSchema,
   })
   .superRefine((v, ctx) => {
@@ -187,6 +189,7 @@ function casePayload(viewer: Viewer, v: z.output<typeof requestSchema>) {
     department: v.department ?? null,
     client_reference: v.clientReference ?? null,
     instructions: v.instructions ?? null,
+    extra_checks: (v.extraChecks ?? []).map((x) => ({ check_type_id: x.checkTypeId, label: x.label })),
     created_via: "portal",
     candidate: {
       full_name: v.candidate.fullName,
@@ -245,8 +248,7 @@ export async function createBulkRequests(input: z.input<typeof bulkSchema>): Pro
     if (!check.rows.length) return fail("The file has no candidates in it.");
 
     const supabase = await createClient();
-    const { data: settings } = await supabase.from("client_settings").select("portal").eq("client_id", viewer.clientId ?? "").maybeSingle();
-    if ((settings?.portal as Record<string, boolean> | null)?.bulk_upload === false) return fail("Bulk requests are not switched on for your company. Ask Ontriq to turn them on.");
+    if (!(await portalSettings()).bulk_upload) return fail("Bulk requests are not switched on for your company. Ask Ontriq to turn them on.");
 
     let defaults: { position_title?: string; department?: string; instructions?: string } = {};
     let priority: "normal" | "high" | "urgent" = "normal";
@@ -277,7 +279,7 @@ export async function createBulkRequests(input: z.input<typeof bulkSchema>): Pro
           nic: row.values.nic,
           email: row.values.email,
           phone: row.values.phone,
-          district: row.values.district && (DISTRICTS as readonly string[]).includes(row.values.district) ? row.values.district : undefined,
+          district: row.values.district && DISTRICT_CHOICES.includes(row.values.district) ? row.values.district : undefined,
         },
       });
       if (!item.success) {

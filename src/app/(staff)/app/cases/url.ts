@@ -11,7 +11,7 @@ export function casesHref(query: string, changes: Record<string, string | null |
 }
 
 /** The filter keys that make a saved view (view mode and paging are not part of it). */
-export const FILTER_KEYS = ["q", "stage", "client", "assignee", "priority", "due"] as const;
+export const FILTER_KEYS = ["q", "stage", "status", "client", "assignee", "priority", "due"] as const;
 
 export function hasFilters(query: string): boolean {
   const params = new URLSearchParams(query);

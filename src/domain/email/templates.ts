@@ -45,3 +45,24 @@ export function recoveryEmail(input: { fullName: string; orgName: string; action
   );
   return { subject: `Reset your ${input.orgName} password`, ...rendered };
 }
+
+/** To a client's report contact: the report is out. It stays in the portal, so nothing personal travels by email. */
+export function reportReleasedEmail(input: { contactName: string; reference: string; orgName: string; portalUrl: string; hasPortal?: boolean }, brand: EmailBrand = DEFAULT_BRAND) {
+  const portal = input.hasPortal !== false;
+  const rendered = renderEmail(
+    {
+      preheader: `A verification report is ready: ${input.reference}.`,
+      heading: "A verification report is ready",
+      paragraphs: [
+        input.contactName ? `Hello ${input.contactName.split(" ")[0]},` : "Hello,",
+        `${input.orgName} has released the final background verification report for ${input.reference}.`,
+        portal
+          ? "Sign in to your client portal to read and download it. If you don't have portal access, ask your company's portal administrator."
+          : `Your company has no portal users yet. Reply to this email or call ${input.orgName}, and they will arrange a copy or set up portal access for you.`,
+      ],
+      cta: portal ? { label: "Open the portal", url: input.portalUrl } : undefined,
+    },
+    brand,
+  );
+  return { subject: `${input.orgName}: report ready for ${input.reference}`, ...rendered };
+}

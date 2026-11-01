@@ -16,7 +16,7 @@ type Target = { requirementId?: string; category?: "cv" | "other" };
 type Busy = { key: string; done: number; total: number; stage: string } | null;
 
 /** The document slots Ontriq shared with the client, each with its own upload button. */
-export function DocumentSlots({ caseId, requirements, canUpload, fromCandidate }: { caseId: string; requirements: PortalRequirement[]; canUpload: boolean; fromCandidate: boolean }) {
+export function DocumentSlots({ caseId, requirements, canUpload, uploadsOpen, fromCandidate }: { caseId: string; requirements: PortalRequirement[]; canUpload: boolean; uploadsOpen: boolean; fromCandidate: boolean }) {
   const router = useRouter();
   const [busy, setBusy] = useState<Busy>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -54,24 +54,27 @@ export function DocumentSlots({ caseId, requirements, canUpload, fromCandidate }
         <ul className="space-y-2.5">
           {requirements.map((r) => {
             const missing = r.status === "pending" && r.min_count > r.received_count;
+            const waiting = missing && uploadsOpen;
             const key = r.id;
             return (
               <li
                 key={r.id}
                 className={cn(
                   "flex flex-col gap-3 rounded-xl p-4 ring-1 sm:flex-row sm:items-center",
-                  missing && !fromCandidate ? "bg-brand-orange/[0.04] ring-brand-orange/25" : "bg-muted/30 ring-foreground/[0.06]",
+                  waiting && !fromCandidate ? "bg-brand-orange/[0.04] ring-brand-orange/25" : "bg-muted/30 ring-foreground/[0.06]",
                 )}
               >
                 <div className="min-w-0 flex-1 space-y-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="text-sm font-semibold">{r.label}</p>
-                    {missing ? (
+                    {waiting ? (
                       fromCandidate ? (
                         <ToneChip tone="progress">With the candidate</ToneChip>
                       ) : (
                         <ToneChip tone="warning">Needed</ToneChip>
                       )
+                    ) : missing ? (
+                      <ToneChip tone="neutral">Not received</ToneChip>
                     ) : r.status === "optional" ? (
                       <ToneChip tone="neutral">Optional</ToneChip>
                     ) : (
@@ -83,7 +86,7 @@ export function DocumentSlots({ caseId, requirements, canUpload, fromCandidate }
                       </span>
                     ) : null}
                   </div>
-                  {r.check_label ? <p className="text-xs text-muted-foreground">For the {r.check_label} check</p> : null}
+                  {r.check_label ? <p className="text-xs text-muted-foreground">For the {/check$/i.test(r.check_label) ? r.check_label : `${r.check_label} check`}</p> : null}
                   {r.description || r.guide ? <p className="text-[13px] leading-relaxed text-muted-foreground">{r.description || r.guide}</p> : null}
                   {r.requested_note ? (
                     <p className="flex items-start gap-1.5 rounded-lg bg-info/8 px-2.5 py-1.5 text-[13px] text-foreground ring-1 ring-info/15">
@@ -104,7 +107,7 @@ export function DocumentSlots({ caseId, requirements, canUpload, fromCandidate }
                     disabled={Boolean(busy)}
                     onFiles={(files) => send(key, { requirementId: r.id }, files)}
                   />
-                ) : !missing ? (
+                ) : !missing && r.received_count > 0 ? (
                   <CheckCircle2 className="size-5 shrink-0 text-success" aria-hidden />
                 ) : null}
               </li>
@@ -124,9 +127,9 @@ export function DocumentSlots({ caseId, requirements, canUpload, fromCandidate }
             <UploadButton label="Other" icon="file" variant="outline" busy={busy?.key === "extra" ? busy : null} disabled={Boolean(busy)} onFiles={(files) => send("extra", { category: "other" }, files)} />
           </div>
         </div>
-      ) : (
+      ) : uploadsOpen ? (
         <p className="text-[13px] text-muted-foreground">Your access lets you follow cases. Ask your company&apos;s portal admin to upload documents.</p>
-      )}
+      ) : null}
     </div>
   );
 }

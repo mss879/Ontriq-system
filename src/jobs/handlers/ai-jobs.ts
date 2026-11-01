@@ -1,11 +1,13 @@
 import { NonRetryableError, type JobHandler } from "../types";
 import type { ServiceClient } from "../admin-client";
-import { isAiConfigured, runStructured, type AiContext } from "../../lib/ai/claude";
+import { isAiConfigured, runStructured, type AiContext, type AiFailure } from "../../lib/ai/claude";
 import * as P from "../../lib/ai/prompts";
-import { caseSummary, documentBlock, loadAiCase, suggest } from "../ai/context";
-import { checksToFill, docsForCheck, extractionFields, groupRows, missingDetails } from "../../domain/ai/extraction";
+import { documentBlock, loadAiCase, suggest } from "../ai/context";
+import { consistencyContent, documentText, narrativeContent, narrativeKeys, outreachContent, postqcContent, preqcContent, responseContent } from "../ai/content";
+import { addressedToAi, checksToFill, docsForCheck, extractionFields, formValue, groupRows, missingDetails } from "../../domain/ai/extraction";
+import { otherDocuments } from "../../domain/documents/combined";
 import { currentSnapshot } from "../report/load";
-import { removeObjects } from "../storage";
+import { drainStorageDeletions } from "../storage";
 import type Anthropic from "@anthropic-ai/sdk";
 
 /**
@@ -26,6 +28,12 @@ const ctx = (job: { id: string }, c: { org_id: string; client_id?: string; id?: 
   ...extra,
 });
 const payload = <T>(job: { payload: unknown }) => (job.payload ?? {}) as T;
+
+/** How a job ends when the model couldn't answer: outages go back on the queue, the rest finish quietly. */
+function notAnswered(r: AiFailure) {
+  if (r.reason === "unavailable") throw new Error(r.message);
+  return { skipped: r.reason };
+}
 
 /** ai.classify_document: type, quality, text; feedback for candidates; tamper signals; then extraction. */
 export const aiClassify: JobHandler = async (job, { admin }) => {
@@ -55,14 +63,15 @@ export const aiClassify: JobHandler = async (job, { admin }) => {
     minTokens: P.CLASSIFY_MIN_TOKENS,
   });
   if (!r.ok) {
+    notAnswered(r);
     // The first look failed, but the file can still fill its check: extraction reads the file itself.
-    const queued = await queueExtraction(admin, d, null);
+    const queued = await queueExtraction(admin, d, []);
     return { skipped: r.reason, extract: queued };
   }
-  const out = r.data;
+  const out = { ...r.data, matches_expected: r.data.matches_expected || d.category === "other" };
   await admin.from("document_ai").upsert({ document_id: d.id, org_id: d.org_id, classification: { ...out, text: undefined, model: r.model }, quality: { readable: out.readable, issues: out.quality_issues } });
   // Later steps compare documents by this text, so they get the English alongside the original.
-  const stored = out.translation_en ? `${out.text}\n\n[English translation]\n${out.translation_en}` : out.text;
+  const stored = !out.readable ? null : out.translation_en ? `${out.text}\n\n[English translation]\n${out.translation_en}` : out.text;
   if (stored) await admin.from("document_texts").upsert({ document_id: d.id, org_id: d.org_id, text: stored.slice(0, 20000), language: out.language });
 
   const problem = !out.readable || !out.matches_expected || out.quality_issues.length > 0;
@@ -83,25 +92,36 @@ export const aiClassify: JobHandler = async (job, { admin }) => {
       });
     }
   }
-  if (out.possible_tampering) {
+  const steering = addressedToAi(out.text);
+  if (out.possible_tampering || steering) {
+    const notes = out.tampering_notes ?? (steering ? "This file contains text written to an AI reader, asking for a particular result. It was ignored." : "Possible signs of editing");
     await suggest(admin, {
       org_id: d.org_id, run_id: r.runId, capability: "document.tamper", entity_type: "document", entity_id: d.id, field_key: "tamper",
-      value: { notes: out.tampering_notes }, confidence: 0.5, rationale: out.tampering_notes ?? "Possible signs of editing",
+      value: { notes }, confidence: 0.5, rationale: notes,
     });
   }
-  const queued = await queueExtraction(admin, d, out.document_type);
+  // What else the file holds, for a person to match against the case's slots. The AI never ticks one.
+  const parts = out.readable ? otherDocuments(out.contains, d.category, (cats ?? []).map((c) => c.key)) : [];
+  if (parts.length) {
+    await suggest(admin, {
+      org_id: d.org_id, run_id: r.runId, capability: "document.classify", entity_type: "document", entity_id: d.id, field_key: "contains",
+      value: { parts }, rationale: `Also holds ${parts.map((p) => p.category.replace(/_/g, " ")).join(", ")}`,
+    });
+  }
+  // Nothing can be read from it, so nothing is worth extracting until a better copy arrives.
+  const queued = out.readable ? await queueExtraction(admin, d, [out.document_type, ...out.contains.map((p) => p.category)]) : 0;
   return { type: out.document_type, readable: out.readable, extract: queued };
 };
 
 /** Pre-fill every check this document can help with. */
-async function queueExtraction(admin: ServiceClient, d: { id: string; org_id: string; case_id: string; case_check_id: string | null; category: string }, detected: string | null): Promise<number> {
+async function queueExtraction(admin: ServiceClient, d: { id: string; org_id: string; case_id: string; case_check_id: string | null; category: string }, detected: string[]): Promise<number> {
   const [{ data: requirements }, { data: all }] = await Promise.all([
     admin.from("case_check_requirements").select("case_check_id, category").eq("case_id", d.case_id),
     admin.from("case_checks").select("id").eq("case_id", d.case_id),
   ]);
   const checks = checksToFill(d, detected, requirements ?? [], (all ?? []).map((k) => k.id));
   for (const check of checks) {
-    await admin.rpc("enqueue_job", { p_kind: "ai.extract_fields", p_payload: { check_id: check }, p_idempotency_key: `ai.extract_fields:${check}:${d.id}`, p_entity_type: "case_check", p_entity_id: check, p_org: d.org_id });
+    await admin.rpc("enqueue_job", { p_kind: "ai.extract_fields", p_payload: { check_id: check, document_id: d.id }, p_idempotency_key: `ai.extract_fields:${check}:${d.id}`, p_entity_type: "case_check", p_entity_id: check, p_org: d.org_id });
   }
   return checks.length;
 }
@@ -110,7 +130,7 @@ async function queueExtraction(admin: ServiceClient, d: { id: string; org_id: st
 export const aiExtract: JobHandler = async (job, { admin }) => {
   const skip = notReady();
   if (skip) return skip;
-  const { check_id } = payload<{ check_id?: string }>(job);
+  const { check_id, document_id } = payload<{ check_id?: string; document_id?: string }>(job);
   if (!check_id) throw new NonRetryableError("ai.extract_fields without check_id");
   const { data: k } = await admin.from("case_checks").select("case_id").eq("id", check_id).single();
   if (!k) return { skipped: "check gone" };
@@ -119,24 +139,25 @@ export const aiExtract: JobHandler = async (job, { admin }) => {
   if (!check || ["completed", "discrepancy", "unable_to_verify", "waived"].includes(check.state)) return { skipped: "check closed" };
   const { flat: fields, groups } = extractionFields(check.fields);
   if (!fields.length && !groups.length) return { skipped: "nothing to extract" };
-  const docs = docsForCheck(c.documents, check_id, c.requirements);
+  const docs = docsForCheck(c.documents.filter((d) => d.classification?.readable !== false), check_id, c.requirements, 6, document_id);
   if (!docs.length) return { skipped: "no documents" };
   const blocks: Anthropic.ContentBlockParam[] = [];
   for (const d of docs) {
     blocks.push(P.text(`Document: ${d.filename} (${d.category_name})`));
-    const b = await documentBlock(admin, d);
+    // The file that prompted this job is read in full. Earlier ones were, so their text is enough, and far cheaper.
+    const b = document_id && d.id !== document_id && d.text ? null : await documentBlock(admin, d);
     if (b) blocks.push(b);
-    else if (d.text) blocks.push(P.text(d.text.slice(0, 6000)));
+    else if (d.text) blocks.push(P.text(documentText(d.text, 6000)));
   }
   const describe = (f: (typeof fields)[number]) => ({ key: f.key, label: f.label, type: f.type, hint: f.ai?.hint, options: f.options });
-  const prompt = P.extractPrompt({ checkLabel: check.label, fields: fields.map(describe), groups: groups.map((g) => ({ key: g.key, label: g.label, fields: g.fields.map(describe) })) });
+  const prompt = P.extractPrompt({ checkLabel: check.label, fields: fields.map(describe), groups: groups.map((g) => ({ key: g.key, label: g.label, fields: g.fields.map(describe) })), candidate: c.candidate.full_name });
   const r = await runStructured(admin, "document.extract", ctx(job, c, P.EXTRACT_VERSION, "jobs/ai-extract"), {
     system: prompt.system,
-    content: [P.text(prompt.text), ...blocks],
+    content: [P.text(prompt.text), ...blocks, P.text(prompt.reminder)],
     schema: P.ExtractSchema,
     minTokens: P.EXTRACT_MIN_TOKENS,
   });
-  if (!r.ok) return { skipped: r.reason };
+  if (!r.ok) return notAnswered(r);
   const found: Record<string, unknown> = {};
   let n = 0;
   const leave = async (key: string, value: unknown, confidence: number, source: string | null, writtenAs?: string | null) => {
@@ -150,8 +171,9 @@ export const aiExtract: JobHandler = async (job, { admin }) => {
     n++;
   };
   for (const f of r.data.fields) {
-    if (!fields.some((x) => x.key === f.key) || f.value === null || f.value === "") continue;
-    await leave(f.key, f.value, f.confidence, f.source, f.written_as);
+    const value = formValue(f.value);
+    if (!fields.some((x) => x.key === f.key) || value === null) continue;
+    await leave(f.key, value, f.confidence, f.source, f.written_as);
   }
   for (const g of r.data.groups) {
     const group = groups.find((x) => x.key === g.key);
@@ -175,12 +197,12 @@ export const aiConsistency: JobHandler = async (job, { admin }) => {
   const skip = notReady();
   if (!skip) {
     const c = await loadAiCase(admin, p.case_id);
-    const docs = c.documents.map((d) => `--- ${d.filename} (${d.category_name})\n${(d.text ?? "(no text read yet)").slice(0, 2500)}`).join("\n");
     const r = await runStructured(admin, "case.consistency", ctx(job, c, P.CONSISTENCY_VERSION, "jobs/ai-consistency"), {
       system: P.CONSISTENCY_SYSTEM,
-      content: [P.text(`${caseSummary(c, { values: true })}\n\nDocuments:\n${docs}`)],
+      content: [P.text(consistencyContent(c))],
       schema: P.ConsistencySchema,
     });
+    if (!r.ok) notAnswered(r);
     if (r.ok) {
       await suggest(admin, { org_id: c.org_id, run_id: r.runId, capability: "case.consistency", entity_type: "case", entity_id: c.id, value: r.data, confidence: null, rationale: r.data.summary });
     }
@@ -199,17 +221,12 @@ export const aiPreqc: JobHandler = async (job, { admin }) => {
   if (!case_id) throw new NonRetryableError("ai.preqc_copilot without case_id");
   const c = await loadAiCase(admin, case_id);
   const { data: cons } = await admin.from("ai_suggestions").select("value").eq("entity_type", "case").eq("entity_id", c.id).eq("capability", "case.consistency").order("created_at", { ascending: false }).limit(1).maybeSingle();
-  const reqs = c.requirements.map((r) => `- ${r.label} (${r.category}): ${r.status}, ${r.received_count}/${r.min_count}${r.client_visible ? ", client-supplied" : ""}`).join("\n");
-  const quality = c.documents
-    .filter((d) => d.classification)
-    .map((d) => `- ${d.filename}: ${JSON.stringify({ readable: d.classification?.readable, matches: d.classification?.matches_expected, issues: d.classification?.quality_issues })}`)
-    .join("\n");
   const r = await runStructured(admin, "case.preqc", ctx(job, c, P.PREQC_VERSION, "jobs/ai-preqc"), {
     system: P.PREQC_SYSTEM,
-    content: [P.text(`${caseSummary(c, { values: true })}\n\nRequired documents:\n${reqs}\n\nDocument checks:\n${quality || "(none yet)"}\n\nConsistency findings:\n${JSON.stringify(cons?.value ?? "not run")}`)],
+    content: [P.text(preqcContent(c, cons?.value))],
     schema: P.PreQcSchema,
   });
-  if (!r.ok) return { skipped: r.reason };
+  if (!r.ok) return notAnswered(r);
   await suggest(admin, { org_id: c.org_id, run_id: r.runId, capability: "case.preqc", entity_type: "case", entity_id: c.id, value: r.data, rationale: r.data.summary });
   return { checklist: r.data.checklist.length, requests: r.data.requests.length };
 };
@@ -222,13 +239,12 @@ export const aiPostqc: JobHandler = async (job, { admin }) => {
   if (!case_id) throw new NonRetryableError("ai.postqc without case_id");
   const c = await loadAiCase(admin, case_id);
   const { data: cons } = await admin.from("ai_suggestions").select("value").eq("entity_type", "case").eq("entity_id", c.id).eq("capability", "case.consistency").order("created_at", { ascending: false }).limit(1).maybeSingle();
-  const evidence = c.documents.map((d) => `- ${d.filename} (${d.category_name})${d.case_check_id ? ` for ${c.checks.find((k) => k.id === d.case_check_id)?.label}` : ""}`).join("\n");
   const r = await runStructured(admin, "case.postqc", ctx(job, c, P.POSTQC_VERSION, "jobs/ai-postqc"), {
     system: P.POSTQC_SYSTEM,
-    content: [P.text(`${caseSummary(c, { values: true })}\n\nEvidence on file:\n${evidence || "(none)"}\n\nConsistency findings:\n${JSON.stringify(cons?.value ?? "not run")}`)],
+    content: [P.text(postqcContent(c, cons?.value))],
     schema: P.PostQcSchema,
   });
-  if (!r.ok) return { skipped: r.reason };
+  if (!r.ok) return notAnswered(r);
   await suggest(admin, { org_id: c.org_id, run_id: r.runId, capability: "case.postqc", entity_type: "case", entity_id: c.id, value: r.data, rationale: r.data.reasoning });
   return { proposed: r.data.proposed_result };
 };
@@ -243,12 +259,14 @@ export const aiNarrative: JobHandler = async (job, { admin }) => {
   const { data: c } = await admin.from("cases").select("id, client_id").eq("id", case_id).single();
   const r = await runStructured(admin, "report.narrative", ctx(job, { org_id: orgId, client_id: c?.client_id, id: case_id }, P.NARRATIVE_VERSION, "jobs/ai-narrative"), {
     system: P.NARRATIVE_SYSTEM,
-    content: [P.text(`Write remarks for each check and an executive summary.\n${JSON.stringify({ case: snapshot.case, candidate: { name: snapshot.candidate.full_name }, checks: snapshot.checks.map((k) => ({ key: k.key, label: k.label, status: k.status_label, result: k.result_label, fields: k.fields, groups: k.groups, current_remarks: k.remarks })) })}`)],
+    content: [P.text(narrativeContent(snapshot))],
     schema: P.NarrativeSchema,
   });
-  if (!r.ok) return { skipped: r.reason };
-  const { data: checks } = await admin.from("case_checks").select("id, check_type:check_types(key)").eq("case_id", case_id);
-  const idOf = new Map((checks ?? []).map((k) => [(k.check_type as unknown as { key: string }).key, k.id]));
+  if (!r.ok) return notAnswered(r);
+  // In the report's order, so a second check of one type gets its own remarks.
+  const { data: checks } = await admin.from("case_checks").select("id, label, sort, check_type:check_types(key)").eq("case_id", case_id).order("sort").order("label");
+  const keys = narrativeKeys((checks ?? []).map((k) => (k.check_type as unknown as { key: string }).key));
+  const idOf = new Map((checks ?? []).map((k, i) => [keys[i], k.id]));
   for (const k of r.data.checks) {
     const id = idOf.get(k.key);
     if (id && k.remarks.trim()) await suggest(admin, { org_id: orgId, run_id: r.runId, capability: "report.narrative", entity_type: "case_check", entity_id: id, field_key: "remarks", value: { text: k.remarks.trim() } });
@@ -267,13 +285,12 @@ export const aiOutreach: JobHandler = async (job, { admin }) => {
   if (!k) return { skipped: "check gone" };
   const c = await loadAiCase(admin, k.case_id);
   const check = c.checks.find((x) => x.id === check_id)!;
-  const details = check.fields.map((f) => (check.values[f.key] !== undefined ? `${f.label}: ${JSON.stringify(check.values[f.key])}` : null)).filter(Boolean).join("\n");
   const r = await runStructured(admin, "check.outreach", ctx(job, c, P.OUTREACH_VERSION, "jobs/ai-outreach"), {
     system: P.OUTREACH_SYSTEM,
-    content: [P.text(`Check: ${check.label}\nCandidate: ${c.candidate.full_name}\nWho to contact: ${target || "the issuing institution or employer"}\nDetails to confirm:\n${details}`)],
+    content: [P.text(outreachContent(check, c.candidate.full_name, target))],
     schema: P.OutreachSchema,
   });
-  if (!r.ok) return { skipped: r.reason };
+  if (!r.ok) return notAnswered(r);
   await suggest(admin, { org_id: c.org_id, run_id: r.runId, capability: "check.outreach", entity_type: "case_check", entity_id: check_id, field_key: "outreach", value: { ...r.data, follow_up_days: Math.min(14, Math.max(1, Math.round(r.data.follow_up_days))) } });
   return { drafted: true };
 };
@@ -288,13 +305,12 @@ export const aiResponse: JobHandler = async (job, { admin }) => {
   if (!k) return { skipped: "check gone" };
   const c = await loadAiCase(admin, k.case_id);
   const check = c.checks.find((x) => x.id === check_id)!;
-  const declared = check.fields.map((f) => (check.values[f.key] !== undefined ? `${f.key} (${f.label}): ${JSON.stringify(check.values[f.key])}` : null)).filter(Boolean).join("\n");
   const r = await runStructured(admin, "check.response", ctx(job, c, P.RESPONSE_VERSION, "jobs/ai-response"), {
     system: P.RESPONSE_SYSTEM,
-    content: [P.text(`Check: ${check.label}\nResult options: ${check.resultOptions.map((o) => `${o.key} (${o.label}, ${o.tone})`).join(", ")}\nDeclared:\n${declared}\n\nReply received:\n${reply.slice(0, 8000)}`)],
+    content: [P.text(responseContent(check, reply))],
     schema: P.ResponseSchema,
   });
-  if (!r.ok) return { skipped: r.reason };
+  if (!r.ok) return notAnswered(r);
   const valid = check.resultOptions.some((o) => o.key === r.data.proposed_result);
   await suggest(admin, {
     org_id: c.org_id, run_id: r.runId, capability: "check.response", entity_type: "case_check", entity_id: check_id, field_key: "result",
@@ -366,7 +382,7 @@ export const dailyBriefing: JobHandler = async (job, { admin }) => {
         schema: P.BriefingSchema,
       });
       if (r.ok) {
-        briefing = { ...r.data, bullets: r.data.bullets.slice(0, 8), risks: r.data.risks.slice(0, 5) };
+        briefing = { ...r.data, bullets: r.data.bullets.slice(0, 4), risks: r.data.risks.slice(0, 3) };
         runId = r.runId;
       }
     }
@@ -437,8 +453,9 @@ export const retentionPurge: JobHandler = async (_job, { admin }) => {
   const { data } = await admin.rpc("voice_notes_to_purge");
   const rows = (data ?? []) as { id: string; storage_path: string }[];
   if (rows.length) {
-    await admin.storage.from("documents").remove(rows.map((r) => r.storage_path));
-    await admin.from("assistant_voice_notes").update({ storage_path: null, status: "purged", purged_at: new Date().toISOString() }).in("id", rows.map((r) => r.id));
+    // A failed delete stays on the list, so tomorrow's run tries again.
+    const removed = await admin.storage.from("documents").remove(rows.map((r) => r.storage_path));
+    if (!removed.error) await admin.from("assistant_voice_notes").update({ storage_path: null, status: "purged", purged_at: new Date().toISOString() }).in("id", rows.map((r) => r.id));
   }
 
   const { data: due, error } = await admin.rpc("retention_due_cases", { p_limit: 50 });
@@ -452,9 +469,11 @@ export const retentionPurge: JobHandler = async (_job, { admin }) => {
       failed.push(`${c.reference}: ${r.error.message}`);
       continue;
     }
-    files += await removeObjects(admin, ((r.data as { objects?: { bucket: string; path: string }[] }).objects ?? []));
     erased++;
   }
+  // Everything erased here, and whatever an earlier run couldn't remove.
+  const sweep = await drainStorageDeletions(admin);
+  files = sweep.removed;
   if (failed.length) {
     // Personal data past its retention period must not linger quietly: record it and fail the job.
     await admin.from("system_events").insert({ kind: "retention.failed", severity: "error", message: `Retention erasure failed for ${failed.length} case(s)`, context: { failed: failed.slice(0, 50) } });

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import { ChecksProgress, PriorityBadge, stageColor, ToneChip } from "@/components/cases/badges";
+import { ChecksProgress, PriorityBadge, stageColor, statusNote, ToneChip } from "@/components/cases/badges";
 import { PersonAvatar } from "@/components/cases/person";
 import { SlaBadge } from "@/components/cases/sla-badge";
 import { ACTIVE_STAGES, STAGE_SHORT, stageStep, type Stage } from "@/domain/workflow/stages";
@@ -73,6 +73,7 @@ function BoardCard({ item: c }: { item: CaseListItem }) {
       </div>
       <p className="mt-1.5 truncate text-sm font-medium">{c.candidateName}</p>
       <p className="truncate text-xs text-muted-foreground">{c.clientName}</p>
+      {statusNote(c.statusKey, c.statusLabel) ? <p className="mt-1 truncate text-xs text-muted-foreground">{c.statusLabel}</p> : null}
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
         {c.onHold ? (
           <ToneChip tone="warning" dot={false} className="h-5 px-2 text-[11px]">

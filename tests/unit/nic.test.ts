@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { BUILTIN_CHECK_TYPES } from "@/domain/check-types/builtin";
+import { identityMismatches } from "@/domain/check-types/identity";
+import { parseCheckTypeSchema } from "@/domain/check-types/schema";
 import { canonicalNic, parseNic } from "@/domain/nic-core";
 
 const today = new Date("2026-10-29T00:00:00Z");
@@ -33,5 +36,21 @@ describe("Sri Lankan NIC numbers", () => {
   it("matches the same person across old and new cards", () => {
     expect(canonicalNic(" 853400937v ")).toBe(canonicalNic("198534000937"));
     expect(canonicalNic("not a nic")).toBeNull();
+  });
+});
+
+describe("identity on a check", () => {
+  const fields = parseCheckTypeSchema(BUILTIN_CHECK_TYPES.find((t) => t.key === "nic")!.schema).fields;
+
+  it("is quiet when the details agree", () => {
+    expect(identityMismatches(fields, { nic_number: "853400937V", date_of_birth: "1985-12-05" }, { nic: "198534000937", dateOfBirth: null })).toEqual([]);
+  });
+
+  it("says when the NIC isn't the candidate's", () => {
+    expect(identityMismatches(fields, { nic_number: "853400937V" }, { nic: "199012345678", dateOfBirth: null }).join(" ")).toMatch(/isn't the NIC on the candidate's record/);
+  });
+
+  it("says when the NIC and the date of birth disagree", () => {
+    expect(identityMismatches(fields, { nic_number: "853400937V", date_of_birth: "1990-01-01" }, { nic: null, dateOfBirth: null }).join(" ")).toMatch(/birth date of 1985-12-05/);
   });
 });
