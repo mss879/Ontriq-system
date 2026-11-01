@@ -373,6 +373,12 @@ async function seed() {
       total += r.processed;
       if (!r.processed) break;
     }
+    // A live site's own worker takes jobs too, so wait for the ones it holds.
+    for (let i = 0; i < 90; i++) {
+      const { count } = await service.from("jobs").select("id", { count: "exact", head: true }).eq("status", "running").neq("kind", "notify.email");
+      if (!count) break;
+      await new Promise((done) => setTimeout(done, 2000));
+    }
     console.log(`  jobs: ${label} (${total})`);
   };
   const log = (s: string) => console.log(`• ${s}`);
@@ -721,14 +727,14 @@ async function seed() {
     const id = p.caseId!;
     const add = (capability: string, entity_type: string, entity_id: string, value: unknown, rationale?: string, field_key?: string, confidence?: number) =>
       suggestions.push({ org_id: ORG, capability, entity_type, entity_id, value, rationale: rationale ?? null, field_key: field_key ?? null, confidence: confidence ?? null, source_refs: ["demo-seed"] });
-    if (p.stage === "pre_qc") {
+    if (p.stage === "pre_qc" && !p.pinned) {
       add("case.consistency", "case", id, { issues: p.i % 2 ? [{ severity: "medium", topic: "name", description: `The service letter spells the name "${p.person.full_name.split(" ")[0]} ${p.person.full_name.split(" ")[1]?.[0]}." while the NIC gives it in full. This is probably initials, not a different person.`, documents: ["service-letter.pdf", "nic-copy.pdf"] }] : [], summary: p.i % 2 ? "One small name difference to confirm." : "Names, NIC and dates agree across the documents." }, "Compared the documents with the details declared.");
       add("case.preqc", "case", id, { summary: "Documents are complete and readable.", checklist: [{ item: "All required documents received", ok: true, note: null }, { item: "Documents readable", ok: true, note: null }, { item: "Names match across documents", ok: p.i % 2 === 0, note: p.i % 2 ? "Initials used on one letter" : null }], requests: p.i % 2 ? [{ to: "candidate", kind: "question", title: "Confirm your name on the service letter", message: "Your service letter shows your initials. Please confirm this is you.", category: null }] : [] }, "Documents are complete and readable.");
     }
-    if (p.stage === "post_qc") {
+    if (p.stage === "post_qc" && !p.pinned) {
       add("case.postqc", "case", id, { checks: [], missing: [], proposed_result: "green", reasoning: "Every check is complete and the results match the evidence on file." }, "Every check is complete and the results match the evidence on file.");
     }
-    if (p.stage === "report") {
+    if (p.stage === "report" && !p.pinned) {
       add("report.narrative", "case", id, { text: `All checks for ${p.person.full_name} were completed. No discrepancies were found.` }, undefined, "executive_summary");
     }
     const count = p.stage === "released" ? int(10, 22) : reached(p, "pre_qc") ? int(3, 8) : int(0, 2);
@@ -748,6 +754,119 @@ async function seed() {
       suggestions.push({ org_id: ORG, capability: "document.extract", entity_type: "case_check", entity_id: k.id, field_key: "name_on_nic", value: { value: p.person.full_name, source: "nic-copy.pdf" }, confidence: 0.93, source_refs: ["demo-seed"] });
     }
   }
+
+  // Lanka Horizon is the client shown live, so its cases hold a full example of each AI feature.
+  const give = (capability: string, entity_type: string, entity_id: string, value: unknown, extra: Record<string, unknown> = {}) =>
+    suggestions.push({ org_id: ORG, capability, entity_type, entity_id, value, rationale: null, field_key: null, confidence: null, source_refs: ["demo-seed"], ...extra });
+  const showcase = (stage: Stage, test: (p: Plan) => boolean = () => true) => all.find((p) => p.pinned && p.stage === stage && test(p));
+  const checksOf = async (p: Plan) => (await service.from("case_checks").select("id, label, check_type_id, values").eq("case_id", p.caseId!).order("sort")).data ?? [];
+  const aiCases: string[] = [];
+
+  const reviewed = showcase("pre_qc");
+  if (reviewed) {
+    const name = reviewed.person.full_name;
+    const initials = `${name.charAt(0)}. ${name.split(" ").slice(-1)[0]}`;
+    give("case.consistency", "case", reviewed.caseId!, {
+      issues: [
+        { severity: "medium", topic: "name", description: `The service letter gives the name as "${initials}", while the NIC copy shows "${name}". This looks like the same person, but it is worth confirming.`, documents: ["service-letter.pdf", "nic-copy.pdf"] },
+        { severity: "low", topic: "dates", description: "The last day on the service letter is one month earlier than the date on the CV.", documents: ["service-letter.pdf"] },
+      ],
+      summary: "Two small points to confirm. The NIC number and date of birth match across every document.",
+    });
+    give("case.preqc", "case", reviewed.caseId!, {
+      checklist: [
+        { item: "All required documents received", ok: true, note: null },
+        { item: "NIC number matches across documents", ok: true, note: null },
+        { item: "Documents are readable", ok: false, note: "The stamp on the Grama Niladhari certificate is blurred." },
+        { item: "Names match across documents", ok: false, note: "The service letter uses initials." },
+      ],
+      requests: [{ to: "client", kind: "document", title: "Clearer Grama Niladhari certificate", message: "The stamp on this certificate is hard to read. Please send a clearer copy.", category: "gn_certificate" }],
+      summary: "Documents are all here. One certificate needs a clearer copy, and one name should be confirmed, before this moves on.",
+    }, { rationale: "Read from the documents on this case." });
+    const { data: files } = await service.from("documents").select("id, category").eq("case_id", reviewed.caseId!);
+    for (const f of files ?? []) {
+      const blurred = f.category === "gn_certificate";
+      must(await service.from("document_ai").upsert({ document_id: f.id, org_id: ORG, classification: { document_type: f.category, matches_expected: true, readable: true, quality_issues: blurred ? ["blurred"] : [], is_photocopy: true, language: "en", names_seen: [name], model: "claude-haiku-5-5" } } as never), "document AI");
+      if (blurred) give("document.classify", "document", f.id, { readable: true, matches_expected: true, issues: ["blurred"], detected: f.category, message: "The stamp is hard to read. Please upload a clearer copy." }, { field_key: "quality", confidence: 0.6 });
+    }
+    aiCases.push(`- **${reviewed.reference}, Pre-QC:** the AI found a name to confirm and a blurred certificate, and drafted the request to the client.`);
+  }
+
+  const entered = showcase("data_entry");
+  if (entered) {
+    const person = entered.person;
+    const fill = (id: string, field: string, value: unknown, source: string) => give("document.extract", "case_check", id, { value, source }, { field_key: field, confidence: 0.94, rationale: `Read from ${source}.` });
+    for (const k of await checksOf(entered)) {
+      if (Object.keys((k.values ?? {}) as object).length) continue;
+      const key = typeKey.get(k.check_type_id);
+      if (key === "address") {
+        fill(k.id, "address", person.address, "gn-certificate.pdf");
+        fill(k.id, "district", person.district, "gn-certificate.pdf");
+      }
+      if (key === "police") {
+        fill(k.id, "nic", person.nic, "police-report.pdf");
+        fill(k.id, "permanent_address", person.address, "police-report.pdf");
+        fill(k.id, "police_station_area", `${person.district} Police`, "police-report.pdf");
+      }
+    }
+    aiCases.push(`- **${entered.reference}, data entry:** open the Address or Criminal check. The AI has filled fields from the documents, and a person accepts each one.`);
+  }
+
+  const verifying2 = showcase("verification", (p) => p.finished === 0);
+  if (verifying2) {
+    const name = verifying2.person.full_name;
+    const study = (await checksOf(verifying2)).find((k) => typeKey.get(k.check_type_id) === "education");
+    if (study) {
+      const v = (study.values ?? {}) as { institution?: string; qualification?: string; year_of_completion?: number };
+      give("check.outreach", "case_check", study.id, {
+        subject: `Confirmation of qualification: ${name}`,
+        body: `Dear Registrar,\n\nOntriq is carrying out a background verification for ${name}, with their consent. Please confirm that they completed the ${v.qualification ?? "qualification"} at ${v.institution ?? "your institution"} in ${v.year_of_completion ?? "the year stated"}.\n\nA short reply to this email is all we need.\n\nThank you,\nOntriq Verification Team`,
+        call_script: `Hello, I'm calling from Ontriq about a background verification for ${name}. Could you confirm their qualification and year of completion?`,
+        follow_up_days: 3,
+      }, { field_key: "outreach" });
+      give("check.response", "case_check", study.id, {
+        comparisons: [
+          { field: "Institution", claimed: v.institution ?? null, confirmed: v.institution ?? null, matches: true },
+          { field: "Degree or qualification", claimed: v.qualification ?? null, confirmed: v.qualification ?? null, matches: true },
+          { field: "Year of completion", claimed: String(v.year_of_completion ?? ""), confirmed: String(v.year_of_completion ?? ""), matches: true },
+        ],
+        proposed_result: "clear",
+        confidence: 0.93,
+        reasoning: "The registrar's reply confirms every detail on the certificate.",
+        client_note: "The institution confirmed the qualification and year of completion.",
+      }, { field_key: "result", confidence: 0.93, rationale: "The registrar's reply confirms every detail on the certificate." });
+      aiCases.push(`- **${verifying2.reference}, verification:** open the Education check. The AI drafted the email to the institution, and compared the reply with what was claimed.`);
+    }
+  }
+
+  const finished = showcase("post_qc");
+  if (finished) {
+    give("case.postqc", "case", finished.caseId!, {
+      checks: [{ check: "Employment Verification", ok: true, concerns: ["The end date on the service letter is a month earlier than the date on the CV. The employer confirmed the service letter."] }],
+      missing: [],
+      proposed_result: "green",
+      reasoning: "Every check is complete, the evidence is on file and the results match it. One small date difference is worth a look before approving.",
+    }, { rationale: "Every check is complete and the evidence is on file." });
+    aiCases.push(`- **${finished.reference}, Post-QC:** the AI reviewed the findings against the evidence and proposes a result. The reviewer decides.`);
+  }
+
+  const writing = showcase("report");
+  if (writing) {
+    const name = writing.person.full_name;
+    give("report.narrative", "case", writing.caseId!, { text: `All seven checks for ${name} were completed. The candidate's identity, education and employment were confirmed with the issuing sources, and both referees gave positive feedback. No adverse record or sanction match was found.` }, { field_key: "executive_summary" });
+    const remarks: Record<string, string> = {
+      education: "The registrar confirmed the qualification and year of completion by email.",
+      employment: "The employer's HR team confirmed the designation, dates and type of employment.",
+      address: "The Grama Niladhari confirmed the residence and the period stated.",
+      reference: "Both referees confirmed their details and gave positive feedback.",
+    };
+    for (const k of await checksOf(writing)) {
+      const text = remarks[typeKey.get(k.check_type_id) ?? ""];
+      if (text) give("report.narrative", "case_check", k.id, { text }, { field_key: "remarks" });
+    }
+    aiCases.push(`- **${writing.reference}, report:** the AI wrote the summary and each check's remarks for the report. Staff edit and accept them.`);
+  }
+
   suggestions.push({
     org_id: ORG, capability: "briefing.daily", entity_type: "org", entity_id: ORG, source_refs: ["demo-seed"],
     value: { headline: `${all.filter((p) => !["released", "cancelled"].includes(p.stage)).length} cases open, ${verifying.length} in verification.`, bullets: [`${all.filter((p) => p.stage === "approval").length} reports are waiting for final approval.`, `${all.filter((p) => p.stage === "intake").length} new requests came in from the client portal.`, `${all.filter((p) => p.stage === "post_qc").length} cases are ready for Post-QC review.`], risks: ["Two cases are on hold waiting for client confirmation.", "Payment slips are waiting to be matched in Payments."], day: iso(new Date()) },
@@ -777,10 +896,13 @@ async function seed() {
     const built = await buildReportFiles(service, v as never, snapshot, { run: 2, heartbeat: async () => undefined, issue: 1 });
     redrawn.push({ id: v.id, snapshot, hash, path: built.path, sha256: built.sha256, pages: built.assembled.pages, size: built.assembled.bytes.byteLength });
   });
-  runSql(`alter table public.report_versions disable trigger user;
+  // In small batches, because snapshots are large and a hosted query has a size limit.
+  for (let i = 0; i < redrawn.length; i += 4) {
+    runSql(`alter table public.report_versions disable trigger user;
     update public.report_versions v set snapshot = r.snapshot, snapshot_hash = r.hash, storage_path = r.path, sha256 = r.sha256, page_count = r.pages, size_bytes = r.size
-      from jsonb_to_recordset('${JSON.stringify(redrawn).replace(/'/g, "''")}'::jsonb) as r(id uuid, snapshot jsonb, hash text, path text, sha256 text, pages int, size bigint) where v.id = r.id;
+      from jsonb_to_recordset('${JSON.stringify(redrawn.slice(i, i + 4)).replace(/'/g, "''")}'::jsonb) as r(id uuid, snapshot jsonb, hash text, path text, sha256 text, pages int, size bigint) where v.id = r.id;
     alter table public.report_versions enable trigger user;`);
+  }
   const pushNote = "Hi Nimal, a couple of items are running past their due date. Could you take a look today, and tell me if anything is blocking you?";
   await A("ops").db.rpc("send_nudge", { p_to: A("staff").id, p_message: pushNote, p_channels: ["in_app"] });
   const second = await A("ops").db.rpc("send_nudge", { p_to: A("officer3").id, p_message: "Hi Kavindu, three checks are overdue this week. Is there anything I can help with?", p_channels: ["in_app"] });
@@ -822,6 +944,25 @@ async function seed() {
         line("aurora", "Client Admin: Aurora Lanka Finance (Rohan Abeysekera)"),
         "",
         "Your own Super Admin login sees everything, including the Command page.",
+        "",
+        "## AI to show",
+        "",
+        "Sign in as Admin or Operations Manager for these. Each suggestion waits for a person to accept it.",
+        "",
+        "- **Dashboard:** the morning briefing.",
+        ...aiCases,
+        "- **Settings, AI:** usage and cost by feature.",
+        "",
+        "## Questions for Ask Ontriq",
+        "",
+        "Top right of any staff page. These use the real AI on the live data.",
+        "",
+        "- How many cases are waiting for Post-QC?",
+        "- Which cases are overdue, and who has them?",
+        `- Summarise ${aiCases.length ? (reviewed?.reference ?? "a case") : "a case"} for me.`,
+        "- Which client has the most open cases?",
+        "- Who on the team has the most checks in progress?",
+        "- Which reports are waiting for my approval?",
         "",
         "## More to show",
         "",
