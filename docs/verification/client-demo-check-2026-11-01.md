@@ -18,10 +18,18 @@ The system is not deployed. It runs only on this Mac, the hosted database stops 
 | Simulation of the whole system | 153 of 155. The two others need hosted services: live updates and the 10-character password rule |
 | Browser page views across all 11 roles | 139 of 139 clean, 6 of 6 interactions |
 | Draft to release through the real screens, each step as its role | 33 of 33 |
+| Requirements walkthrough through the real screens | 14 of 14 |
+| Report flow as the real roles | 18 of 18 |
+| Quotation flow | 35 of 35 |
+| Invoice and payment flow | 79 of 79 |
+| Demo sign-ins at desktop and phone sizes | 55 page views clean |
+| Page layout | 10 pages fit at 8 widths |
 | Sign-in through the real form with all 12 demo accounts | 12 of 12, no errors |
 | Real AI: a document read and the assistant | Both work. About two cents |
 
-A fresh line-by-line read of the client's document finished for sections 4.1 to 4.4, 4.7, 4.8 and 6 to 6.2: 131 lines, 125 met. A usage limit stopped it for the other sections. Those rest on the runs above, on a released report read page by page, and on the earlier audits in [the requirements audit](requirements-audit-2026-10-31.md).
+A fresh line-by-line read of the client's document finished for sections 4.1 to 4.4, 4.7, 4.8 and 6 to 6.2: 131 lines, 125 met. A usage limit stopped that read for the other sections. They were then matched sentence by sentence to the 155 named simulation checks, and each sentence without a check was tested directly. Those direct tests were a released report read page by page, a report with an unverified check, the two-referee minimum, assigning one check to one person, and the rule that a person sets the final result. The earlier audits are in [the requirements audit](requirements-audit-2026-10-31.md).
+
+A real AI document read and the assistant both ran once. Everything else ran with AI off. Local runs can't prove real email or SMS delivery or live updates.
 
 ## Requirements
 
@@ -75,6 +83,18 @@ Each attack ran against the real app or database, as the real role.
 | Each role's menu | No dead links |
 
 One audit finding was wrong. It said a Data Entry Officer couldn't open the police report. Assigned to the case or to the police check, they can. Assigned to a different check, they can't, which is the rule working.
+
+## Misuse
+
+| Attempt | Result |
+|---|---|
+| 21 addresses that don't exist, for staff and clients | A tidy not-found, no crash |
+| 14 odd search strings, including quotes, an SQL attack, Sinhala and Tamil | No crash |
+| Script text saved in a note, then opened | Shown as text, doesn't run |
+| An .exe, a 26 MB file and an empty file | Refused |
+| Release pressed twice at once | Released once |
+| The same invoice paid twice at once | Paid once, the second refused |
+| Four stale actions on a released case | All refused |
 
 ## Left as they are
 

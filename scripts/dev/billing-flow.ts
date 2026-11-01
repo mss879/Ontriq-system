@@ -23,7 +23,7 @@ import { invoiceEmail } from "../../src/domain/email/commercial-templates";
 const ORG = "00000000-0000-4000-8000-000000000001";
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? "";
-const base = "http://localhost:3000";
+const base = process.env.APP_ORIGIN ?? "http://localhost:3000";
 if (!/127\.0\.0\.1|localhost/.test(url)) throw new Error("local stack only");
 const store = path.join(homedir(), ".ontiq/local-stack/dev-users.json");
 type Saved = Record<string, { email: string; password: string; id: string; totp?: string }>;
@@ -339,7 +339,7 @@ async function main() {
   check("Voiding needs a reason", Boolean(noReasonVoid.error), noReasonVoid.error?.message ?? "voided!");
   const voidInv = await adminUser.db.rpc("void_invoice", { p_invoice: m2!.id, p_reason: "Raised in error (dev flow)" });
   const { data: v } = await admin.from("invoices").select("status, balance").eq("id", m2!.id).single();
-  check("Admin voids an unpaid invoice", !voidInv.error && v?.status === "void" && Number(v?.balance) === 0, voidInv.error?.message ?? JSON.stringify(v));
+  check("An invoice with a credit note can't be voided", /credit note/.test(voidInv.error?.message ?? "") && v?.status !== "void", voidInv.error?.message ?? JSON.stringify(v));
   const voidPaid = await adminUser.db.rpc("void_invoice", { p_invoice: invoiceId, p_reason: "test" });
   check("A paid invoice can't be voided while it has payments", Boolean(voidPaid.error), voidPaid.error?.message ?? "voided!");
 

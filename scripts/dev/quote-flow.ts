@@ -179,7 +179,7 @@ async function main() {
   const { data: v1 } = await admin.from("quotes").select("status").eq("id", q.id).single();
   check("A new version is a draft copy", v2?.status === "draft" && v2?.version === 2 && v1?.status === "accepted", rev.error?.message ?? JSON.stringify({ v1, v2 }));
 
-  const page = await fetch(`http://localhost:3000/api/documents/${c!.document_id}`, { redirect: "manual" });
+  const page = await fetch(`${process.env.APP_ORIGIN ?? "http://localhost:3000"}/api/documents/${c!.document_id}`, { redirect: "manual" });
   check("The PDF route sends anonymous visitors to sign in", page.status >= 300 && page.status < 500 && !page.headers.get("content-type")?.includes("pdf"), String(page.status));
 
   console.log(JSON.stringify({ quoteId: q.id, number: c?.number, documentId: c?.document_id, revision: rev.data }));

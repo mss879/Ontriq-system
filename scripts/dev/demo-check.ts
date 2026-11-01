@@ -35,8 +35,8 @@ const PLAN: { match: RegExp; name: string; pages: [string, string][] }[] = [
       ["/app/quotes", "QT-2026"], ["/app/invoices", "INV-2026"], ["/app/payments", "Payments"], ["/app/team/performance", "Nimal Fernando"], ["/app/analytics", "Cases per week"], ["/app/analytics?tab=revenue", "Outstanding"], ["/app/analytics?tab=ai", "AI"], ["/app/audit", "Audit"],
     ],
   },
-  { match: /^Staff/, name: "staff", pages: [["/app", "Good"], ["/app/queues", "ONT-2026"], ["/app/cases", "ONT-2026"], ["/app/team/performance", "scorecard"]] },
-  { match: /^Client portal/, name: "client", pages: [["/portal", "Lanka Horizon"], ["/portal/cases", "ONT-2026"], ["/portal/cases/new", "New request"], ["/portal/reports", "ONT-2026"], ["/portal/quotes", "QT-2026"], ["/portal/invoices", "INV-2026"], ["/portal/packages", "Packages"], ["/portal/team", "Dilani"]] },
+  { match: /^(Staff|Verification Officer)/, name: "staff", pages: [["/app", "Good"], ["/app/queues", "ONT-2026"], ["/app/cases", "ONT-2026"], ["/app/team/performance", "scorecard"]] },
+  { match: /^Client (portal|Admin: Lanka)/, name: "client", pages: [["/portal", "Lanka Horizon"], ["/portal/cases", "ONT-2026"], ["/portal/cases/new", "New request"], ["/portal/reports", "ONT-2026"], ["/portal/quotes", "QT-2026"], ["/portal/invoices", "INV-2026"], ["/portal/packages", "Packages"], ["/portal/team", "Dilani"]] },
 ];
 
 function shell() {
