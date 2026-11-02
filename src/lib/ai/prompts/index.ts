@@ -65,9 +65,23 @@ export function classifyPrompt(input: { expectedCategory: string; expectedLabel:
   };
 }
 
+/**
+ * Which way up a scanned page or photo is. A card scanned sideways reads far
+ * worse than the same card upright, so pages are turned before any read.
+ */
+export const ORIENT_VERSION = "orient-v2";
+/** Asked as a direction, not a number of degrees: "degrees clockwise" mixed up 90 and 270. An unlisted word leaves the page as it is. */
+export const OrientSchema = z.object({
+  top: z.enum(["up", "right", "down", "left"]).catch("up").describe("The way the tops of the letters in the main text point"),
+});
+/** Degrees to turn the image clockwise so the text stands upright. */
+export const TURN_FOR: Record<z.infer<typeof OrientSchema>["top"], number> = { up: 0, right: 270, down: 180, left: 90 };
+export const ORIENT_SYSTEM = `${ONTRIQ}\nYou say which way up a scanned page or photo is, nothing more. The text may be English, Sinhala or Tamil, printed or handwritten.`;
+export const ORIENT_TEXT = "Look at the main text in this image: printed form labels and handwritten entries. Which way do the tops of the letters point: up (it reads normally), right, down (upside down) or left?";
+
 // ---------------------------------------------------------------- 2. extract
 
-export const EXTRACT_VERSION = "extract-v3";
+export const EXTRACT_VERSION = "extract-v4";
 const Period = z.object({ from: z.string().nullable(), to: z.string().nullable(), present: z.boolean().describe("True when the period runs to today, so it has no end date") });
 const FieldValue = z.union([z.string(), z.number(), z.boolean(), z.null(), Period]);
 export const ExtractSchema = z.object({
@@ -95,7 +109,7 @@ export type ExtractResult = z.infer<typeof ExtractSchema>;
 
 /** The declared name settles spelling, never identity. */
 const NAME_RULE = (name: string) =>
-  `The candidate on this case is ${name}. If a name on a document is this same name, in another script or spelled another way, use this spelling. If it is a different name, give exactly what the document shows.`;
+  `The candidate on this case is ${name}. If a name on a document is this same name, in another script or spelled another way, use this spelling. If it is a different name, give exactly what the document shows. Copy every part of a name the document shows, such as initials and the ge-name.`;
 
 type ExtractField = { key: string; label: string; type: string; hint?: string; options?: { value: string; label: string }[] };
 
@@ -105,7 +119,7 @@ const describeField = (f: ExtractField) =>
 export function extractPrompt(input: { checkLabel: string; fields: ExtractField[]; groups?: { key: string; label: string; fields: ExtractField[] }[]; candidate?: string | null }) {
   const groups = input.groups ?? [];
   return {
-    system: `${ONTRIQ}\nYou pre-fill a verification check's fields from the uploaded documents so a data entry officer can confirm them side by side. ${LANGUAGES} ${HONEST}\n${DATA_ONLY}\nGo through every page of every document before you answer: one file may hold several documents, such as a NIC, a service letter and a police report. Return every value in English: translate words, and write names and places in their usual English spelling. Copy numbers exactly (NIC, index, reference and phone numbers), converting any Sinhala or Tamil numerals to 0-9. When you translate a value, put the original in written_as.\nDates are YYYY-MM-DD, and Sri Lankan documents usually write the day first. A period is {"from","to","present"}: when it runs to today (to date, to present, මේ දක්වා, இன்று வரை), set present to true and leave to null. When only a month and year are shown, use the first of that month. For a choice field, return one of the option values. Leave a field out if the documents don't show it.\nFor a repeating group, return one row per item, each with the columns you can read, and only what the documents say belongs there: whoever signed a letter is not a referee.`,
+    system: `${ONTRIQ}\nYou pre-fill a verification check's fields from the uploaded documents so a data entry officer can confirm them side by side. ${LANGUAGES} ${HONEST}\n${DATA_ONLY}\nGo through every page of every document before you answer: one file may hold several documents, such as a NIC, a service letter and a police report. Return every value in English: translate words, and write names and places in their usual English spelling. Copy numbers exactly (NIC, index, reference and phone numbers), converting any Sinhala or Tamil numerals to 0-9. When you translate a value, put the original in written_as.\nDates are YYYY-MM-DD, and Sri Lankan documents usually write the day first. A period is {"from","to","present"}: when it runs to today (to date, to present, මේ දක්වා, இன்று வரை), set present to true and leave to null. A period written in words counts too: "since birth" (උපන් දා සිට, பிறப்பிலிருந்து) runs from the date of birth, when a document shows it, to today. When only a month and year are shown, use the first of that month. For a choice field, return one of the option values. Leave a field out if the documents don't show it.\nFor a repeating group, return one row per item, each with the columns you can read, and only what the documents say belongs there: whoever signed a letter is not a referee.`,
     text: `Check: ${input.checkLabel}\n${input.candidate ? `${NAME_RULE(input.candidate)}\n` : ""}Fields:\n${input.fields.map((f) => `- ${describeField(f)}`).join("\n") || "(none)"}${
       groups.length ? `\nRepeating groups:\n${groups.map((g) => `- ${g.key}: ${g.label}. Columns:\n${g.fields.map((f) => `  - ${describeField(f)}`).join("\n")}`).join("\n")}` : ""
     }`,

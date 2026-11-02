@@ -3,8 +3,8 @@ import { fromWire, toWire, type Wire } from "@/lib/wire";
 
 describe("wire", () => {
   const values = {
-    candidate_name: "Avishka Senevirathne",
-    employers: [{ company: "Sri Lanka Ports Authority - Mahapola Ports & Maritime Academy", employer_response: "Dates confirmed.", period: { from: "2022-02-23", to: "2022-08-02" } }],
+    candidate_name: "Kasun Perera",
+    employers: [{ company: "ABC Holdings (Pvt) Ltd & Co", employer_response: "Dates confirmed.", period: { from: "2022-02-23", to: "2022-08-02" } }],
     state: "awaiting_response",
     category: "verification_response",
     sinhala: "සත්‍යාපන පිළිතුර",

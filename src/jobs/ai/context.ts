@@ -8,6 +8,7 @@ import { checkTypeSchema, type FieldDef } from "../../domain/check-types/schema"
 import { fileBlock } from "../../lib/ai/claude";
 import type { Json } from "../../lib/supabase/database.types";
 import { toJpeg } from "../report/convert-image";
+import { pageImage, scanPages } from "./pages";
 
 export type AiDoc = {
   id: string;
@@ -111,37 +112,33 @@ export async function loadAiCase(admin: ServiceClient, caseId: string): Promise<
   };
 }
 
-/** Claude takes images up to 5 MB once encoded, which is about this much file. */
-const MAX_IMAGE_BYTES = 3.7 * 1024 * 1024;
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 
-/**
- * A copy of a photo small enough to send, as a JPEG. Only the copy changes: the
- * file in Storage stays as uploaded, because it is the evidence. Null when the
- * image library isn't available or can't read the format.
- */
-async function shrinkImage(bytes: Uint8Array): Promise<Uint8Array | null> {
-  try {
-    const { default: sharp } = await import("sharp");
-    const out = await sharp(bytes).rotate().resize({ width: 2400, height: 2400, fit: "inside", withoutEnlargement: true }).jpeg({ quality: 85 }).toBuffer();
-    return out.byteLength <= MAX_IMAGE_BYTES ? new Uint8Array(out) : null;
-  } catch {
-    return null;
-  }
-}
+/** What to send for a file: its pages as photos when it is a scan or a photo, else the PDF itself. */
+export type DocumentSource = { pages: Uint8Array[] } | { pdf: Anthropic.ContentBlockParam };
 
-/** A document as a Claude content block (PDFs up to 10 MB, photos of any size we accept), or null. */
-export async function documentBlock(admin: ServiceClient, d: Pick<AiDoc, "storage_bucket" | "storage_path" | "mime" | "size_bytes">): Promise<Anthropic.ContentBlockParam | null> {
+/** A document ready for the model (pages.ts says why scans go as photos), or null when it can't be read. */
+export async function documentSource(admin: ServiceClient, d: Pick<AiDoc, "storage_bucket" | "storage_path" | "mime" | "size_bytes">): Promise<DocumentSource | null> {
   if (d.size_bytes > MAX_FILE_BYTES) return null;
   const file = await admin.storage.from(d.storage_bucket).download(d.storage_path);
   if (!file.data) return null;
   const bytes = new Uint8Array(await file.data.arrayBuffer());
-  if (d.mime === "image/heic" || (d.mime.startsWith("image/") && bytes.byteLength > MAX_IMAGE_BYTES)) {
-    const readable = d.mime === "image/heic" ? await toJpeg(bytes, d.mime) : bytes;
-    const small = readable ? await shrinkImage(readable) : null;
-    return small ? fileBlock(small, "image/jpeg") : null;
+  if (d.mime === "application/pdf") {
+    const scans = await scanPages(bytes);
+    if (scans) return { pages: scans };
+    const pdf = fileBlock(bytes, d.mime);
+    return pdf ? { pdf } : null;
   }
-  return fileBlock(bytes, d.mime);
+  if (!d.mime.startsWith("image/")) return null;
+  const readable = d.mime === "image/heic" ? await toJpeg(bytes, d.mime) : bytes;
+  return readable ? { pages: [readable] } : null;
+}
+
+/** Each page as an image block, turned by `turns` (degrees clockwise) and labelled, or null if one can't be prepared. */
+export async function pageBlocks(pages: Uint8Array[], turns: number[]): Promise<Anthropic.ContentBlockParam[] | null> {
+  const images = await Promise.all(pages.map((p, i) => pageImage(p, turns[i] ?? 0)));
+  if (images.some((x) => !x)) return null;
+  return images.flatMap((x, i) => [...(pages.length > 1 ? [{ type: "text" as const, text: `Page ${i + 1} of ${pages.length}` }] : []), fileBlock(x!, "image/jpeg")!]);
 }
 
 /** Leave a suggestion for a person to decide. Older pending ones for the same thing are superseded. */

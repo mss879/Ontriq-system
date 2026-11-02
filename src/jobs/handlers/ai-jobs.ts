@@ -1,8 +1,9 @@
 import { NonRetryableError, type JobHandler } from "../types";
 import type { ServiceClient } from "../admin-client";
-import { isAiConfigured, runStructured, type AiContext, type AiFailure } from "../../lib/ai/claude";
+import { fileBlock, isAiConfigured, runStructured, type AiContext, type AiFailure } from "../../lib/ai/claude";
 import * as P from "../../lib/ai/prompts";
-import { documentBlock, loadAiCase, suggest } from "../ai/context";
+import { documentSource, loadAiCase, pageBlocks, suggest, type DocumentSource } from "../ai/context";
+import { pageImage } from "../ai/pages";
 import { consistencyContent, documentText, narrativeContent, narrativeKeys, outreachContent, postqcContent, preqcContent, responseContent } from "../ai/content";
 import { addressedToAi, checksToFill, docsForCheck, extractionFields, formValue, groupRows, missingDetails } from "../../domain/ai/extraction";
 import { otherDocuments } from "../../domain/documents/combined";
@@ -35,6 +36,35 @@ function notAnswered(r: AiFailure) {
   return { skipped: r.reason };
 }
 
+/**
+ * Which way up each page is: a quick, cheap look per page (Claude Haiku, about
+ * $0.0007 a page), so a card scanned sideways is turned before it is read. A
+ * page the look can't settle stays as it is.
+ */
+async function pageTurns(admin: ServiceClient, scope: AiContext, pages: Uint8Array[]): Promise<number[]> {
+  return Promise.all(
+    pages.map(async (page) => {
+      const image = await pageImage(page);
+      if (!image) return 0;
+      const r = await runStructured(admin, "document.classify", { ...scope, promptVersion: P.ORIENT_VERSION, source: "jobs/ai-orient" }, {
+        system: P.ORIENT_SYSTEM,
+        content: [fileBlock(image, "image/jpeg")!, P.text(P.ORIENT_TEXT)],
+        schema: P.OrientSchema,
+      });
+      return r.ok ? P.TURN_FOR[r.data.top] : 0;
+    }),
+  );
+}
+
+/** A file's content blocks: upright pages for a scan or photo (the turns found on its first read, else a fresh look), or the PDF. */
+async function sourceBlocks(admin: ServiceClient, scope: AiContext, source: DocumentSource, stored?: unknown): Promise<{ blocks: Anthropic.ContentBlockParam[]; turns?: number[] } | null> {
+  if ("pdf" in source) return { blocks: [source.pdf] };
+  const known = Array.isArray(stored) && stored.length === source.pages.length && stored.every((t) => [0, 90, 180, 270].includes(t)) ? (stored as number[]) : null;
+  const turns = known ?? (await pageTurns(admin, scope, source.pages));
+  const blocks = await pageBlocks(source.pages, turns);
+  return blocks ? { blocks, turns } : null;
+}
+
 /** ai.classify_document: type, quality, text; feedback for candidates; tamper signals; then extraction. */
 export const aiClassify: JobHandler = async (job, { admin }) => {
   const skip = notReady();
@@ -48,17 +78,19 @@ export const aiClassify: JobHandler = async (job, { admin }) => {
     .maybeSingle();
   if (!d || !["uploaded", "accepted"].includes(d.status)) return { skipped: "document not available" };
   if (d.category === "consent_form" && d.mime === "image/png" && d.filename === "signature.png") return { skipped: "drawn signature" };
-  const block = await documentBlock(admin, d);
-  if (!block) {
+  const scope = ctx(job, { org_id: d.org_id, client_id: d.client_id ?? undefined, id: d.case_id }, P.CLASSIFY_VERSION, "jobs/ai-classify", { documentId: d.id });
+  const source = await documentSource(admin, d);
+  const read = source ? await sourceBlocks(admin, scope, source) : null;
+  if (!read) {
     // Say so on the file, so nobody waits for details that won't arrive.
     await admin.from("document_ai").upsert({ document_id: d.id, org_id: d.org_id, classification: { not_read: d.mime === "image/heic" ? "It's an iPhone HEIC photo. Upload a JPEG or PDF instead." : "The file is too large. Upload a smaller copy." }, quality: {} });
     return { skipped: "file type or size not readable" };
   }
   const { data: cats } = await admin.from("document_categories").select("key, name").eq("org_id", d.org_id).eq("is_active", true);
   const prompt = P.classifyPrompt({ expectedCategory: d.category, expectedLabel: d.label ?? d.category, categories: cats ?? [] });
-  const r = await runStructured(admin, "document.classify", ctx(job, { org_id: d.org_id, client_id: d.client_id ?? undefined, id: d.case_id }, P.CLASSIFY_VERSION, "jobs/ai-classify", { documentId: d.id }), {
+  const r = await runStructured(admin, "document.classify", scope, {
     system: prompt.system,
-    content: [block, P.text(prompt.text)],
+    content: [...read.blocks, P.text(prompt.text)],
     schema: P.ClassifySchema,
     minTokens: P.CLASSIFY_MIN_TOKENS,
   });
@@ -69,7 +101,7 @@ export const aiClassify: JobHandler = async (job, { admin }) => {
     return { skipped: r.reason, extract: queued };
   }
   const out = { ...r.data, matches_expected: r.data.matches_expected || d.category === "other" };
-  await admin.from("document_ai").upsert({ document_id: d.id, org_id: d.org_id, classification: { ...out, text: undefined, model: r.model }, quality: { readable: out.readable, issues: out.quality_issues } });
+  await admin.from("document_ai").upsert({ document_id: d.id, org_id: d.org_id, classification: { ...out, text: undefined, model: r.model, ...(read.turns ? { page_turns: read.turns } : {}) }, quality: { readable: out.readable, issues: out.quality_issues } });
   // Later steps compare documents by this text, so they get the English alongside the original.
   const stored = !out.readable ? null : out.translation_en ? `${out.text}\n\n[English translation]\n${out.translation_en}` : out.text;
   if (stored) await admin.from("document_texts").upsert({ document_id: d.id, org_id: d.org_id, text: stored.slice(0, 20000), language: out.language });
@@ -142,11 +174,13 @@ export const aiExtract: JobHandler = async (job, { admin }) => {
   const docs = docsForCheck(c.documents.filter((d) => d.classification?.readable !== false), check_id, c.requirements, 6, document_id);
   if (!docs.length) return { skipped: "no documents" };
   const blocks: Anthropic.ContentBlockParam[] = [];
+  const scope = ctx(job, c, P.EXTRACT_VERSION, "jobs/ai-extract");
   for (const d of docs) {
     blocks.push(P.text(`Document: ${d.filename} (${d.category_name})`));
     // The file that prompted this job is read in full. Earlier ones were, so their text is enough, and far cheaper.
-    const b = document_id && d.id !== document_id && d.text ? null : await documentBlock(admin, d);
-    if (b) blocks.push(b);
+    const source = document_id && d.id !== document_id && d.text ? null : await documentSource(admin, d);
+    const read = source ? await sourceBlocks(admin, { ...scope, documentId: d.id }, source, d.classification?.page_turns) : null;
+    if (read) blocks.push(...read.blocks);
     else if (d.text) blocks.push(P.text(documentText(d.text, 6000)));
   }
   const describe = (f: (typeof fields)[number]) => ({ key: f.key, label: f.label, type: f.type, hint: f.ai?.hint, options: f.options });
