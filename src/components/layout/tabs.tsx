@@ -59,6 +59,7 @@ export function UnderlineTabs({ items, active, label, className }: { items: TabI
         <Link
           key={t.key}
           href={t.href}
+          prefetch="auto"
           aria-current={t.key === active ? "page" : undefined}
           className={cn(
             "relative shrink-0 rounded-t-lg px-3 pt-2 pb-3 text-sm font-medium whitespace-nowrap text-muted-foreground transition-colors hover:text-foreground",

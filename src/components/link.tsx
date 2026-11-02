@@ -13,8 +13,9 @@ function PendingBar() {
 
 /**
  * next/link, but a page loads in advance only once someone hovers or touches
- * its link. By default every visible link loads, and on Netlify each of those
- * is its own server call, so a table of cases sent dozens per page view.
+ * its link, because a table of links shouldn't fetch before anyone shows
+ * interest. Menus pass prefetch="auto": their shells are static, so they are
+ * ready before the first click and cost no function call.
  */
 export default function Link({ prefetch, onMouseEnter, onTouchStart, children, ...props }: ComponentProps<typeof NextLink>) {
   const [intent, setIntent] = useState(false);

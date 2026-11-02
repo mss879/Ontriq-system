@@ -153,16 +153,25 @@ export async function withClientNames(items: CaseListItem[]): Promise<CaseListIt
 }
 
 /** Counts per stage for the board header and dashboard pipeline. */
-export async function stageCounts(): Promise<Record<string, number>> {
+export const stageCounts = cache(async (): Promise<Record<string, number>> => {
   const supabase = await createRequestClient();
-  const { data } = await supabase.from("cases").select("stage, on_hold").in("stage", ACTIVE_STAGES);
+  const { data, error } = await supabase.rpc("case_stage_counts", { p_stages: ACTIVE_STAGES });
   const out: Record<string, number> = {};
+  if (error) {
+    // Migration 0052 isn't on this database yet, so count the rows. Remove this branch once it is.
+    const { data: rows } = await supabase.from("cases").select("stage, on_hold").in("stage", ACTIVE_STAGES);
+    for (const row of rows ?? []) {
+      out[row.stage] = (out[row.stage] ?? 0) + 1;
+      if (row.on_hold) out.on_hold = (out.on_hold ?? 0) + 1;
+    }
+    return out;
+  }
   for (const row of data ?? []) {
-    out[row.stage] = (out[row.stage] ?? 0) + 1;
-    if (row.on_hold) out.on_hold = (out.on_hold ?? 0) + 1;
+    out[row.stage] = row.total;
+    if (row.on_hold) out.on_hold = (out.on_hold ?? 0) + row.on_hold;
   }
   return out;
-}
+});
 
 // ---------------------------------------------------------------- one case
 

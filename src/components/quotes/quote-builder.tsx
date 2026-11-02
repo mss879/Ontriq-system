@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { AlertCircle, Check, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -29,6 +30,7 @@ const NO_CONTACT = "__none__";
  * Drafts save themselves a moment after each change.
  */
 export function QuoteBuilder({ data }: { data: QuoteBuilderData }) {
+  const router = useRouter();
   const editable = data.canEdit && data.quote.rawStatus === "draft";
   const [draft, setDraft] = useState<QuoteDraft>(data.draft);
   const [save, setSave] = useState<SaveState>({ kind: "idle" });
@@ -37,6 +39,7 @@ export function QuoteBuilder({ data }: { data: QuoteBuilderData }) {
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const latest = useRef(draft);
   const dirty = useRef(false);
+  const savedHere = useRef(false);
   const inflight = useRef<Promise<boolean> | null>(null);
 
   const persist = useCallback(async (): Promise<boolean> => {
@@ -51,6 +54,7 @@ export function QuoteBuilder({ data }: { data: QuoteBuilderData }) {
       setSave({ kind: "error", message: r.error });
       return false;
     }
+    savedHere.current = true;
     setSave({ kind: "saved", at: r.savedAt });
     return true;
   }, [data.quote.id]);
@@ -87,9 +91,16 @@ export function QuoteBuilder({ data }: { data: QuoteBuilderData }) {
     return () => {
       window.removeEventListener("beforeunload", warn);
       clearTimeout(timer.current);
-      if (dirty.current) void persist();
+      const saving = dirty.current ? persist() : Promise.resolve(true);
+      // Autosaves don't clear the pages kept in the browser, so without this a
+      // quick return could load the older draft and the next save would overwrite newer work.
+      void saving.then(() => {
+        if (!savedHere.current) return;
+        savedHere.current = false;
+        router.refresh();
+      });
     };
-  }, [persist]);
+  }, [persist, router]);
 
   const totals = linesTotals(draft.lines);
   const contact = data.contacts.find((c) => c.id === draft.contact_id) ?? null;

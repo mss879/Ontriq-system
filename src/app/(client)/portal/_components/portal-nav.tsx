@@ -54,6 +54,7 @@ export function PortalTabs({ keys }: { keys: PortalNavKey[] }) {
           <Link
             key={k}
             href={item.href}
+            prefetch="auto"
             aria-current={on ? "page" : undefined}
             data-active={on || undefined}
             className={cn(
@@ -100,6 +101,7 @@ export function PortalMobileMenu({ keys, clientName, userName }: { keys: PortalN
               <Link
                 key={k}
                 href={item.href}
+                prefetch="auto"
                 onClick={() => setOpen(false)}
                 aria-current={on ? "page" : undefined}
                 className={cn(

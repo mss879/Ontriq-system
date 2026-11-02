@@ -9,7 +9,7 @@ import { ToneChip } from "@/components/cases/badges";
 import { Button } from "@/components/ui/button";
 import { DocumentPreview } from "@/components/documents/document-preview";
 import { InvoiceStatusChip, SlipStatusChip, methodLabel } from "@/components/billing/invoice-status";
-import { getStaffViewer } from "@/lib/server/viewer";
+import { getStaffViewer, hasFreshPermission } from "@/lib/server/viewer";
 import { activeTaxRates, getInvoice, getIssuer, type InvoiceDetail } from "@/lib/server/billing/queries";
 import { invoiceRecipients } from "@/lib/server/billing/recipients";
 import { formatDateTime, formatPlainDate } from "@/lib/format";
@@ -56,7 +56,8 @@ export default function InvoicePage({ params }: PageProps<"/app/invoices/[invoic
 async function Header({ params }: Pick<PageProps<"/app/invoices/[invoiceId]">, "params">) {
   const { viewer, detail } = await load(params);
   const { invoice: i, client } = detail;
-  const recipients = can(viewer, "invoices.send") && i.status !== "draft" && i.status !== "void" ? await invoiceRecipients(client.id) : [];
+  const mayEmail = can(viewer, "invoices.send") && i.status !== "draft" && i.status !== "void" && (await hasFreshPermission("invoices.send"));
+  const recipients = mayEmail ? await invoiceRecipients(client.id) : [];
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">

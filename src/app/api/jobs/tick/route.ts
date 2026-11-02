@@ -32,9 +32,8 @@ export async function POST(request: Request) {
     ...(minutes >= 30 ? [{ kind: "performance.rollup", key: `performance.rollup:${day}` }, { kind: "retention.purge", key: `retention.purge:${day}` }] : []),
     ...(minutes >= 7 * 60 + 30 ? [{ kind: "briefing.daily", key: `briefing.daily:${day}` }] : []),
   ];
-  for (const job of recurring) {
-    await admin.rpc("enqueue_job", { p_kind: job.kind, p_idempotency_key: job.key });
-  }
+  // Together, not in turn: this often runs on the one warm instance, and a person's click shouldn't have to wait for it.
+  await Promise.all(recurring.map((job) => admin.rpc("enqueue_job", { p_kind: job.kind, p_idempotency_key: job.key })));
   // Daily: sent quotations past their date expire. In the first week (Colombo): monthly invoices for last
   // month, so a day the scheduler was down costs nothing. The idempotency key stops repeats.
   await admin.rpc("expire_quotes");

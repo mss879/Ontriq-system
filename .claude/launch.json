@@ -28,6 +28,23 @@
       }
     },
     {
+      "name": "next-start-timing",
+      "runtimeExecutable": "/Users/shahidshamir/Documents/ontiq-new/node_modules/.bin/next",
+      "runtimeArgs": [
+        "start",
+        "/Users/shahidshamir/Documents/ontiq-new",
+        "-p",
+        "3100"
+      ],
+      "port": 3100,
+      "env": {
+        "APP_ORIGIN": "http://localhost:3100",
+        "ANTHROPIC_API_KEY": "",
+        "NODE_OPTIONS": "--import /Users/shahidshamir/Documents/ontiq-new/scripts/dev/fetch-log.mjs",
+        "FETCH_LOG": "/Users/shahidshamir/.ontriq/fetch.log"
+      }
+    },
+    {
       "name": "live-local",
       "runtimeExecutable": "/Users/shahidshamir/Documents/ontiq-new/node_modules/.bin/next",
       "runtimeArgs": [

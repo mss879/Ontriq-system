@@ -30,7 +30,7 @@ export function SidebarNav({ viewer }: { viewer: { permissions: string[]; roleKe
               {section.items.map((item) => (
                 <SidebarMenuItem key={item.href}>
                   <SidebarMenuButton asChild isActive={isActive(item.href)} tooltip={item.title} className={NAV_ITEM_CLASS}>
-                    <Link href={item.href} onClick={() => setOpenMobile(false)}>
+                    <Link href={item.href} prefetch="auto" onClick={() => setOpenMobile(false)}>
                       <item.icon />
                       <span>{item.title}</span>
                     </Link>

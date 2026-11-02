@@ -41,3 +41,6 @@ jobs:
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: ci-placeholder
+
+      - name: Every menu page has a static shell
+        run: npx tsx scripts/dev/check-static-shells.ts

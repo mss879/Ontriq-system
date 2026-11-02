@@ -1219,8 +1219,8 @@ export type Database = {
           check_type_version_id: string;
           client_note: string | null;
           completed_at: string | null;
-          discrepancy_at: string | null;
           created_at: string;
+          discrepancy_at: string | null;
           due_at: string | null;
           id: string;
           label: string;
@@ -1244,8 +1244,8 @@ export type Database = {
           check_type_version_id: string;
           client_note?: string | null;
           completed_at?: string | null;
-          discrepancy_at?: string | null;
           created_at?: string;
+          discrepancy_at?: string | null;
           due_at?: string | null;
           id?: string;
           label: string;
@@ -1268,8 +1268,8 @@ export type Database = {
           check_type_version_id?: string;
           client_note?: string | null;
           completed_at?: string | null;
-          discrepancy_at?: string | null;
           created_at?: string;
+          discrepancy_at?: string | null;
           due_at?: string | null;
           id?: string;
           label?: string;
@@ -1412,14 +1412,13 @@ export type Database = {
       };
       cases: {
         Row: {
-          intake_candidate: Json | null;
-          candidate_match_open: boolean;
           assigned_at: string | null;
           assigned_to: string | null;
           cancel_reason: string | null;
           cancelled_at: string | null;
           candidate_confirmed_at: string | null;
           candidate_id: string;
+          candidate_match_open: boolean;
           candidate_name: string;
           checks_done: number;
           checks_total: number;
@@ -1440,13 +1439,13 @@ export type Database = {
           hold_reason: string | null;
           id: string;
           instructions: string | null;
+          intake_candidate: Json | null;
           internal_notes: string | null;
           manual_status_key: string | null;
           on_hold: boolean;
           org_id: string;
           package_id: string | null;
           package_snapshot: NonNullable<Json>;
-          portal_case_row: Json | null;
           position_title: string | null;
           priority: string;
           process_type: Database["public"]["Enums"]["process_type"];
@@ -1459,17 +1458,26 @@ export type Database = {
           stage: Database["public"]["Enums"]["case_stage"];
           status_key: string;
           updated_at: string;
+          portal_case_row: Json | null;
+          portal_report_status: string | null;
+          require_case_open: undefined | null;
+          require_evidence_unlocked: undefined | null;
+          require_uploads_open: undefined | null;
         };
-        ComputedFields: "portal_case_row";
+        ComputedFields:
+          | "portal_case_row"
+          | "portal_report_status"
+          | "require_case_open"
+          | "require_evidence_unlocked"
+          | "require_uploads_open";
         Insert: {
-          intake_candidate?: Json | null;
-          candidate_match_open?: boolean;
           assigned_at?: string | null;
           assigned_to?: string | null;
           cancel_reason?: string | null;
           cancelled_at?: string | null;
           candidate_confirmed_at?: string | null;
           candidate_id: string;
+          candidate_match_open?: boolean;
           candidate_name: string;
           checks_done?: number;
           checks_total?: number;
@@ -1490,6 +1498,7 @@ export type Database = {
           hold_reason?: string | null;
           id?: string;
           instructions?: string | null;
+          intake_candidate?: Json | null;
           internal_notes?: string | null;
           manual_status_key?: string | null;
           on_hold?: boolean;
@@ -1510,14 +1519,13 @@ export type Database = {
           updated_at?: string;
         };
         Update: {
-          intake_candidate?: Json | null;
-          candidate_match_open?: boolean;
           assigned_at?: string | null;
           assigned_to?: string | null;
           cancel_reason?: string | null;
           cancelled_at?: string | null;
           candidate_confirmed_at?: string | null;
           candidate_id?: string;
+          candidate_match_open?: boolean;
           candidate_name?: string;
           checks_done?: number;
           checks_total?: number;
@@ -1538,6 +1546,7 @@ export type Database = {
           hold_reason?: string | null;
           id?: string;
           instructions?: string | null;
+          intake_candidate?: Json | null;
           internal_notes?: string | null;
           manual_status_key?: string | null;
           on_hold?: boolean;
@@ -2512,7 +2521,6 @@ export type Database = {
       };
       document_categories: {
         Row: {
-          needs_original: boolean;
           created_at: string;
           guide: string;
           id: string;
@@ -2520,6 +2528,7 @@ export type Database = {
           is_active: boolean;
           key: string;
           name: string;
+          needs_original: boolean;
           org_id: string;
           sensitive: boolean;
           sort: number;
@@ -2527,7 +2536,6 @@ export type Database = {
         };
         ComputedFields: never;
         Insert: {
-          needs_original?: boolean;
           created_at?: string;
           guide?: string;
           id?: string;
@@ -2535,13 +2543,13 @@ export type Database = {
           is_active?: boolean;
           key: string;
           name: string;
+          needs_original?: boolean;
           org_id: string;
           sensitive?: boolean;
           sort?: number;
           updated_at?: string;
         };
         Update: {
-          needs_original?: boolean;
           created_at?: string;
           guide?: string;
           id?: string;
@@ -2549,6 +2557,7 @@ export type Database = {
           is_active?: boolean;
           key?: string;
           name?: string;
+          needs_original?: boolean;
           org_id?: string;
           sensitive?: boolean;
           sort?: number;
@@ -2714,7 +2723,6 @@ export type Database = {
       };
       documents: {
         Row: {
-          withheld_reason: string | null;
           candidate_id: string | null;
           case_check_id: string | null;
           case_id: string;
@@ -2743,10 +2751,10 @@ export type Database = {
           uploaded_by_kind: string;
           version: number;
           visibility: string;
+          withheld_reason: string | null;
         };
         ComputedFields: never;
         Insert: {
-          withheld_reason?: string | null;
           candidate_id?: string | null;
           case_check_id?: string | null;
           case_id: string;
@@ -2775,9 +2783,9 @@ export type Database = {
           uploaded_by_kind?: string;
           version?: number;
           visibility?: string;
+          withheld_reason?: string | null;
         };
         Update: {
-          withheld_reason?: string | null;
           candidate_id?: string | null;
           case_check_id?: string | null;
           case_id?: string;
@@ -2806,6 +2814,7 @@ export type Database = {
           uploaded_by_kind?: string;
           version?: number;
           visibility?: string;
+          withheld_reason?: string | null;
         };
         Relationships: [
           {
@@ -4646,32 +4655,32 @@ export type Database = {
       };
       report_downloads: {
         Row: {
-          part: number | null;
           at: string;
           id: number;
           ip: string | null;
           org_id: string;
+          part: number | null;
           report_version_id: string;
           user_id: string | null;
           who: string;
         };
         ComputedFields: never;
         Insert: {
-          part?: number | null;
           at?: string;
           id?: never;
           ip?: string | null;
           org_id: string;
+          part?: number | null;
           report_version_id: string;
           user_id?: string | null;
           who: string;
         };
         Update: {
-          part?: number | null;
           at?: string;
           id?: never;
           ip?: string | null;
           org_id?: string;
+          part?: number | null;
           report_version_id?: string;
           user_id?: string | null;
           who?: string;
@@ -4735,9 +4744,6 @@ export type Database = {
       };
       report_versions: {
         Row: {
-          source_stamp: string | null;
-          result_reason: string | null;
-          evidence_note: string | null;
           annexures: NonNullable<Json>;
           approved_at: string | null;
           approved_by: string | null;
@@ -4745,21 +4751,24 @@ export type Database = {
           case_id: string;
           created_at: string;
           error: string | null;
+          evidence_note: string | null;
           final_result: string | null;
           id: string;
           job_id: string | null;
           kind: string;
           org_id: string;
           page_count: number | null;
-          parts: Json;
+          parts: NonNullable<Json>;
           released_at: string | null;
           released_by: string | null;
           requested_by: string | null;
+          result_reason: string | null;
           revision_reason: string | null;
           sha256: string | null;
           size_bytes: number | null;
           snapshot: NonNullable<Json>;
           snapshot_hash: string | null;
+          source_stamp: string | null;
           status: string;
           storage_path: string | null;
           updated_at: string;
@@ -4767,9 +4776,6 @@ export type Database = {
         };
         ComputedFields: never;
         Insert: {
-          source_stamp?: string | null;
-          result_reason?: string | null;
-          evidence_note?: string | null;
           annexures?: NonNullable<Json>;
           approved_at?: string | null;
           approved_by?: string | null;
@@ -4777,30 +4783,30 @@ export type Database = {
           case_id: string;
           created_at?: string;
           error?: string | null;
+          evidence_note?: string | null;
           final_result?: string | null;
           id?: string;
           job_id?: string | null;
           kind: string;
           org_id: string;
           page_count?: number | null;
-          parts?: Json;
+          parts?: NonNullable<Json>;
           released_at?: string | null;
           released_by?: string | null;
           requested_by?: string | null;
+          result_reason?: string | null;
           revision_reason?: string | null;
           sha256?: string | null;
           size_bytes?: number | null;
           snapshot?: NonNullable<Json>;
           snapshot_hash?: string | null;
+          source_stamp?: string | null;
           status?: string;
           storage_path?: string | null;
           updated_at?: string;
           version: number;
         };
         Update: {
-          source_stamp?: string | null;
-          result_reason?: string | null;
-          evidence_note?: string | null;
           annexures?: NonNullable<Json>;
           approved_at?: string | null;
           approved_by?: string | null;
@@ -4808,21 +4814,24 @@ export type Database = {
           case_id?: string;
           created_at?: string;
           error?: string | null;
+          evidence_note?: string | null;
           final_result?: string | null;
           id?: string;
           job_id?: string | null;
           kind?: string;
           org_id?: string;
           page_count?: number | null;
-          parts?: Json;
+          parts?: NonNullable<Json>;
           released_at?: string | null;
           released_by?: string | null;
           requested_by?: string | null;
+          result_reason?: string | null;
           revision_reason?: string | null;
           sha256?: string | null;
           size_bytes?: number | null;
           snapshot?: NonNullable<Json>;
           snapshot_hash?: string | null;
+          source_stamp?: string | null;
           status?: string;
           storage_path?: string | null;
           updated_at?: string;
@@ -4944,7 +4953,6 @@ export type Database = {
       };
       requirement_files: {
         Row: {
-          record_keys: string[];
           case_id: string;
           confirmed_by: string | null;
           created_at: string;
@@ -4952,12 +4960,12 @@ export type Database = {
           id: string;
           org_id: string;
           pages: string | null;
+          record_keys: string[];
           requirement_id: string;
           source: string;
         };
         ComputedFields: never;
         Insert: {
-          record_keys?: string[];
           case_id: string;
           confirmed_by?: string | null;
           created_at?: string;
@@ -4965,11 +4973,11 @@ export type Database = {
           id?: string;
           org_id: string;
           pages?: string | null;
+          record_keys?: string[];
           requirement_id: string;
           source?: string;
         };
         Update: {
-          record_keys?: string[];
           case_id?: string;
           confirmed_by?: string | null;
           created_at?: string;
@@ -4977,6 +4985,7 @@ export type Database = {
           id?: string;
           org_id?: string;
           pages?: string | null;
+          record_keys?: string[];
           requirement_id?: string;
           source?: string;
         };
@@ -5379,45 +5388,6 @@ export type Database = {
           },
         ];
       };
-      storage_deletions: {
-        Row: {
-          attempts: number;
-          bucket: string;
-          case_id: string | null;
-          created_at: string;
-          done_at: string | null;
-          id: string;
-          is_folder: boolean;
-          last_error: string | null;
-          org_id: string;
-          path: string;
-        };
-        Insert: {
-          attempts?: number;
-          bucket: string;
-          case_id?: string | null;
-          created_at?: string;
-          done_at?: string | null;
-          id?: string;
-          is_folder?: boolean;
-          last_error?: string | null;
-          org_id: string;
-          path: string;
-        };
-        Update: {
-          attempts?: number;
-          bucket?: string;
-          case_id?: string | null;
-          created_at?: string;
-          done_at?: string | null;
-          id?: string;
-          is_folder?: boolean;
-          last_error?: string | null;
-          org_id?: string;
-          path?: string;
-        };
-        Relationships: [];
-      };
       stage_history: {
         Row: {
           actor_id: string | null;
@@ -5463,6 +5433,54 @@ export type Database = {
           },
           {
             foreignKeyName: "stage_history_org_id_fkey";
+            columns: ["org_id"];
+            isOneToOne: false;
+            referencedRelation: "orgs";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      storage_deletions: {
+        Row: {
+          attempts: number;
+          bucket: string;
+          case_id: string | null;
+          created_at: string;
+          done_at: string | null;
+          id: string;
+          is_folder: boolean;
+          last_error: string | null;
+          org_id: string;
+          path: string;
+        };
+        ComputedFields: never;
+        Insert: {
+          attempts?: number;
+          bucket: string;
+          case_id?: string | null;
+          created_at?: string;
+          done_at?: string | null;
+          id?: string;
+          is_folder?: boolean;
+          last_error?: string | null;
+          org_id: string;
+          path: string;
+        };
+        Update: {
+          attempts?: number;
+          bucket?: string;
+          case_id?: string | null;
+          created_at?: string;
+          done_at?: string | null;
+          id?: string;
+          is_folder?: boolean;
+          last_error?: string | null;
+          org_id?: string;
+          path?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "storage_deletions_org_id_fkey";
             columns: ["org_id"];
             isOneToOne: false;
             referencedRelation: "orgs";
@@ -5688,6 +5706,10 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      accept_candidate_answer: {
+        Args: { p_request: string; p_valid: boolean; p_values: Json };
+        Returns: undefined;
+      };
       accept_my_invitation: { Args: Record<PropertyKey, never>; Returns: boolean };
       acknowledge_nudge: { Args: { p_nudge: string; p_reply?: string }; Returns: undefined };
       add_candidate: { Args: { p: Json }; Returns: Json };
@@ -5699,6 +5721,7 @@ export type Database = {
         Args: { p_body: string; p_case: string; p_check: string };
         Returns: undefined;
       };
+      add_report_recipients: { Args: { p_case: string; p_users: string[] }; Returns: number };
       add_working_days: { Args: { p_days: number; p_from: string }; Returns: string };
       ai_cost_summary: {
         Args: { p_from: string; p_group?: string; p_to: string };
@@ -5726,7 +5749,15 @@ export type Database = {
       analytics_window: { Args: { p_from: string; p_to: string }; Returns: unknown };
       apply_auto_assignment: { Args: { p_case: string; p_plan: Json }; Returns: Json };
       approve_report: {
-        Args: { p_case: string; p_current_hash: string; p_draft: string; p_evidence_ack?: boolean; p_final_result: string; p_reason?: string; p_share_sensitive?: boolean };
+        Args: {
+          p_case: string;
+          p_current_hash: string;
+          p_draft: string;
+          p_evidence_ack?: boolean;
+          p_final_result: string;
+          p_reason?: string;
+          p_share_sensitive?: boolean;
+        };
         Returns: string;
       };
       assign_case: {
@@ -5790,6 +5821,7 @@ export type Database = {
         Returns: Json;
       };
       candidate_confirm_submission: { Args: { p_link: string }; Returns: undefined };
+      candidate_contact_gap: { Args: { p_case: string }; Returns: string };
       candidate_finalize_upload: {
         Args: { p_document: string; p_link: string; p_sha256?: string };
         Returns: undefined;
@@ -5836,6 +5868,16 @@ export type Database = {
         Returns: undefined;
       };
       case_ai_suggestions: { Args: { p_case: string }; Returns: Json };
+      case_client_name: { Args: { p_case: string }; Returns: string };
+      case_client_names: {
+        Args: { p_cases: string[] };
+        Returns: {
+          case_id: string;
+          client_name: string;
+        }[];
+      };
+      case_consent_missing: { Args: { p_case: string }; Returns: boolean };
+      case_evidence_gaps: { Args: { p_case: string }; Returns: string[] };
       case_invoice_lines: {
         Args: { p_case: string };
         Returns: {
@@ -5848,6 +5890,16 @@ export type Database = {
       };
       case_missing_annexures: { Args: { p_case: string }; Returns: string[] };
       case_outstanding_requirements: { Args: { p_case: string; p_stage: string }; Returns: number };
+      case_portal_readers: { Args: { p_case: string }; Returns: number };
+      case_report_stamp: { Args: { p_case: string }; Returns: string };
+      case_stage_counts: {
+        Args: { p_stages: Database["public"]["Enums"]["case_stage"][] };
+        Returns: {
+          on_hold: number;
+          stage: Database["public"]["Enums"]["case_stage"];
+          total: number;
+        }[];
+      };
       case_transition: {
         Args: { p_case: string; p_event: string; p_reason?: string };
         Returns: Database["public"]["Enums"]["case_stage"];
@@ -5855,10 +5907,13 @@ export type Database = {
       case_unreported_evidence: { Args: { p_case: string }; Returns: string[] };
       case_visible: { Args: { p_case: string }; Returns: boolean };
       check_entry_complete: { Args: { p_schema: Json; p_values: Json }; Returns: boolean };
+      check_record_gaps: { Args: { p_check: string }; Returns: string[] };
       check_state_label: {
         Args: { p: Database["public"]["Enums"]["check_state"] };
         Returns: string;
       };
+      check_values_complete: { Args: { p_schema: Json; p_values: Json }; Returns: boolean };
+      check_values_wellformed: { Args: { p_schema: Json; p_values: Json }; Returns: boolean };
       claim_jobs: {
         Args: { p_lease_seconds?: number; p_limit?: number; p_worker: string };
         Returns: {
@@ -5949,10 +6004,12 @@ export type Database = {
         Returns: Database["public"]["Enums"]["job_status"];
       };
       field_blank: { Args: { p_value: Json }; Returns: boolean };
+      field_value_ok: { Args: { p_field: Json; p_value: Json }; Returns: boolean };
       finalize_document_upload: {
         Args: { p_document: string; p_sha256?: string };
         Returns: undefined;
       };
+      flowchart_check_order: { Args: Record<PropertyKey, never>; Returns: string[] };
       has_permission: { Args: { p: string }; Returns: boolean };
       heartbeat_job: {
         Args: { p_id: string; p_lease_seconds?: number; p_progress?: Json; p_worker: string };
@@ -5979,6 +6036,7 @@ export type Database = {
       is_client: { Args: Record<PropertyKey, never>; Returns: boolean };
       is_staff: { Args: Record<PropertyKey, never>; Returns: boolean };
       is_super_admin: { Args: Record<PropertyKey, never>; Returns: boolean };
+      iso_date_ok: { Args: { p_text: string }; Returns: boolean };
       issue_bgv_form: { Args: { p_case: string }; Returns: number };
       issue_candidate_link: {
         Args: {
@@ -6107,6 +6165,7 @@ export type Database = {
         };
         Returns: number;
       };
+      package_offered_to_me: { Args: { p_package: string }; Returns: boolean };
       performance_board: { Args: { p_from: string; p_to: string }; Returns: Json };
       performance_rollup: { Args: { p_day: string }; Returns: number };
       portal_accept_quote: {
@@ -6148,7 +6207,9 @@ export type Database = {
       portal_case_visible: { Args: { p_case: string }; Returns: boolean };
       portal_cases: { Args: { p?: Json }; Returns: Json };
       portal_check_hidden: { Args: { p_client: string; p_type: string }; Returns: boolean };
+      portal_check_row_hidden: { Args: { p_check: string }; Returns: boolean };
       portal_client: { Args: { p_permission?: string }; Returns: string };
+      portal_client_profile: { Args: Record<PropertyKey, never>; Returns: Json };
       portal_dashboard: { Args: Record<PropertyKey, never>; Returns: Json };
       portal_field_value: { Args: { p_field: Json; p_value: Json }; Returns: Json };
       portal_finalize_slip: { Args: { p_sha256?: string; p_slip: string }; Returns: undefined };
@@ -6170,6 +6231,7 @@ export type Database = {
       portal_mark_invoice_viewed: { Args: { p_invoice: string }; Returns: undefined };
       portal_mark_quote_viewed: { Args: { p_quote: string }; Returns: undefined };
       portal_my_visibility: { Args: Record<PropertyKey, never>; Returns: Json };
+      portal_org_profile: { Args: Record<PropertyKey, never>; Returns: Json };
       portal_pending_slots: { Args: { p_case: string }; Returns: number };
       portal_price_list: {
         Args: Record<PropertyKey, never>;
@@ -6194,23 +6256,16 @@ export type Database = {
         Returns: Json;
       };
       portal_quotes: { Args: Record<PropertyKey, never>; Returns: Json };
-      portal_client_profile: { Args: Record<PropertyKey, never>; Returns: Json };
-      portal_org_profile: { Args: Record<PropertyKey, never>; Returns: Json };
-      accept_candidate_answer: { Args: { p_request: string; p_valid: boolean; p_values: Json }; Returns: undefined };
-      add_report_recipients: { Args: { p_case: string; p_users: string[] }; Returns: number };
-      candidate_contact_gap: { Args: { p_case: string }; Returns: string | null };
-      case_evidence_gaps: { Args: { p_case: string }; Returns: string[] };
-      check_record_gaps: { Args: { p_check: string }; Returns: string[] };
-      refile_document: { Args: { p_category: string; p_check: string; p_document: string }; Returns: undefined };
-      report_evidence_problems: { Args: { p_annexures: Json }; Returns: string[] };
-      report_sensitive_files: { Args: { p_snapshot: Json }; Returns: string[] };
-      reports_closed_to_caller: { Args: { p_versions: string[] }; Returns: string[] };
-      case_client_name: { Args: { p_case: string }; Returns: string };
-      case_client_names: { Args: { p_cases: string[] }; Returns: { case_id: string; client_name: string }[] };
-      revision_can_stop: { Args: { p_case: string }; Returns: boolean };
-      case_portal_readers: { Args: { p_case: string }; Returns: number };
-      resolve_candidate_match: { Args: { p_case: string; p_same: boolean }; Returns: undefined };
       portal_report: { Args: { p_case: string }; Returns: Json };
+      portal_report_status: {
+        Args: {
+          c: Omit<
+            Database["public"]["Tables"]["cases"]["Row"],
+            Database["public"]["Tables"]["cases"]["ComputedFields"]
+          >;
+        };
+        Returns: string;
+      };
       portal_respond_quote: {
         Args: { p_action: string; p_quote: string; p_text: string };
         Returns: undefined;
@@ -6224,6 +6279,17 @@ export type Database = {
       portal_team: { Args: Record<PropertyKey, never>; Returns: Json };
       portal_visibility: { Args: { p_client: string }; Returns: Json };
       post_candidate_message: { Args: { p_body: string; p_case: string }; Returns: string };
+      post_client_question: {
+        Args: {
+          c: Omit<
+            Database["public"]["Tables"]["cases"]["Row"],
+            Database["public"]["Tables"]["cases"]["ComputedFields"]
+          >;
+          p_check: string;
+          p_question: string;
+        };
+        Returns: string;
+      };
       price_ai_usage: {
         Args: {
           p_at?: string;
@@ -6327,6 +6393,10 @@ export type Database = {
         };
         Returns: string;
       };
+      refile_document: {
+        Args: { p_category: string; p_check: string; p_document: string };
+        Returns: undefined;
+      };
       reject_payment_slip: { Args: { p_reason: string; p_slip: string }; Returns: undefined };
       release_report: { Args: { p_case: string; p_recipients?: string[] }; Returns: string };
       remap_check_records: { Args: { p_check: string; p_map: Json }; Returns: undefined };
@@ -6338,6 +6408,7 @@ export type Database = {
         Args: { p_ip?: string; p_part?: number; p_version: string };
         Returns: Json;
       };
+      report_evidence_problems: { Args: { p_annexures: Json }; Returns: string[] };
       report_open_to_caller: { Args: { p_version: string }; Returns: boolean };
       report_render_done: {
         Args: {
@@ -6365,20 +6436,24 @@ export type Database = {
           case_id: string;
           created_at: string;
           error: string | null;
+          evidence_note: string | null;
           final_result: string | null;
           id: string;
           job_id: string | null;
           kind: string;
           org_id: string;
           page_count: number | null;
+          parts: NonNullable<Json>;
           released_at: string | null;
           released_by: string | null;
           requested_by: string | null;
+          result_reason: string | null;
           revision_reason: string | null;
           sha256: string | null;
           size_bytes: number | null;
           snapshot: NonNullable<Json>;
           snapshot_hash: string | null;
+          source_stamp: string | null;
           status: string;
           storage_path: string | null;
           updated_at: string;
@@ -6391,6 +6466,8 @@ export type Database = {
           isSetofReturn: false;
         };
       };
+      report_sensitive_files: { Args: { p_snapshot: Json }; Returns: string[] };
+      reports_closed_to_caller: { Args: { p_versions: string[] }; Returns: string[] };
       request_candidate_report: { Args: { p_case: string }; Returns: string };
       request_case_document: {
         Args: {
@@ -6405,6 +6482,35 @@ export type Database = {
       };
       request_ip: { Args: Record<PropertyKey, never>; Returns: string };
       request_report_draft: { Args: { p_case: string }; Returns: string };
+      require_case_open: {
+        Args: {
+          c: Omit<
+            Database["public"]["Tables"]["cases"]["Row"],
+            Database["public"]["Tables"]["cases"]["ComputedFields"]
+          >;
+        };
+        Returns: undefined;
+      };
+      require_evidence_unlocked: {
+        Args: {
+          c: Omit<
+            Database["public"]["Tables"]["cases"]["Row"],
+            Database["public"]["Tables"]["cases"]["ComputedFields"]
+          >;
+        };
+        Returns: undefined;
+      };
+      require_uploads_open: {
+        Args: {
+          c: Omit<
+            Database["public"]["Tables"]["cases"]["Row"],
+            Database["public"]["Tables"]["cases"]["ComputedFields"]
+          >;
+        };
+        Returns: undefined;
+      };
+      resolve_candidate_match: { Args: { p_case: string; p_same: boolean }; Returns: undefined };
+      restore_waived_check: { Args: { p_check: string }; Returns: undefined };
       retention_due_cases: {
         Args: { p_limit?: number };
         Returns: {
@@ -6434,13 +6540,14 @@ export type Database = {
       };
       revise_quote: { Args: { p_quote: string }; Returns: string };
       revise_report: { Args: { p_case: string; p_reason: string }; Returns: undefined };
+      revision_can_stop: { Args: { p_case: string }; Returns: boolean };
       revoke_candidate_link: { Args: { p_link: string; p_reason?: string }; Returns: undefined };
       save_check_type_draft: { Args: { p_check_type: string; p_schema: Json }; Returns: string };
-      save_custom_status: { Args: { p: Json }; Returns: string };
       save_check_values: {
         Args: { p_check: string; p_valid: boolean; p_values: Json };
         Returns: undefined;
       };
+      save_custom_status: { Args: { p: Json }; Returns: string };
       search_everything: {
         Args: { p_limit?: number; p_query: string };
         Returns: {
@@ -6451,16 +6558,18 @@ export type Database = {
           title: string;
         }[];
       };
+      sees_all_cases: { Args: Record<PropertyKey, never>; Returns: boolean };
       send_nudge: {
         Args: { p_channels?: string[]; p_items?: Json; p_message: string; p_to: string };
         Returns: string;
       };
+      sensitive_open_to_caller: { Args: { p_case: string; p_check?: string }; Returns: boolean };
       set_case_client_visible: { Args: { p_case: string; p_visible: boolean }; Returns: undefined };
-      set_case_status: { Args: { p_case: string; p_key: string }; Returns: undefined };
       set_case_hold: {
         Args: { p_case: string; p_hold: boolean; p_reason?: string };
         Returns: undefined;
       };
+      set_case_status: { Args: { p_case: string; p_key: string }; Returns: undefined };
       set_check_remarks: { Args: { p_check: string; p_remarks: string }; Returns: undefined };
       set_check_state: {
         Args: {
@@ -6488,6 +6597,7 @@ export type Database = {
       update_candidate: { Args: { p: Json; p_candidate: string }; Returns: undefined };
       update_case_details: { Args: { p: Json; p_case: string }; Returns: undefined };
       verify_report: { Args: { p_version: string }; Returns: Json };
+      visible_case_ids: { Args: Record<PropertyKey, never>; Returns: string[] };
       voice_notes_to_purge: {
         Args: Record<PropertyKey, never>;
         Returns: {
@@ -6498,6 +6608,7 @@ export type Database = {
       void_invoice: { Args: { p_invoice: string; p_reason: string }; Returns: undefined };
       void_payment: { Args: { p_payment: string; p_reason: string }; Returns: undefined };
       waive_requirement: { Args: { p_reason: string; p_requirement: string }; Returns: undefined };
+      workflow_check_order: { Args: { p_org: string }; Returns: string[] };
     };
     Enums: {
       case_stage:
