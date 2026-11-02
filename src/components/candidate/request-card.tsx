@@ -14,6 +14,7 @@ import type { CandidateRow, CandidateRowForm } from "@/domain/candidate/view";
 import { errorText } from "./errors";
 import { AnswerField, type AnswerDraft } from "./answer-field";
 import { RowsForm } from "./rows-form";
+import { toWire } from "@/lib/wire";
 
 export type RequestData = {
   id: string;
@@ -58,7 +59,7 @@ export function RequestCard({ lang, request }: { lang: CandidateLang; request: R
     if (!answer) return setError(t.errors.answerNeeded);
     setError(null);
     start(async () => {
-      const r = await answerRequest({ requestId: request.id, value: answer });
+      const r = await answerRequest(toWire({ requestId: request.id, value: answer }));
       if (!r.ok) return setError(errorText(t, r.error));
       toast.success(t.requests.sent);
       setEditing(false);

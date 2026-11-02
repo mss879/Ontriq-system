@@ -10,6 +10,7 @@ import { portalSettings } from "@/lib/server/portal/queries";
 import { AuthError, authErrorMessage, rpcErrorMessage } from "@/lib/server/errors";
 import { fail, zodFieldErrors, type ActionResult } from "@/lib/server/action-result";
 import { kickWorker } from "@/lib/server/jobs/kick";
+import { fromWire, type Wire } from "@/lib/wire";
 import { parseNic } from "@/domain/nic-core";
 import { DISTRICT_CHOICES } from "@/domain/districts";
 import { BULK_MAX_ROWS, validateBulk } from "@/domain/portal/bulk-core";
@@ -74,10 +75,11 @@ const uploadSchema = z.object({
 });
 
 /** Step 1: create the document row in a shared slot (or as a CV) and a signed upload URL. */
-export async function portalBeginUpload(input: z.input<typeof uploadSchema>): Promise<ActionResult<{ documentId: string; path: string; token: string }>> {
+/** Packed (lib/wire): a file name can hold text the hosting firewall refuses. */
+export async function portalBeginUpload(packed: Wire<z.input<typeof uploadSchema>>): Promise<ActionResult<{ documentId: string; path: string; token: string }>> {
   return guarded(async () => {
     await requester();
-    const parsed = uploadSchema.safeParse(input);
+    const parsed = uploadSchema.safeParse(fromWire(packed));
     if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "This file can't be uploaded.");
     const v = parsed.data;
     const supabase = await createClient();

@@ -41,6 +41,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { toWire } from "@/lib/wire";
 
 type Category = { key: string; name: string; sensitive: boolean };
 type BaseField = Omit<FieldDef, "fields" | "group">;
@@ -110,7 +111,7 @@ export function CheckTypeEditor({ data, categories }: { data: CheckTypeEditorDat
     const parsed = check();
     if (!parsed) return;
     start(async () => {
-      const r = await saveDraft(data.id, parsed);
+      const r = await saveDraft(data.id, toWire(parsed));
       if (!r.ok) {
         setErrors(r.fieldErrors ?? {});
         toast.error(r.error);
@@ -125,7 +126,7 @@ export function CheckTypeEditor({ data, categories }: { data: CheckTypeEditorDat
     const parsed = check();
     if (!parsed) return;
     start(async () => {
-      const r = await publishCheckType(data.id, parsed, notes);
+      const r = await publishCheckType(data.id, toWire(parsed), notes);
       if (!r.ok) {
         setErrors(r.fieldErrors ?? {});
         toast.error(r.error);

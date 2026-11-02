@@ -26,6 +26,7 @@ import { UploadDialog, type UploadTarget } from "./uploader";
 import type { Tone } from "@/domain/workflow/stages";
 import type { DocumentAi } from "@/lib/server/ai/queries";
 import { DocumentAiChip } from "@/components/ai/document-ai-chip";
+import { toWire } from "@/lib/wire";
 
 /**
  * What a person can do here. `details` is the original-or-copy and row controls.
@@ -281,7 +282,7 @@ function FileOfferDialog({ offer, checkLabel, categories, rowsOf, onClose }: { o
   const confirm = () =>
     start(async () => {
       const links = picked.map((o) => ({ requirement: o.requirement.id, pages: pages[o.requirement.id].trim() || null, records: covers[o.requirement.id] ?? [] }));
-      const r = await confirmRequirementFiles({ documentId: doc.id, links, suggestionId, all: picked.length === list.length });
+      const r = await confirmRequirementFiles(toWire({ documentId: doc.id, links, suggestionId, all: picked.length === list.length }));
       if (!r.ok) return void toast.error(r.error);
       toast.success(picked.length === 1 ? "1 document marked as received" : `${picked.length} documents marked as received`);
       onClose();
@@ -382,7 +383,7 @@ function FileLinkDialog({ r, files, rows, onClose }: { r: Requirement; files: Ca
   const [pending, start] = useTransition();
   const save = () =>
     start(async () => {
-      const result = await confirmRequirementFiles({ documentId, links: [{ requirement: r.id, pages: pages.trim() || null, records: covers }], suggestionId: null, all: true });
+      const result = await confirmRequirementFiles(toWire({ documentId, links: [{ requirement: r.id, pages: pages.trim() || null, records: covers }], suggestionId: null, all: true }));
       if (!result.ok) return void toast.error(result.error);
       toast.success("Marked as received");
       onClose();
@@ -519,7 +520,7 @@ function RequirementRow({ caseId, r, perms, closed, candidateCollected, takesFil
         confirmLabel="Request"
         success="Requested"
         onSubmit={async (note) => {
-          const result = await requestDocument(caseId, { checkId: r.caseCheckId, category: r.category, label: r.label, note });
+          const result = await requestDocument(caseId, toWire({ checkId: r.caseCheckId, category: r.category, label: r.label, note }));
           if (result.ok && result.warning) toast.warning(result.warning);
           return result;
         }}
@@ -604,7 +605,7 @@ function FileRow({
     });
   const changeRecord = (v: string) =>
     start(async () => {
-      const r = await setDocumentRecord(d.id, v === WHOLE_CHECK ? null : v);
+      const r = await setDocumentRecord(d.id, toWire(v === WHOLE_CHECK ? null : v));
       if (!r.ok) toast.error(r.error);
     });
   const applyVisibility = (v: string, reason?: string) =>
@@ -818,7 +819,7 @@ function MoveFileDialog({ d, categories, checks, onClose }: { d: CaseDocument; c
   const [pending, start] = useTransition();
   const save = () =>
     start(async () => {
-      const r = await refileDocument(d.id, check === WHOLE_CASE ? null : check, category);
+      const r = await refileDocument(d.id, check === WHOLE_CASE ? null : check, toWire(category));
       if (!r.ok) return void toast.error(r.error);
       toast.success("File moved");
       onClose();
@@ -959,7 +960,7 @@ function RequestForm({
         }
         start(async () => {
           const name = categories.find((c) => c.key === category)?.name ?? category;
-          const r = await requestDocument(caseId, { checkId: target === "__case__" ? null : target, category, label: name, note });
+          const r = await requestDocument(caseId, toWire({ checkId: target === "__case__" ? null : target, category, label: name, note }));
           if (r.ok) {
             toast.success("Requested");
             if (r.warning) toast.warning(r.warning);

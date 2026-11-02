@@ -8,6 +8,7 @@ import { CandidateSessionError, isLinkExpired, requireCandidateSession } from "@
 import { clientIp, rateLimit } from "@/lib/server/request-meta";
 import { fail, type ActionResult } from "@/lib/server/action-result";
 import { kickWorker } from "@/lib/server/jobs/kick";
+import { fromWire, type Wire } from "@/lib/wire";
 
 /**
  * The candidate's actions. Each one renews the signed session, rate-limits
@@ -17,7 +18,7 @@ import { kickWorker } from "@/lib/server/jobs/kick";
  *
  * Errors come back as a key of the page's error strings (expired, session,
  * tooMany, generic, …) or, for validation messages from the database, as
- * readable English.
+ * readable English. Answers and file names arrive packed (lib/wire).
  */
 
 type Fail = { ok: false; error: string };
@@ -67,9 +68,9 @@ const beginSchema = z.object({
 });
 
 /** Step 1: a document row in the link's case and a signed upload URL for it. */
-export async function beginUpload(input: z.input<typeof beginSchema>): Promise<ActionResult<{ documentId: string; path: string; token: string }>> {
+export async function beginUpload(packed: Wire<z.input<typeof beginSchema>>): Promise<ActionResult<{ documentId: string; path: string; token: string }>> {
   return withLink(async (linkId) => {
-    const parsed = beginSchema.safeParse(input);
+    const parsed = beginSchema.safeParse(fromWire(packed));
     if (!parsed.success) return fail("fileType");
     const v = parsed.data;
     if (!v.consent && !v.requirementId) return fail("generic");
@@ -143,9 +144,9 @@ const answerSchema = z.object({
   ]),
 });
 
-export async function answerRequest(input: z.input<typeof answerSchema>): Promise<ActionResult> {
+export async function answerRequest(packed: Wire<z.input<typeof answerSchema>>): Promise<ActionResult> {
   return withLink(async (linkId) => {
-    const parsed = answerSchema.safeParse(input);
+    const parsed = answerSchema.safeParse(fromWire(packed));
     if (!parsed.success) return fail("answerNeeded");
     const { error } = await createAdminClient().rpc("candidate_answer_request", {
       p_link: linkId,
@@ -167,9 +168,9 @@ const rowsSchema = z.object({
 });
 
 /** Rows such as referees or employers, for staff to check and use. */
-export async function answerRows(input: z.input<typeof rowsSchema>): Promise<ActionResult> {
+export async function answerRows(packed: Wire<z.input<typeof rowsSchema>>): Promise<ActionResult> {
   return withLink(async (linkId) => {
-    const parsed = rowsSchema.safeParse(input);
+    const parsed = rowsSchema.safeParse(fromWire(packed));
     if (!parsed.success) return fail("answerNeeded");
     const { error } = await createAdminClient().rpc("candidate_answer_request", {
       p_link: linkId,

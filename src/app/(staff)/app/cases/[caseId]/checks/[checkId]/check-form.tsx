@@ -15,6 +15,7 @@ import type { Stage } from "@/domain/workflow/stages";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { toWire } from "@/lib/wire";
 
 export function CheckForm({
   checkId,
@@ -70,7 +71,7 @@ export function CheckForm({
   const save = () =>
     start(async () => {
       setShowErrors(true);
-      const r = await saveCheckValues(checkId, values);
+      const r = await saveCheckValues(checkId, toWire(values));
       if (!r.ok) {
         setServerErrors(Object.fromEntries(Object.entries(r.fieldErrors ?? {}).map(([k, v]) => [k, v[0]])));
         toast.error(r.error);
@@ -87,7 +88,7 @@ export function CheckForm({
           return kept ? { id, decision: "accepted" as const } : { id, decision: "edited" as const, value: values[a.fieldKey] ?? null };
         });
         setApplied(new Map());
-        await settleFieldSuggestions(checkId, items);
+        await settleFieldSuggestions(checkId, toWire(items));
       }
     });
 
@@ -119,7 +120,7 @@ export function CheckForm({
 
   const reopen = () =>
     start(async () => {
-      const r = await setCheckState(checkId, { state: "in_progress", note: "Reopened to edit details" });
+      const r = await setCheckState(checkId, toWire({ state: "in_progress" as const, note: "Reopened to edit details" }));
       if (r.ok) toast.success("Check reopened");
       else toast.error(r.error);
     });

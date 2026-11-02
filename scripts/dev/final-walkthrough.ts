@@ -13,6 +13,7 @@ import path from "node:path";
 import { chromium, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
 import { sessionCookies, signedInClient } from "./dev-session";
+import { reportRefused, watchServerActions } from "./firewall-guard";
 import { candidateLinkUrl, hashLinkSecret, newLinkSecret, sealLinkSecret } from "../../src/lib/crypto/candidate-token";
 
 const args = process.argv.slice(2);
@@ -63,6 +64,7 @@ async function contextFor(browser: Browser, role: string, client?: string, width
   const ctx = await browser.newContext({ viewport: { width, height: 1000 } });
   await ctx.addInitScript(() => localStorage.setItem("theme", "light"));
   await ctx.addCookies(cookies.map((c) => ({ name: c.name, value: c.value, url: base })));
+  watchServerActions(ctx);
   return ctx;
 }
 const open = async (page: Page, url: string) => {
@@ -298,6 +300,7 @@ async function main() {
       await rpc(admin.db.rpc("issue_candidate_link", { p_case: made.case_id, p_token_hash: hashLinkSecret(secret), p_token_enc: sealLinkSecret(secret), p_language: language, p_days: 14 }));
       await rpc(admin.db.rpc("issue_bgv_form", { p_case: made.case_id }));
       const ctx = await browser.newContext({ viewport: { width: 420, height: 900 } });
+      watchServerActions(ctx);
       const page = await ctx.newPage();
       await page.goto(candidateLinkUrl(base, secret), { waitUntil: "load" });
       await page.waitForURL(/\/c\/session/, { timeout: 10000 });
@@ -489,6 +492,7 @@ async function main() {
     await portal.getByText(`Please send a clearer NIC photo ${RUN}.`).first().waitFor({ timeout: 8000 });
     await reader.close();
     const candidate = await browser.newContext({ viewport: { width: 420, height: 900 } });
+    watchServerActions(candidate);
     const page = await candidate.newPage();
     await page.goto(candidateLinkUrl(base, secret), { waitUntil: "load" });
     await page.waitForURL(/\/c\/session/, { timeout: 10000 });
@@ -519,6 +523,7 @@ async function main() {
     await shot(portal, "48-portal-waiting-for-candidate", true);
     await reader.close();
     const candidate = await browser.newContext({ viewport: { width: 420, height: 900 } });
+    watchServerActions(candidate);
     const mine = await candidate.newPage();
     await mine.goto(candidateLinkUrl(base, secret), { waitUntil: "load" });
     await mine.waitForURL(/\/c\/session/, { timeout: 10000 });
@@ -552,6 +557,7 @@ async function main() {
     await service.from("consent_forms").update({ status: "submitted", method: "esign", signed_name: "Walkthrough", signed_at: new Date().toISOString() }).eq("case_id", c.id);
     await service.from("cases").update({ stage: "post_qc" }).eq("id", c.id);
     const candidate = await browser.newContext({ viewport: { width: 420, height: 900 } });
+    watchServerActions(candidate);
     const mine = await candidate.newPage();
     await mine.goto(candidateLinkUrl(base, secret), { waitUntil: "load" });
     await mine.waitForURL(/\/c\/session/, { timeout: 10000 });
@@ -585,6 +591,7 @@ async function main() {
     const told = await service.from("email_outbox").select("id", { count: "exact", head: true }).eq("entity_id", c.id).eq("template_key", "candidate.update");
     must(told.count, "the candidate wasn't told their consent came back");
     const candidate = await browser.newContext({ viewport: { width: 420, height: 900 } });
+    watchServerActions(candidate);
     const mine = await candidate.newPage();
     await mine.goto(candidateLinkUrl(base, secret), { waitUntil: "load" });
     await mine.waitForURL(/\/c\/session/, { timeout: 10000 });
@@ -736,6 +743,7 @@ async function main() {
   const failed = results.filter((r) => !r.ok);
   console.log(`\n${results.length - failed.length} of ${results.length} steps passed. Screenshots in ${shots}`);
   if (failed.length) process.exitCode = 1;
+  reportRefused();
 }
 
 main().catch((error) => {

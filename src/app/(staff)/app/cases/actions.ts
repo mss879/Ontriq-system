@@ -16,13 +16,15 @@ import { recordMoves } from "@/domain/check-types/records";
 import { CHECK_STATES } from "@/domain/workflow/stages";
 import { isValidPhoneNumber } from "libphonenumber-js";
 import type { Json } from "@/lib/supabase/database.types";
+import { fromWire, type Wire } from "@/lib/wire";
 import { autoCandidateLink, emailCandidateUpdate, type Channel } from "@/lib/server/candidate/links";
 
 /**
  * Case actions. Each one confirms the caller, validates input, then calls the
  * database function that enforces permission and the workflow rules
  * (0006_cases, 0007_documents, 0011_qc, 0016_assignment). Refusals come back
- * as readable messages.
+ * as readable messages. Inputs that can hold a field key, document type, check
+ * state, file name or pasted text arrive packed (lib/wire).
  */
 
 async function staff() {
@@ -401,9 +403,11 @@ export async function autoAssignAgain(caseId: string): Promise<ActionResult> {
 
 // ---------------------------------------------------------------- checks
 
-export async function saveCheckValues(checkId: string, values: Record<string, unknown>): Promise<ActionResult<{ valid: boolean; errors: Record<string, string> }>> {
+export async function saveCheckValues(checkId: string, packed: Wire<Record<string, unknown>>): Promise<ActionResult<{ valid: boolean; errors: Record<string, string> }>> {
   return guarded(async () => {
     await staff();
+    const values = fromWire(packed);
+    if (!values || typeof values !== "object" || Array.isArray(values)) return fail("Some details need fixing before they can be saved.");
     const supabase = await createClient();
     const { data: check } = await supabase.from("case_checks").select("id, values, version:check_type_versions(schema)").eq("id", checkId).maybeSingle();
     if (!check) return fail("That check no longer exists, or you don't have access to it.");
@@ -422,13 +426,13 @@ export async function saveCheckValues(checkId: string, values: Record<string, un
   });
 }
 
-export async function setCheckState(
-  checkId: string,
-  input: { state: (typeof CHECK_STATES)[number]; result?: string; note?: string; clientNote?: string },
-): Promise<ActionResult> {
+export type CheckStateInput = { state: (typeof CHECK_STATES)[number]; result?: string; note?: string; clientNote?: string };
+
+export async function setCheckState(checkId: string, packed: Wire<CheckStateInput>): Promise<ActionResult> {
   return guarded(async () => {
     const viewer = await staff();
-    if (!CHECK_STATES.includes(input.state)) return fail("Unknown status.");
+    const input = fromWire(packed);
+    if (!input || !CHECK_STATES.includes(input.state)) return fail("Unknown status.");
     const supabase = await createClient();
     const { data: before } = await supabase.from("case_checks").select("state, case_id").eq("id", checkId).maybeSingle();
     const { error } = await supabase.rpc("set_check_state", {
@@ -454,10 +458,12 @@ export async function setCheckState(
 }
 
 /** Reword what the report and the client read for a check. */
-export async function setCheckRemarks(checkId: string, remarks: string): Promise<ActionResult> {
+export async function setCheckRemarks(checkId: string, packed: Wire<string>): Promise<ActionResult> {
   return guarded(async () => {
     await staff();
+    const remarks = fromWire(packed);
     if (!uuid.safeParse(checkId).success) return fail("Unknown check.");
+    if (typeof remarks !== "string") return fail("Write the remarks first.");
     if (remarks.length > 4000) return fail("Keep remarks under 4,000 characters.");
     const supabase = await createClient();
     const { error } = await supabase.rpc("set_check_remarks", { p_check: checkId, p_remarks: remarks.trim() });
@@ -515,10 +521,10 @@ const qcSchema = z.object({
   message: z.string().trim().max(2000).optional(),
 });
 
-export async function recordQcReview(caseId: string, input: z.input<typeof qcSchema>): Promise<ActionResult<{ warning?: string }>> {
+export async function recordQcReview(caseId: string, packed: Wire<z.input<typeof qcSchema>>): Promise<ActionResult<{ warning?: string }>> {
   return guarded(async () => {
     const viewer = await staff();
-    const parsed = qcSchema.safeParse(input);
+    const parsed = qcSchema.safeParse(fromWire(packed));
     if (!parsed.success) return fail("Check the review.");
     const v = parsed.data;
     if (v.kind === "pre" && v.decision === "returned" && !v.message) return fail("Say what you need sent or corrected.");
@@ -578,11 +584,12 @@ async function whoHearsOfTheReturn(caseId: string) {
 
 // ---------------------------------------------------------------- questions to the client, contact log
 
-export async function askClient(caseId: string, question: string, checkId?: string | null): Promise<ActionResult<{ warning?: string }>> {
+export async function askClient(caseId: string, packed: Wire<string>, checkId?: string | null): Promise<ActionResult<{ warning?: string }>> {
   return guarded(async () => {
     await staff();
     if (!uuid.safeParse(caseId).success) return fail("Unknown case.");
-    if (!question.trim()) return fail("Write the question.");
+    const question = fromWire(packed);
+    if (typeof question !== "string" || !question.trim()) return fail("Write the question.");
     if (question.length > 2000) return fail("Keep questions under 2,000 characters.");
     const supabase = await createClient();
     const { error } = await supabase.rpc("create_client_request", { p_case: caseId, p_check: orNull(checkId), p_question: question.trim() });
@@ -616,11 +623,11 @@ const contactSchema = z.object({
   body: z.string().trim().max(4000).optional(),
 });
 
-export async function logContact(caseId: string, input: z.input<typeof contactSchema>): Promise<ActionResult> {
+export async function logContact(caseId: string, packed: Wire<z.input<typeof contactSchema>>): Promise<ActionResult> {
   return guarded(async () => {
     await staff();
     if (!uuid.safeParse(caseId).success) return fail("Unknown case.");
-    const parsed = contactSchema.safeParse(input);
+    const parsed = contactSchema.safeParse(fromWire(packed));
     if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Check the details.");
     const v = parsed.data;
     const supabase = await createClient();
@@ -662,9 +669,13 @@ export async function setCaseClientVisible(caseId: string, visible: boolean): Pr
 
 // ---------------------------------------------------------------- documents
 
-export async function requestDocument(caseId: string, input: { checkId?: string | null; category: string; label?: string; note?: string }): Promise<ActionResult<{ warning?: string }>> {
+export type DocumentRequestInput = { checkId?: string | null; category: string; label?: string; note?: string };
+
+export async function requestDocument(caseId: string, packed: Wire<DocumentRequestInput>): Promise<ActionResult<{ warning?: string }>> {
   return guarded(async () => {
     const viewer = await staff();
+    const input = fromWire(packed);
+    if (!input || typeof input.category !== "string" || !input.category) return fail("Choose the document.");
     const supabase = await createClient();
     const { error } = await supabase.rpc("request_case_document", {
       p_case: caseId,
@@ -708,10 +719,10 @@ const fileLinksSchema = z.object({
 });
 
 /** A person says a file holds these documents. Each slot then counts the file as received. */
-export async function confirmRequirementFiles(input: z.input<typeof fileLinksSchema>): Promise<ActionResult> {
+export async function confirmRequirementFiles(packed: Wire<z.input<typeof fileLinksSchema>>): Promise<ActionResult> {
   return guarded(async () => {
     await staff();
-    const parsed = fileLinksSchema.safeParse(input);
+    const parsed = fileLinksSchema.safeParse(fromWire(packed));
     if (!parsed.success) return fail("Choose at least one document.");
     const { documentId, links, suggestionId, all } = parsed.data;
     const supabase = await createClient();
@@ -754,10 +765,10 @@ const uploadSchema = z.object({
 });
 
 /** Step 1: create the document row and a signed upload URL the browser uploads to directly. */
-export async function beginUpload(input: z.input<typeof uploadSchema>): Promise<ActionResult<{ documentId: string; path: string; token: string }>> {
+export async function beginUpload(packed: Wire<z.input<typeof uploadSchema>>): Promise<ActionResult<{ documentId: string; path: string; token: string }>> {
   return guarded(async () => {
     await staff();
-    const parsed = uploadSchema.safeParse(input);
+    const parsed = uploadSchema.safeParse(fromWire(packed));
     if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "This file can't be uploaded.");
     const v = parsed.data;
     const supabase = await createClient();
@@ -820,9 +831,11 @@ export async function reviewDocument(documentId: string, accept: boolean, reason
   });
 }
 
-export async function setDocumentRecord(documentId: string, recordKey: string | null): Promise<ActionResult> {
+export async function setDocumentRecord(documentId: string, packed: Wire<string | null>): Promise<ActionResult> {
   return guarded(async () => {
     await staff();
+    const recordKey = fromWire(packed);
+    if (recordKey !== null && typeof recordKey !== "string") return fail("Choose the record.");
     const supabase = await createClient();
     const { error } = await supabase.rpc("set_document_record", { p_document: documentId, p_record: recordKey ?? "" });
     if (error) return fail(rpcErrorMessage(error));
@@ -866,9 +879,11 @@ export async function setDocumentVisibility(documentId: string, visibility: "int
 }
 
 /** A file in the wrong place: another check, another kind of document, or the case as a whole. */
-export async function refileDocument(documentId: string, checkId: string | null, category: string): Promise<ActionResult> {
+export async function refileDocument(documentId: string, checkId: string | null, packed: Wire<string>): Promise<ActionResult> {
   return guarded(async () => {
     await staff();
+    const category = fromWire(packed);
+    if (typeof category !== "string" || !category) return fail("Choose the kind of document.");
     if (!uuid.safeParse(documentId).success || (checkId && !uuid.safeParse(checkId).success)) return fail("Unknown file.");
     const supabase = await createClient();
     const { error } = await supabase.rpc("refile_document", { p_document: documentId, p_check: orNull(checkId), p_category: category });

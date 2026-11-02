@@ -8,6 +8,7 @@ import { AuthError, authErrorMessage, rpcErrorMessage } from "@/lib/server/error
 import { fail, zodFieldErrors, type ActionResult } from "@/lib/server/action-result";
 import { checkTypeSchema, publishIssues } from "@/domain/check-types/schema";
 import type { Json } from "@/lib/supabase/database.types";
+import { fromWire, type Wire } from "@/lib/wire";
 
 /**
  * Check type builder. Definitions change only through save_check_type_draft()
@@ -105,9 +106,10 @@ function schemaIssues(issues: ReadonlyArray<{ path: PropertyKey[]; message: stri
   return zodFieldErrors(issues);
 }
 
-export async function saveDraft(id: string, schema: unknown): Promise<ActionResult<{ draftId: string }>> {
+/** The definition arrives packed (lib/wire): its keys include employer_response and verification_response. */
+export async function saveDraft(id: string, packed: Wire<unknown>): Promise<ActionResult<{ draftId: string }>> {
   return guarded(async () => {
-    const parsed = checkTypeSchema.safeParse(schema);
+    const parsed = checkTypeSchema.safeParse(fromWire(packed));
     if (!parsed.success) return { ok: false, error: "Some parts of the definition need fixing.", fieldErrors: schemaIssues(parsed.error.issues) };
     const supabase = await createClient();
     const { data, error } = await supabase.rpc("save_check_type_draft", { p_check_type: id, p_schema: parsed.data as unknown as Json });
@@ -117,9 +119,9 @@ export async function saveDraft(id: string, schema: unknown): Promise<ActionResu
   });
 }
 
-export async function publishCheckType(id: string, schema: unknown, notes: string): Promise<ActionResult<{ version: number }>> {
+export async function publishCheckType(id: string, packed: Wire<unknown>, notes: string): Promise<ActionResult<{ version: number }>> {
   return guarded(async () => {
-    const parsed = checkTypeSchema.safeParse(schema);
+    const parsed = checkTypeSchema.safeParse(fromWire(packed));
     if (!parsed.success) return { ok: false, error: "Some parts of the definition need fixing.", fieldErrors: schemaIssues(parsed.error.issues) };
     const supabase = await createClient();
     // The sanction rules hang on these (set_check_state, the report's annexure).

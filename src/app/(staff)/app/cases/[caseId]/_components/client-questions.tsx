@@ -10,6 +10,7 @@ import { ToneChip } from "@/components/cases/badges";
 import { RelativeTime } from "@/components/cases/sla-badge";
 import type { Tone } from "@/domain/workflow/stages";
 import { ReasonDialog } from "./reason-dialog";
+import { toWire } from "@/lib/wire";
 
 const STATUS: Record<ClientQuestion["status"], { label: string; tone: Tone }> = {
   open: { label: "Waiting for the client", tone: "warning" },
@@ -88,7 +89,7 @@ export function ClientQuestions({ caseId, questions, canAsk, clientName }: { cas
         confirmLabel="Send question"
         success="Question sent"
         onSubmit={async (text) => {
-          const r = await askClient(caseId, text);
+          const r = await askClient(caseId, toWire(text));
           if (r.ok && r.warning) toast.warning(r.warning);
           return r;
         }}

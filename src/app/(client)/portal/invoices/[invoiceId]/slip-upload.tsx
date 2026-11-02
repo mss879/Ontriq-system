@@ -11,6 +11,7 @@ import { createClient } from "@/lib/supabase/client";
 import { sha256Hex } from "@/lib/client/upload";
 import { formatBytes } from "@/lib/format";
 import { beginSlip, finalizeSlip } from "../actions";
+import { toWire } from "@/lib/wire";
 
 const MAX = 10 * 1024 * 1024;
 const BY_EXT: Record<string, "application/pdf" | "image/jpeg" | "image/png"> = { pdf: "application/pdf", jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png" };
@@ -42,7 +43,7 @@ export function SlipUpload({ invoiceId, pending: slipPending }: { invoiceId: str
       setError(null);
       const mime = slipMime(file)!;
       setStage("Preparing");
-      const [hash, begun] = await Promise.all([sha256Hex(file), beginSlip({ invoiceId, filename: file.name, mime, size: file.size, note })]);
+      const [hash, begun] = await Promise.all([sha256Hex(file), beginSlip(toWire({ invoiceId, filename: file.name, mime, size: file.size, note }))]);
       if (!begun.ok) {
         setStage(null);
         return setError(begun.error);

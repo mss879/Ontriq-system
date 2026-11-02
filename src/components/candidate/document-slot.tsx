@@ -10,6 +10,7 @@ import { UPLOAD_ACCEPT_ATTR, checkFile, photoQualityWarning, uploadOne } from "@
 import { candidateDict, fmt, translateUploadMessage, type CandidateLang } from "@/domain/candidate/i18n";
 import { beginUpload, finalizeUpload } from "@/app/(candidate)/c/session/actions";
 import { errorText } from "./errors";
+import { toWire } from "@/lib/wire";
 
 export type SlotFile = { id: string; filename: string; status: "uploaded" | "accepted" | "rejected" | "superseded"; rejectionReason: string | null; at: string };
 
@@ -53,7 +54,7 @@ export function DocumentSlot({ lang, slot, uploadsOpen }: { lang: CandidateLang;
       if (warning) patch(key, { warning: translateUploadMessage(t, warning) });
       const result = await uploadOne(
         file,
-        (meta) => beginUpload({ requirementId: slot.id, ...meta }),
+        (meta) => beginUpload(toWire({ requirementId: slot.id, ...meta })),
         finalizeUpload,
         (stage) => patch(key, { stage }),
       );

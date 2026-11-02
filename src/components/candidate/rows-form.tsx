@@ -10,6 +10,7 @@ import type { CandidateRow, CandidateRowField, CandidateRowForm } from "@/domain
 import { answerRows } from "@/app/(candidate)/c/session/actions";
 import { AnswerField } from "./answer-field";
 import { errorText } from "./errors";
+import { toWire } from "@/lib/wire";
 
 type Range = { from?: string; to?: string; present?: boolean };
 
@@ -36,7 +37,7 @@ export function RowsForm({ lang, requestId, form, initial, answered }: { lang: C
     if (complete.length < Math.max(form.min, 1) || complete.length < rows.length) return setError(fmt(t.requests.rowsNeeded, { n: String(Math.max(form.min, 1)) }));
     setError(null);
     start(async () => {
-      const r = await answerRows({ requestId, rows });
+      const r = await answerRows(toWire({ requestId, rows }));
       if (!r.ok) return setError(errorText(t, r.error));
       toast.success(t.requests.sent);
     });

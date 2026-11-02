@@ -16,6 +16,7 @@ import { CHECK_STATE_LABELS, type CheckState, type ProcessType, type Stage } fro
 import type { ActionAvailability, CaseAction } from "@/domain/workflow/transitions-core";
 import type { QcChecklists } from "@/domain/workflow/settings";
 import { ReasonDialog } from "./reason-dialog";
+import { toWire } from "@/lib/wire";
 
 const ICONS: Partial<Record<CaseAction, React.ComponentType<{ className?: string }>>> = {
   accept_request: CheckCircle2,
@@ -300,7 +301,7 @@ function QcForm({
     if (kind === "pre" && decision === "returned" && !message.trim()) return setError("Say what you need sent or corrected.");
     if (decision === "approved" && unticked > 0 && !remarks.trim()) return setError("Say in the remarks why you are approving with items unticked.");
     start(async () => {
-      const r = await recordQcReview(caseId, {
+      const r = await recordQcReview(caseId, toWire({
         kind,
         decision,
         checklist: items.map((item, i) => ({ item, ok: ticks[i] })),
@@ -308,7 +309,7 @@ function QcForm({
         returnCheckIds: decision === "returned" ? returnIds : [],
         returnTo,
         message: decision === "returned" && message.trim() ? message.trim() : undefined,
-      });
+      }));
       if (r.ok) {
         toast.success(decision === "approved" ? (kind === "pre" ? "Pre-QC approved: on to data entry" : "Post-QC approved: ready for the report") : "Returned for correction");
         if (r.warning) toast.warning(r.warning);

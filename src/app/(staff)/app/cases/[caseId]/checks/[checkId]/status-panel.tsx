@@ -16,6 +16,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { CHECK_STATE_LABELS, isTerminalCheck, STAGE_LABELS, type CheckState, type Stage } from "@/domain/workflow/stages";
 import { ReasonDialog } from "../../_components/reason-dialog";
+import { toWire } from "@/lib/wire";
 
 const TONE = { green: "success", amber: "warning", red: "danger" } as const;
 const UNASSIGNED = "__none__";
@@ -67,7 +68,7 @@ export function StatusPanel({
 
   const quick = (next: CheckState, success: string) =>
     start(async () => {
-      const r = await setCheckState(checkId, { state: next });
+      const r = await setCheckState(checkId, toWire({ state: next }));
       if (r.ok) toast.success(success);
       else toast.error(r.error);
     });
@@ -186,7 +187,7 @@ export function StatusPanel({
         placeholder="e.g. The client removed this check from the request."
         confirmLabel="Waive check"
         success="Check waived"
-        onSubmit={(note) => setCheckState(checkId, { state: "waived", note })}
+        onSubmit={(note) => setCheckState(checkId, toWire({ state: "waived" as const, note }))}
       />
       <ReasonDialog
         open={asking}
@@ -214,7 +215,7 @@ export function StatusPanel({
         initial={clientNote ?? ""}
         confirmLabel="Save remarks"
         success="Remarks saved"
-        onSubmit={(text) => setCheckRemarks(checkId, text)}
+        onSubmit={(text) => setCheckRemarks(checkId, toWire(text))}
       />
     </section>
   );
@@ -276,7 +277,7 @@ export function OutcomeForm({
         e.preventDefault();
         if (outcome !== "completed" && !clientNote.trim()) return setError("Write the finding. It prints in the report.");
         start(async () => {
-          const r = await setCheckState(checkId, { state: outcome, result: result || undefined, note, clientNote });
+          const r = await setCheckState(checkId, toWire({ state: outcome, result: result || undefined, note, clientNote }));
           if (r.ok) {
             toast.success("Outcome recorded");
             onDone({ outcome, result, note, clientNote });

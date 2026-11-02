@@ -12,6 +12,7 @@ import { answerText, applyAnswer, type GivenAnswer } from "@/domain/candidate/an
 import { fieldDate } from "@/domain/reports/compile-core";
 import { parseCheckTypeSchema } from "@/domain/check-types/schema";
 import { validateCheckValues } from "@/domain/check-types/validate";
+import { fromWire, type Wire } from "@/lib/wire";
 
 /**
  * The candidate side of a case, for staff: the link, requests, messages and
@@ -160,11 +161,12 @@ export type AskInput = z.input<typeof askSchema>;
 /** Due dates come from a date input (YYYY-MM-DD): close of business in Colombo. */
 const dueIso = (d?: string) => (d && /^\d{4}-\d{2}-\d{2}$/.test(d) ? `${d}T17:30:00+05:30` : null);
 
-export async function askCandidate(caseId: string, input: AskInput): Promise<ActionResult<{ emailed: boolean }>> {
+/** Packed (lib/wire): a detail or document type can be named like employer_response. */
+export async function askCandidate(caseId: string, packed: Wire<AskInput>): Promise<ActionResult<{ emailed: boolean }>> {
   return guarded(async () => {
     const viewer = await staff();
     if (!uuid.safeParse(caseId).success) return fail("Unknown case.");
-    const parsed = askSchema.safeParse(input);
+    const parsed = askSchema.safeParse(fromWire(packed));
     if (!parsed.success) return fail("Check the highlighted fields.", zodFieldErrors(parsed.error.issues));
     const v = parsed.data;
     const p =

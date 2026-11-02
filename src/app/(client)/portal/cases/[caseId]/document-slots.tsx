@@ -11,6 +11,7 @@ import { ToneChip } from "@/components/cases/badges";
 import { photoQualityWarning, uploadOne, UPLOAD_ACCEPT_ATTR } from "@/lib/client/upload";
 import type { PortalRequirement } from "@/domain/portal/types";
 import { portalBeginUpload, portalFinalizeUpload } from "../actions";
+import { toWire } from "@/lib/wire";
 
 type Target = { requirementId?: string; category?: "cv" | "other" };
 type Busy = { key: string; done: number; total: number; stage: string } | null;
@@ -33,7 +34,7 @@ export function DocumentSlots({ caseId, requirements, canUpload, uploadsOpen, fr
       if (warning) toast.warning(file.name, { description: warning });
       const r = await uploadOne(
         file,
-        (meta) => portalBeginUpload({ caseId, ...target, ...meta }),
+        (meta) => portalBeginUpload(toWire({ caseId, ...target, ...meta })),
         (id, sha) => portalFinalizeUpload(id, sha),
         (stage) => setBusy({ key, done: i, total: list.length, stage: stage === "uploading" ? "Uploading…" : stage === "saving" ? "Saving…" : "Preparing…" }),
       );

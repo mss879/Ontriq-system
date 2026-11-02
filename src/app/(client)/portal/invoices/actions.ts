@@ -8,6 +8,7 @@ import { requireViewer } from "@/lib/server/viewer";
 import { AuthError, authErrorMessage, rpcErrorMessage } from "@/lib/server/errors";
 import { fail, zodFieldErrors, type ActionResult } from "@/lib/server/action-result";
 import { kickWorker } from "@/lib/server/jobs/kick";
+import { fromWire, type Wire } from "@/lib/wire";
 
 /**
  * Payment slips from the portal (portal.payments.upload). portal_begin_slip and
@@ -38,9 +39,10 @@ const slipSchema = z.object({
 });
 
 /** Step 1: the slip row and a signed upload URL. */
-export async function beginSlip(input: z.input<typeof slipSchema>): Promise<ActionResult<{ slipId: string; path: string; token: string }>> {
+/** Packed (lib/wire): a file name can hold text the hosting firewall refuses. */
+export async function beginSlip(packed: Wire<z.input<typeof slipSchema>>): Promise<ActionResult<{ slipId: string; path: string; token: string }>> {
   return guarded(async () => {
-    const parsed = slipSchema.safeParse(input);
+    const parsed = slipSchema.safeParse(fromWire(packed));
     if (!parsed.success) return fail(parsed.error.issues[0]?.message ?? "Check the file.", zodFieldErrors(parsed.error.issues));
     const v = parsed.data;
     const supabase = await createClient();

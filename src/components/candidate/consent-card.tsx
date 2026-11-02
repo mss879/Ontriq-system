@@ -13,6 +13,7 @@ import { candidateDict, fmt, translateUploadMessage, type CandidateLang } from "
 import { beginUpload, finalizeUpload, signConsent, submitConsentUpload } from "@/app/(candidate)/c/session/actions";
 import { SignaturePad, type SignaturePadHandle } from "./signature-pad";
 import { errorText } from "./errors";
+import { toWire } from "@/lib/wire";
 
 export type ConsentData = {
   status: "pending" | "submitted" | "accepted" | "rejected";
@@ -70,7 +71,7 @@ export function ConsentCard({
     setUploadError(null);
     setUploading(true);
     try {
-      const r = await uploadOne(file, (meta) => beginUpload({ consent: true, ...meta }), finalizeUpload);
+      const r = await uploadOne(file, (meta) => beginUpload(toWire({ consent: true, ...meta })), finalizeUpload);
       if (!r.ok) return setUploadError(translateUploadMessage(t, errorText(t, r.error)));
       const done = await submitConsentUpload(r.documentId);
       if (!done.ok) return setUploadError(errorText(t, done.error));

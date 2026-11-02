@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { DateField } from "@/components/forms/date-field";
+import { toWire } from "@/lib/wire";
 
 export type ContactAvailability = { email: string | null; phone: string | null; preferredLanguage: "en" | "si" | "ta" };
 export type AskCheck = { id: string; label: string; fields: { key: string; label: string; type: string; help?: string }[] };
@@ -311,7 +312,7 @@ function AskForm({
           ? { kind, checkId: fieldCheck, fieldKey, title, help, dueAt }
           : { kind, title, help, checkId: check, dueAt };
     start(async () => {
-      const r = await askCandidate(caseId, input);
+      const r = await askCandidate(caseId, toWire(input));
       if (!r.ok) {
         setErrors(r.fieldErrors ?? {});
         setFormError(r.fieldErrors ? null : r.error);

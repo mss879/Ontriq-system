@@ -12,6 +12,7 @@ import path from "node:path";
 import { chromium, type Browser, type BrowserContext, type Page } from "@playwright/test";
 import { createClient } from "@supabase/supabase-js";
 import { sessionCookies, signedInClient } from "./dev-session";
+import { reportRefused, watchServerActions } from "./firewall-guard";
 import { candidateLinkUrl, hashLinkSecret, newLinkSecret, sealLinkSecret } from "../../src/lib/crypto/candidate-token";
 
 const args = process.argv.slice(2);
@@ -62,6 +63,7 @@ async function contextFor(browser: Browser, role: string, client?: string): Prom
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
   await ctx.addInitScript(() => localStorage.setItem("theme", "light"));
   await ctx.addCookies(cookies.map((c) => ({ name: c.name, value: c.value, url: base })));
+  watchServerActions(ctx);
   return ctx;
 }
 const open = async (page: Page, url: string) => {
@@ -190,6 +192,7 @@ async function main() {
     await rpc(admin.db.rpc("create_candidate_request", { p_case: type2.case_id, p: { kind: "question", title: "Anything else we should know?" } }));
 
     const candidate = await browser.newContext({ viewport: { width: 420, height: 900 } });
+    watchServerActions(candidate);
     const page = await candidate.newPage();
     await page.goto(candidateLinkUrl(base, secret), { waitUntil: "load" });
     await page.waitForURL(/\/c\/session/, { timeout: 10000 });
@@ -321,6 +324,7 @@ async function main() {
   const failed = results.filter((r) => !r.ok);
   console.log(`\n${results.length - failed.length} of ${results.length} steps passed. Screenshots in ${shots}`);
   if (failed.length) process.exitCode = 1;
+  reportRefused();
 }
 
 main().catch((error) => {

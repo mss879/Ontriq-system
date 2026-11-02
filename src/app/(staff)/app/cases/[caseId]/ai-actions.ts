@@ -13,6 +13,7 @@ import { isAiConfigured } from "@/lib/ai/claude";
 import { can, type Permission } from "@/domain/permissions";
 import { canDecide, canRerun, RERUN, sameValue, type RerunCapability } from "@/domain/ai/suggestions";
 import type { Json } from "@/lib/supabase/database.types";
+import { fromWire, type Wire } from "@/lib/wire";
 import type { Stage } from "@/domain/workflow/stages";
 
 /**
@@ -21,7 +22,8 @@ import type { Stage } from "@/domain/workflow/stages";
  * the person's own permissions through the normal functions, and every
  * decision is recorded (decide_ai_suggestion, 0029). Requests for a new
  * draft are queued as jobs after the person's access to the case is checked
- * with their own client.
+ * with their own client. Values and text arrive packed (lib/wire): they can
+ * hold field keys such as employer_response.
  */
 
 async function guarded<T extends object>(run: () => Promise<ActionResult<T>>): Promise<ActionResult<T>> {
@@ -50,9 +52,10 @@ async function readSuggestion(supabase: Awaited<ReturnType<typeof createClient>>
 }
 
 /** Accept, edit-and-accept or reject one suggestion. Applying its value is the caller's job. */
-export async function decideSuggestion(id: string, decision: "accepted" | "edited" | "rejected", value?: unknown): Promise<ActionResult> {
+export async function decideSuggestion(id: string, decision: "accepted" | "edited" | "rejected", packed?: Wire<unknown>): Promise<ActionResult> {
   return guarded(async () => {
     const viewer = await staff();
+    const value = packed ? fromWire(packed) : undefined;
     if (!uuid.safeParse(id).success || !["accepted", "edited", "rejected"].includes(decision)) return fail("That suggestion is no longer available.");
     const supabase = await createClient();
     const s = await readSuggestion(supabase, id);
@@ -75,10 +78,12 @@ const settleSchema = z
  * the form (accepted as is, edited, or rejected). Only this check's pending
  * extraction suggestions are touched.
  */
-export async function settleFieldSuggestions(checkId: string, items: { id: string; decision: "accepted" | "edited" | "rejected"; value?: unknown }[]): Promise<ActionResult<{ settled: number }>> {
+export type SettledSuggestion = { id: string; decision: "accepted" | "edited" | "rejected"; value?: unknown };
+
+export async function settleFieldSuggestions(checkId: string, packed: Wire<SettledSuggestion[]>): Promise<ActionResult<{ settled: number }>> {
   return guarded(async () => {
     const viewer = await staff();
-    const parsed = settleSchema.safeParse(items);
+    const parsed = settleSchema.safeParse(fromWire(packed));
     if (!uuid.safeParse(checkId).success || !parsed.success) return fail("Nothing to record.");
     if (!canDecide("document.extract", allowed(viewer))) return fail("You don't have permission to decide these suggestions.");
     const supabase = await createClient();
@@ -112,10 +117,10 @@ export async function settleFieldSuggestions(checkId: string, items: { id: strin
 const remarksSchema = z.string().trim().min(1, "Write the remarks first.").max(2000, "Keep remarks under 2,000 characters.");
 
 /** Put AI-drafted remarks (as written or edited) on the check, then record the decision. */
-export async function acceptRemarks(suggestionId: string, text: string): Promise<ActionResult> {
+export async function acceptRemarks(suggestionId: string, packed: Wire<string>): Promise<ActionResult> {
   return guarded(async () => {
     const viewer = await staff();
-    const remarks = remarksSchema.safeParse(text);
+    const remarks = remarksSchema.safeParse(fromWire(packed));
     if (!uuid.safeParse(suggestionId).success) return fail("That suggestion is no longer available.");
     if (!remarks.success) return fail(remarks.error.issues[0].message);
     const supabase = await createClient();
@@ -193,12 +198,12 @@ export async function requestOutreachDraft(checkId: string, target?: string): Pr
 const replySchema = z.string().trim().min(20, "Paste the reply or your call notes (at least a sentence).").max(8000, "That's too long. Paste the relevant part (up to 8,000 characters).");
 
 /** Turn a verifier's reply into a proposed result for the officer to confirm. */
-export async function captureReply(checkId: string, reply: string): Promise<ActionResult> {
+export async function captureReply(checkId: string, packed: Wire<string>): Promise<ActionResult> {
   return guarded(async () => {
     const viewer = await staff();
     if (!uuid.safeParse(checkId).success) return fail("Unknown check.");
     if (!can(viewer, "checks.verify")) return fail("Capturing a reply needs verification access.");
-    const r = replySchema.safeParse(reply);
+    const r = replySchema.safeParse(fromWire(packed));
     if (!r.success) return fail(r.error.issues[0].message);
     if (!isAiConfigured()) return fail(NOT_SET_UP);
     if (!(await aiQuota(viewer))) return fail(TOO_MANY);

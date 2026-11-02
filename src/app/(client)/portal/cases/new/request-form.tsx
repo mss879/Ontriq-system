@@ -19,6 +19,7 @@ import type { PortalPackage, PortalTemplate } from "@/lib/server/portal/queries"
 import { createPortalRequest, portalBeginUpload, portalFinalizeUpload, type PortalRequestInput } from "../actions";
 import { PackagePicker, PROCESS_LABEL, priceText, CheckChips, type PackageChoice } from "./package-picker";
 import { ExtraChecksField, type ExtraCheck } from "@/components/cases/extra-checks-field";
+import { toWire } from "@/lib/wire";
 
 const LANGUAGES = { en: "English", si: "Sinhala", ta: "Tamil" } as const;
 const PROCESS_HINT = {
@@ -334,7 +335,7 @@ function Created({ created, clientSupplied, onAnother }: { created: { caseId: st
     for (const file of Array.from(files).slice(0, 5)) {
       const r = await uploadOne(
         file,
-        (meta) => portalBeginUpload({ caseId: created.caseId, category: "cv", ...meta }),
+        (meta) => portalBeginUpload(toWire({ caseId: created.caseId, category: "cv" as const, ...meta })),
         (id, sha) => portalFinalizeUpload(id, sha),
       );
       if (r.ok) setUploaded((u) => [...u, file.name]);

@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import type { RecordOption } from "@/domain/check-types/records";
+import { toWire } from "@/lib/wire";
 
 const ACCEPT = ["application/pdf", "image/jpeg", "image/png", "image/webp", "image/heic"] as const;
 type Mime = (typeof ACCEPT)[number];
@@ -134,7 +135,7 @@ function UploadForm({
         patch(it.key, { stage: "hashing" });
         const hash = await sha256(it.file);
         patch(it.key, { stage: "preparing" });
-        const begun = await beginUpload({
+        const begun = await beginUpload(toWire({
           caseId,
           checkId: checkId === WHOLE_CASE ? null : checkId,
           category,
@@ -145,7 +146,7 @@ function UploadForm({
           filename: it.file.name,
           mime: it.mime,
           size: it.file.size,
-        });
+        }));
         if (!begun.ok) throw new Error(begun.error);
         patch(it.key, { stage: "uploading" });
         const sent = await supabase.storage.from("case-files").uploadToSignedUrl(begun.path, begun.token, it.file, { contentType: it.mime });

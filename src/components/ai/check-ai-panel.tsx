@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { AiBadge, AiOffNote } from "./ai-badge";
+import { toWire } from "@/lib/wire";
 
 type Item<T> = { id: string; decision: SuggestionDecision; value: T; createdAt: string; confidence: number | null };
 
@@ -184,7 +185,7 @@ function Reply({ checkId, response, options, configured, canVerify, canRecord, c
 
   const submit = () =>
     start(async () => {
-      const r = await captureReply(checkId, text);
+      const r = await captureReply(checkId, toWire(text));
       if (r.ok) {
         toast.success("Reading the reply", { description: "The proposed result appears here in a moment." });
         setText("");
@@ -203,7 +204,7 @@ function Reply({ checkId, response, options, configured, canVerify, canRecord, c
       setRecording(false);
       if (!response || response.decision !== "pending") return;
       const kept = values.result === v?.proposed_result;
-      await decideSuggestion(response.id, kept ? "accepted" : "edited", kept ? undefined : { ...v, proposed_result: values.result, client_note: values.clientNote });
+      await decideSuggestion(response.id, kept ? "accepted" : "edited", kept ? undefined : toWire({ ...v, proposed_result: values.result, client_note: values.clientNote }));
     });
 
   if (!mayCapture && !response) return null;
@@ -335,7 +336,7 @@ function Remarks({ item, currentRemarks, canRemarks, remarksLocked }: CheckAiPro
             size="xs"
             onClick={() =>
               start(async () => {
-                const r = await acceptRemarks(item.id, text);
+                const r = await acceptRemarks(item.id, toWire(text));
                 if (r.ok) toast.success("Remarks updated");
                 else toast.error(r.error);
               })

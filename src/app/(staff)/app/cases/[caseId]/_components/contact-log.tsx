@@ -14,6 +14,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { RelativeTime } from "@/components/cases/sla-badge";
+import { toWire } from "@/lib/wire";
 
 const CHANNELS = {
   phone: { label: "Phone call", icon: Phone },
@@ -138,7 +139,7 @@ function ContactForm({ caseId, checkId, people, records, onDone }: { caseId: str
         e.preventDefault();
         if (!who.trim()) return setError("Say who you spoke to.");
         start(async () => {
-          const r = await logContact(caseId, { checkId, recordKey: record === NO_RECORD ? null : record, counterparty: who, channel, direction, outcome, body });
+          const r = await logContact(caseId, toWire({ checkId, recordKey: record === NO_RECORD ? null : record, counterparty: who, channel, direction, outcome, body }));
           if (r.ok) {
             toast.success("Contact logged");
             onDone();

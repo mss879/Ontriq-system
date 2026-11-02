@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { AiBadge, AiOffNote } from "./ai-badge";
+import { toWire } from "@/lib/wire";
 
 type Item<T> = { id: string; decision: SuggestionDecision; value: T; createdAt: string; confidence: number | null };
 
@@ -315,7 +316,7 @@ function RemarksDraft({ item, canAccept }: { item: CopilotData["remarks"][number
   const { pending: deciding, decide } = useDecide(item.id);
   const accept = () =>
     start(async () => {
-      const r = await acceptRemarks(item.id, text);
+      const r = await acceptRemarks(item.id, toWire(text));
       if (r.ok) toast.success(`Remarks added to ${item.checkLabel}`);
       else toast.error(r.error);
     });
