@@ -6,6 +6,7 @@ import { reminderCandidate } from "./handlers/reminder-candidate";
 import { notifyEmail } from "./handlers/notify-email";
 import { reportRender } from "./handlers/report-render";
 import { documentRender } from "./handlers/document-render";
+import { businessReportRender } from "./handlers/business-report";
 import { aiSlipRead, invoiceDraft, invoiceReminders } from "./handlers/invoice-jobs";
 import {
   aiClassify,
@@ -52,4 +53,5 @@ export const JOB_HANDLERS: Record<string, JobHandler> = {
   "nudge.auto": nudgeAuto,
   "retention.purge": retentionPurge,
   "stt.transcribe": sttTranscribe,
+  "assistant.report": businessReportRender,
 };

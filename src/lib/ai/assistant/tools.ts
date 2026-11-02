@@ -8,6 +8,8 @@ import { can } from "@/domain/permissions";
 import { formatMoney } from "@/domain/pricing/money";
 import { displayStatus } from "@/domain/pricing/invoice-core";
 import { STAGE_SHORT, type Stage } from "@/domain/workflow/stages";
+import { REPORT_KINDS, reportSummary } from "@/domain/business-report/build";
+import { loadBusinessReport, queueReportPdf } from "./reports";
 import type { Artifact } from "./types";
 
 export type { Artifact } from "./types";
@@ -45,6 +47,14 @@ export type ToolDef<S extends z.ZodType = z.ZodType> = {
 
 const def = <S extends z.ZodType>(t: ToolDef<S>) => t as unknown as ToolDef;
 const stageLabel = (s: string) => STAGE_SHORT[s as Stage] ?? s;
+const REPORT_PERMISSIONS = ["staff.performance.read", "analytics.read", "billing.export", "invoices.manage"];
+const isoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).describe("YYYY-MM-DD");
+const reportInput = {
+  kind: z.enum(REPORT_KINDS).describe("team_performance: scores and ranking per staff member. operations: cases, turnaround and results. revenue: invoiced, collected, owed."),
+  from: isoDay,
+  to: isoDay,
+  client: z.string().optional().describe("Limit operations or revenue to one client"),
+};
 const day = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "Asia/Colombo" }) : "—");
 
 async function findCase(ctx: ToolContext, ref: string) {
@@ -157,7 +167,7 @@ export const TOOLS: ToolDef[] = [
   def({
     name: "team_workload",
     kind: "read",
-    description: "Who is busy, who is behind: open, overdue and completed items per staff member over the last 7 days.",
+    description: "Who is busy and who is behind right now: open and overdue items per staff member, with what they completed in the last N days. For scores, rankings or set dates, use business_report.",
     permissions: ["staff.performance.read"],
     schema: z.object({ days: z.number().optional() }),
     run: async (ctx, { days }) => {
@@ -244,6 +254,41 @@ export const TOOLS: ToolDef[] = [
       return {
         summary: `AI cost over ${days ?? 30} days: $${total.toFixed(2)}. ${rows.map((r) => `${r.key} $${Number(r.cost_usd).toFixed(2)}`).join("; ")}`,
         artifact: { type: "table", title: `AI usage · $${total.toFixed(2)}`, columns: ["Capability", "Runs", "Cost (USD)"], rows: rows.map((r) => [r.key, r.runs, Number(r.cost_usd).toFixed(4)]), href: "/app/settings/ai" },
+      };
+    },
+  }),
+  def({
+    name: "business_report",
+    kind: "read",
+    description: "A full report for exact dates: team performance with scores and a ranking, operations, or revenue. Use it for who performed best, how a period went, or before making a PDF.",
+    permissions: REPORT_PERMISSIONS,
+    schema: z.object(reportInput),
+    run: async (ctx, input) => {
+      const report = await loadBusinessReport(ctx, input);
+      if (typeof report === "string") return { summary: report };
+      if (report.empty) return { summary: `Nothing is recorded for ${report.period}. Say so plainly and don't make a PDF.` };
+      const main = report.sections[0];
+      return {
+        summary: reportSummary(report),
+        artifact: { type: "table", title: `${report.title} · ${report.period}`, columns: main.columns.map((c) => c.label), rows: main.rows, href: report.kind === "team_performance" ? "/app/team/performance" : "/app/analytics" },
+      };
+    },
+  }),
+  def({
+    name: "create_report_pdf",
+    kind: "read",
+    commandOnly: true,
+    description: "Make a branded PDF of a report, with a download button in the chat. Call business_report first, then pass the same kind and dates with key points taken only from its figures.",
+    permissions: REPORT_PERMISSIONS,
+    schema: z.object({ ...reportInput, key_points: z.array(z.string().max(300)).max(6).describe("Two to five short points for the reader, using only figures from business_report") }),
+    run: async (ctx, { key_points, ...input }) => {
+      const report = await loadBusinessReport(ctx, input);
+      if (typeof report === "string") return { summary: report };
+      if (report.empty) return { summary: `Nothing is recorded for ${report.period}, so no PDF was made. Say so plainly.` };
+      const id = await queueReportPdf(ctx, { ...report, points: key_points });
+      return {
+        summary: `The PDF is being prepared and a download button is on screen. Main finding: ${report.headline}`,
+        artifact: { type: "file", title: `${report.title} · ${report.period}`, subtitle: report.headline, document_id: id },
       };
     },
   }),

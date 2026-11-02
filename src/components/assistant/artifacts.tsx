@@ -1,9 +1,11 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "@/components/link";
-import { ArrowDown, ArrowUp, ArrowUpRight, ChevronsUpDown } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpRight, ChevronsUpDown, Download, FileText } from "lucide-react";
 import type { Artifact } from "@/lib/ai/assistant/types";
+import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import { safeHref } from "./markdown";
 import { sortRows } from "./sort";
@@ -11,8 +13,11 @@ import { sortRows } from "./sort";
 type Table = Extract<Artifact, { type: "table" }>;
 type Cards = Extract<Artifact, { type: "cards" }>;
 type Metrics = Extract<Artifact, { type: "metrics" }>;
+type File = Extract<Artifact, { type: "file" }>;
 
 const SHOWN = 12;
+const FILE_CHECK_MS = 2500;
+const FILE_CHECKS = 40;
 
 function Frame({ title, href, children }: { title: string; href?: string; children: React.ReactNode }) {
   const link = href ? safeHref(href) : null;
@@ -132,6 +137,64 @@ export function MetricsArtifact({ artifact }: { artifact: Metrics }) {
           </div>
         ))}
       </dl>
+    </Frame>
+  );
+}
+
+/** A report being drawn in the background: checks until it's ready, then offers the download. */
+export function FileArtifact({ artifact }: { artifact: File }) {
+  const [status, setStatus] = useState<"preparing" | "ready" | "failed">("preparing");
+  const href = `/api/documents/${artifact.document_id}`;
+
+  useEffect(() => {
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const check = async (attempt: number) => {
+      const body = await fetch(`${href}?status=1`, { cache: "no-store" })
+        .then((r) => (r.ok ? (r.json() as Promise<{ status: string }>) : null))
+        .catch(() => null);
+      if (stopped) return;
+      if (body?.status === "ready") setStatus("ready");
+      else if (body?.status === "failed" || attempt >= FILE_CHECKS) setStatus("failed");
+      else timer = setTimeout(() => void check(attempt + 1), FILE_CHECK_MS);
+    };
+    void check(0);
+    return () => {
+      stopped = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [href]);
+
+  return (
+    <Frame title={artifact.title}>
+      <div className="flex flex-wrap items-center gap-3 px-3 py-2.5">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <FileText className="size-4.5" />
+        </span>
+        <p className="min-w-40 flex-1 text-sm text-muted-foreground">{artifact.subtitle}</p>
+        {status === "preparing" ? (
+          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+            <Spinner /> Preparing the PDF
+          </span>
+        ) : status === "failed" ? (
+          <span role="alert" className="text-xs font-medium text-destructive">
+            The PDF couldn&apos;t be made. Ask again.
+          </span>
+        ) : (
+          <span className="flex gap-1.5">
+            <Button asChild variant="outline" size="sm">
+              <a href={href} target="_blank" rel="noreferrer">
+                Open
+              </a>
+            </Button>
+            <Button asChild size="sm">
+              <a href={`${href}?download=1`}>
+                <Download /> Download PDF
+              </a>
+            </Button>
+          </span>
+        )}
+      </div>
     </Frame>
   );
 }

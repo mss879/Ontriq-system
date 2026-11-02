@@ -7,6 +7,7 @@ export type Artifact =
   | { type: "table"; title: string; columns: string[]; rows: (string | number)[][]; href?: string }
   | { type: "cards"; title: string; items: { title: string; subtitle?: string; meta?: string; href?: string }[] }
   | { type: "metrics"; title: string; items: { label: string; value: string }[] }
+  | { type: "file"; title: string; subtitle: string; document_id: string }
   | { type: "action"; action_id: string; title: string; lines: string[]; status: "proposed" };
 
 export type Block = { type: "text"; text: string } | Artifact | { type: "error"; text: string };

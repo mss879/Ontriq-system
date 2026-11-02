@@ -6,7 +6,7 @@ import type { ActionState, Block, ChatMessage } from "@/lib/ai/assistant/types";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import { MarkdownText } from "./markdown-text";
-import { CardsArtifact, MetricsArtifact, TableArtifact } from "./artifacts";
+import { CardsArtifact, FileArtifact, MetricsArtifact, TableArtifact } from "./artifacts";
 import { ActionCard } from "./action-card";
 
 function BlockView({ block, actions, onAction }: { block: Block; actions: Record<string, ActionState>; onAction: (id: string, s: ActionState) => void }) {
@@ -26,6 +26,8 @@ function BlockView({ block, actions, onAction }: { block: Block; actions: Record
       return <CardsArtifact artifact={block} />;
     case "metrics":
       return <MetricsArtifact artifact={block} />;
+    case "file":
+      return <FileArtifact artifact={block} />;
     case "action":
       return <ActionCard card={block} state={actions[block.action_id]} onState={(s) => onAction(block.action_id, s)} />;
   }

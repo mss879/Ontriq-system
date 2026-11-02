@@ -631,6 +631,43 @@ export type Database = {
           },
         ];
       };
+      assistant_report_figures: {
+        Row: {
+          created_at: string;
+          document_id: string;
+          org_id: string;
+          report: NonNullable<Json>;
+        };
+        ComputedFields: never;
+        Insert: {
+          created_at?: string;
+          document_id: string;
+          org_id: string;
+          report: NonNullable<Json>;
+        };
+        Update: {
+          created_at?: string;
+          document_id?: string;
+          org_id?: string;
+          report?: NonNullable<Json>;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "assistant_report_figures_document_id_fkey";
+            columns: ["document_id"];
+            isOneToOne: true;
+            referencedRelation: "generated_documents";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "assistant_report_figures_org_id_fkey";
+            columns: ["org_id"];
+            isOneToOne: false;
+            referencedRelation: "orgs";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       assistant_threads: {
         Row: {
           archived_at: string | null;

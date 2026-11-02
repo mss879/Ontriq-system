@@ -17,6 +17,8 @@ export async function GET(request: NextRequest, ctx: RouteContext<"/api/document
   if (state.state !== "ready") return NextResponse.json({ error: "not found" }, { status: 404, headers: PRIVATE });
   const supabase = await createClient();
   const { data: doc } = await supabase.from("generated_documents").select("id, title, status, storage_path, kind").eq("id", documentId).maybeSingle();
+  // The chat asks this while a report is being drawn.
+  if (request.nextUrl.searchParams.get("status") === "1") return NextResponse.json({ status: doc?.status ?? "missing" }, { headers: PRIVATE });
   if (!doc?.storage_path || doc.status !== "ready") return NextResponse.json({ error: "not ready" }, { status: 404, headers: PRIVATE });
   const download = request.nextUrl.searchParams.get("download") === "1";
   const filename = `${(doc.title || doc.kind).split(" · ")[0].replace(/[^A-Za-z0-9._-]+/g, "-")}.pdf`;

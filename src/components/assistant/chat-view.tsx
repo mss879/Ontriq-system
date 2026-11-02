@@ -10,9 +10,10 @@ import { Composer } from "./composer";
 
 export const STAFF_SUGGESTIONS = ["What's on my plate today?", "Which of my checks are overdue?", "Show cases waiting for documents", "Who on the team is behind this week?"];
 export const COMMAND_SUGGESTIONS = [
+  "Make a PDF of last quarter's team performance",
   "Show me all unpaid invoices over 30 days",
   "Who is behind this week?",
-  "What did AI cost us in the last 30 days?",
+  "How did revenue look last quarter?",
   "Create a client called Hemas Holdings with 30-day terms",
 ];
 

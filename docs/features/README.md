@@ -52,6 +52,7 @@ Each feature is one migration file.
 - [Add a candidate by hand](0050-add-candidate.md) — `0050_add_candidate.sql`
 - [Speed on the live site](0051-faster-queue-depth.md) — `0051_faster_queue_depth.sql`
 - [Navigation speed](0052-navigation-speed.md) — `0052_navigation_speed.sql`
+- [Assistant reports and business-only answers](0053-assistant-reports.md) — `0053_assistant_reports.sql`
 - [Create a login on the Team page](team-create-login.md) — no migration
 
 ## Notes from Phase 0
