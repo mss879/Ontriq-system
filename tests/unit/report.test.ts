@@ -220,6 +220,37 @@ describe("a report too big for one file", () => {
   });
 });
 
+describe("annexure pages", () => {
+  // Pages with something on them, as real evidence has.
+  const letter = async (pages: number) => {
+    const doc = await PDFDocument.create();
+    for (let i = 0; i < pages; i += 1) doc.addPage().drawText(`Page ${i + 1}`, { x: 50, y: 700 });
+    return doc.save();
+  };
+  // A 1×1 PNG.
+  const png = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0));
+  const file = (filename: string, mime: string, bytes: Uint8Array, sha256: string | null = null): AnnexureFile => ({ document_id: filename, title: "Evidence", filename, mime, kind: "evidence", check_label: null, sha256, read: async () => bytes });
+  const opts = { reference: "ONT-2026-000001", draft: false };
+  const body = async () => {
+    const doc = await PDFDocument.create();
+    doc.addPage();
+    return doc.save();
+  };
+
+  it("start on their heading's page, with no sheet in front", async () => {
+    const plan = await planAnnexures([file("letter.pdf", "application/pdf", await letter(3)), file("reply.png", "image/png", png)], { parts: true });
+    const r = await assembleReport(await body(), plan, opts);
+    // The body, then three pages of the letter and one of the screenshot.
+    expect(r.pages).toBe(1 + 3 + 1);
+  });
+
+  it("keep a cover sheet when there is something to explain", async () => {
+    const plan = await planAnnexures([file("letter.pdf", "application/pdf", await letter(2), "not-its-fingerprint")], { parts: true });
+    const r = await assembleReport(await body(), plan, opts);
+    expect(r.pages).toBe(1 + 1 + 2);
+  });
+});
+
 describe("phone photos", () => {
   const exif = (orientation: number) => {
     // A JPEG start, an Exif header, a little-endian TIFF block holding one tag.

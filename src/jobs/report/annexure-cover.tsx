@@ -78,6 +78,35 @@ export async function renderAnnexureCover(m: CoverModel): Promise<Uint8Array> {
   return new Uint8Array(await renderToBuffer(<CoverPage m={m} />));
 }
 
+/**
+ * The heading alone, at the top of the page the file itself starts on, so no sheet
+ * stands nearly empty in front of it. Its height is fixed (long names stop at two
+ * lines), which tells the caller where the file can begin.
+ */
+export async function renderAnnexureHeading(m: Pick<CoverModel, "reference" | "heading" | "title" | "filename" | "sha256">): Promise<{ bytes: Uint8Array; top: number }> {
+  registerFonts();
+  // Roughly how many characters fit a line, at each size, across the page.
+  const titleLines = m.title.length > 46 ? 2 : 1;
+  const fileLines = m.filename.length > 88 ? 2 : 1;
+  const height = 12.6 + 10 + 21.6 * titleLines + 4 + 14 * fileLines + (m.sha256 ? 16.5 : 0) + 12;
+  const bytes = await renderToBuffer(
+    <Document title={m.heading} author="Ontriq">
+      <Page size="A4" style={page}>
+        <Band />
+        <View style={{ height, borderBottomWidth: 0.75, borderBottomColor: C.line, overflow: "hidden" }}>
+          <Text style={{ fontSize: 9, color: C.muted }}>
+            {m.reference} · {m.heading}
+          </Text>
+          <Text style={{ marginTop: 10, fontFamily: DISPLAY_FONTS, fontSize: 18, fontWeight: 700, color: C.ink, lineHeight: 1.2, maxLines: 2, textOverflow: "ellipsis" }}>{m.title}</Text>
+          <Text style={{ marginTop: 4, color: C.body, maxLines: 2, textOverflow: "ellipsis" }}>{m.filename}</Text>
+          {m.sha256 ? <Text style={{ marginTop: 6, fontSize: 7.5, color: C.muted }}>File fingerprint (SHA-256): {m.sha256}</Text> : null}
+        </View>
+      </Page>
+    </Document>,
+  );
+  return { bytes: new Uint8Array(bytes), top: page.paddingTop + height };
+}
+
 export async function renderPartTitle(input: { reference: string; part: number; draft: boolean; verifyUrl?: string | null }): Promise<Uint8Array> {
   registerFonts();
   return new Uint8Array(

@@ -3,16 +3,17 @@
  * each file is read once to learn what can be done with it and which part of the
  * report it goes in, so the report can say what it really holds. Assembly then
  * reads each file again, one at a time, which keeps the worker within memory.
- * Each evidence file goes behind a cover sheet (images scaled onto A4 pages, PDFs
- * copied page by page), and the fixed annexure (Global Sanction report) is
- * attached untouched. Spec 7 wants all evidence in the report package, so what
+ * Each evidence file starts on the page of its own heading (a photo fitted below
+ * it, a PDF's first page scaled to fit, the rest copied page by page), so no sheet
+ * stands nearly empty. A file with something to explain keeps a cover sheet of its
+ * own, and the fixed annexure (Global Sanction report) is attached untouched. Spec 7 wants all evidence in the report package, so what
  * doesn't fit goes in a further part. A protected PDF can't be copied page by
  * page: the original file travels inside the PDF instead. Plain Node.
  */
 import { createHash } from "node:crypto";
 import { degrees, PDFDocument, rgb, StandardFonts, type PDFFont, type PDFImage, type PDFPage } from "pdf-lib";
 import type { ReportAnnexure } from "../../domain/reports/compile-core";
-import { renderAnnexureCover, renderPartTitle } from "./annexure-cover";
+import { renderAnnexureCover, renderAnnexureHeading, renderPartTitle } from "./annexure-cover";
 import { jpegOrientation, toJpeg } from "./convert-image";
 
 const A4 = { w: 595.28, h: 841.89 };
@@ -147,21 +148,39 @@ function warnings(a: PlannedAnnexure): string[] {
   ];
 }
 
-/** "Rotate me" as phones write it: 3 is upside down, 6 and 8 are portraits lying on their side. */
-function drawPhoto(page: PDFPage, img: PDFImage, orientation: number) {
-  const sideways = orientation >= 5;
-  const across = sideways ? img.height : img.width;
-  const up = sideways ? img.width : img.height;
-  const scale = Math.min((A4.w - 72) / across, (A4.h - 96) / up, 1);
-  const width = img.width * scale;
-  const height = img.height * scale;
-  const left = (A4.w - across * scale) / 2;
-  const bottom = (A4.h - up * scale) / 2;
-  if (orientation === 5 || orientation === 6) page.drawImage(img, { x: left, y: bottom + width, width, height, rotate: degrees(-90) });
-  else if (orientation === 7 || orientation === 8) page.drawImage(img, { x: left + height, y: bottom, width, height, rotate: degrees(90) });
-  else if (orientation === 3 || orientation === 4) page.drawImage(img, { x: left + width, y: bottom + height, width, height, rotate: degrees(180) });
-  else page.drawImage(img, { x: left, y: bottom, width, height });
+type Box = { x: number; y: number; w: number; h: number };
+const MARGIN = 36;
+/** A page of its own: the room below the top and bottom margins. */
+const FULL_PAGE: Box = { x: MARGIN, y: 48, w: A4.w - MARGIN * 2, h: A4.h - 96 };
+
+/**
+ * Where to draw something so it fills the box across, from the top down, turned
+ * clockwise by quarter turns. Photos never grow past their own size; pages do.
+ */
+function fit(width: number, height: number, turns: number, box: Box, grow: boolean) {
+  const sideways = turns % 2 === 1;
+  const across = sideways ? height : width;
+  const up = sideways ? width : height;
+  const scale = Math.min(box.w / across, box.h / up, grow ? Infinity : 1);
+  const w = width * scale;
+  const h = height * scale;
+  const left = box.x + (box.w - across * scale) / 2;
+  const bottom = box.y + box.h - up * scale;
+  if (turns === 1) return { x: left, y: bottom + w, width: w, height: h, rotate: degrees(-90) };
+  if (turns === 2) return { x: left + w, y: bottom + h, width: w, height: h, rotate: degrees(180) };
+  if (turns === 3) return { x: left + h, y: bottom, width: w, height: h, rotate: degrees(90) };
+  return { x: left, y: bottom, width: w, height: h };
 }
+
+/** "Rotate me" as phones write it: 3 is upside down, 6 and 8 are portraits lying on their side. */
+const PHOTO_TURNS: Record<number, number> = { 3: 2, 4: 2, 5: 1, 6: 1, 7: 3, 8: 3 };
+
+function drawPhoto(page: PDFPage, img: PDFImage, orientation: number, box: Box) {
+  page.drawImage(img, fit(img.width, img.height, PHOTO_TURNS[orientation] ?? 0, box, false));
+}
+
+/** Nothing to explain about the file, so its heading can share the page it starts on. */
+const sharesHeading = (a: PlannedAnnexure) => a.kind === "evidence" && a.status === "embedded" && !a.altered && !a.contents?.length;
 
 export async function assembleReport(body: Uint8Array, plan: PlannedAnnexure[], opts: AssembleOptions): Promise<Assembled> {
   const doc = await PDFDocument.load(body);
@@ -173,10 +192,39 @@ export async function assembleReport(body: Uint8Array, plan: PlannedAnnexure[], 
   };
 
   for (const a of plan.filter((p) => p.part === part)) {
+    const heading = `${opts.label ?? "Annexure"} ${a.number}`;
+    if (sharesHeading(a)) {
+      const bytes = await a.read();
+      if (!bytes) throw new Error(`${a.filename} could be read a moment ago and now can't`);
+      const head = await renderAnnexureHeading({ reference: opts.reference, heading, title: a.title, filename: a.filename, sha256: a.fingerprint });
+      const [page] = await doc.copyPages(await PDFDocument.load(head.bytes), [0]);
+      doc.addPage(page);
+      const below: Box = { x: MARGIN, y: MARGIN, w: A4.w - MARGIN * 2, h: A4.h - head.top - 12 - MARGIN };
+      if (a.mime === "application/pdf") {
+        const src = await PDFDocument.load(bytes, { ignoreEncryption: false });
+        const first = src.getPage(0);
+        const turns = ((Math.round(first.getRotation().angle / 90) % 4) + 4) % 4;
+        // An empty page has nothing to draw onto another, so it goes in whole after the heading.
+        const embedded = first.node.Contents() ? await doc.embedPage(first) : null;
+        if (embedded) {
+          page.drawPage(embedded, fit(embedded.width, embedded.height, turns, below, true));
+          marked(page);
+        }
+        const rest = src.getPageIndices().slice(embedded ? 1 : 0);
+        for (const copy of rest.length ? await doc.copyPages(src, rest) : []) marked(doc.addPage(copy));
+      } else {
+        const photo = await photoBytes(bytes, a.mime);
+        if (!photo) throw new Error(`${a.filename} could be read a moment ago and now can't`);
+        drawPhoto(page, await embedPhoto(doc, photo, a.mime), a.mime === "image/jpeg" ? jpegOrientation(photo) : 1, below);
+        marked(page);
+      }
+      continue;
+    }
+
     const intact = a.status === "embedded" && !a.altered;
     const cover = await renderAnnexureCover({
       reference: opts.reference,
-      heading: `${opts.label ?? "Annexure"} ${a.number}`,
+      heading,
       title: a.title,
       filename: a.filename,
       lines: a.kind === "fixed" && intact ? ["Attached unchanged, as issued by the screening platform. The original file is inside this PDF."] : [],
@@ -199,7 +247,7 @@ export async function assembleReport(body: Uint8Array, plan: PlannedAnnexure[], 
       if (!photo) throw new Error(`${a.filename} could be read a moment ago and now can't`);
       const page = doc.addPage([A4.w, A4.h]);
       // Converted photos are already upright. A JPEG from a phone says how to turn it.
-      drawPhoto(page, await embedPhoto(doc, photo, a.mime), a.mime === "image/jpeg" ? jpegOrientation(photo) : 1);
+      drawPhoto(page, await embedPhoto(doc, photo, a.mime), a.mime === "image/jpeg" ? jpegOrientation(photo) : 1, FULL_PAGE);
       marked(page);
     }
     // The pages show the report; the attachment is the file as issued, form fields and all.
