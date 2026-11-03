@@ -4,7 +4,7 @@ import type { CaseCheck } from "@/lib/server/cases/queries";
 import { missingDetails } from "@/domain/ai/extraction";
 import { completion, modeAt } from "@/domain/check-types/validate";
 import { CheckStatePill, RESULT_TONE, TONE_CLASSES, ToneChip } from "@/components/cases/badges";
-import { PersonChip } from "@/components/cases/person";
+import { PersonAvatar, PersonChip } from "@/components/cases/person";
 import { SlaBadge } from "@/components/cases/sla-badge";
 import { CHECK_STATE_LABELS, CHECK_STATE_TONES, isTerminalCheck, type Stage } from "@/domain/workflow/stages";
 import { cn } from "@/lib/utils";
@@ -30,6 +30,7 @@ export function CheckCards({
   stage,
   receivedAt,
   found = {},
+  ownerId = null,
 }: {
   caseId: string;
   checks: CaseCheck[];
@@ -37,6 +38,8 @@ export function CheckCards({
   receivedAt: string;
   /** Details the AI read per check, waiting to be confirmed. */
   found?: Record<string, number>;
+  /** The case owner, named in the side panel: their checks show just their face. */
+  ownerId?: string | null;
 }) {
   const mode = modeAt(stage);
   if (!checks.length) return <p className="text-sm text-muted-foreground">This case has no checks.</p>;
@@ -79,7 +82,14 @@ export function CheckCards({
                 </div>
               </div>
               <div className="mt-3 flex items-center justify-between gap-3 border-t pt-3">
-                <PersonChip person={k.assignee} />
+                {k.assignee && k.assignee.id === ownerId ? (
+                  <span title={`${k.assignee.name}, the case owner`}>
+                    <PersonAvatar id={k.assignee.id} name={k.assignee.name} size="sm" />
+                    <span className="sr-only">{k.assignee.name}, the case owner</span>
+                  </span>
+                ) : (
+                  <PersonChip person={k.assignee} />
+                )}
                 {notYet ? (
                   <span className="shrink-0 text-xs text-muted-foreground">Done at verification</span>
                 ) : (

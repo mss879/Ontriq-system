@@ -76,6 +76,13 @@ export const getAiStatus = cache(async (): Promise<AiStatus> => {
   return { configured: isAiConfigured(), enabled: Object.fromEntries((data ?? []).map((c) => [c.key, c.enabled])) };
 });
 
+/** The org's switch for the copilot panels on case and check screens (0054). Off hides them; AI jobs still run. */
+export const getCopilotOn = cache(async (orgId: string): Promise<boolean> => {
+  const supabase = await createRequestClient();
+  const { data } = await supabase.from("orgs").select("ai_copilot_enabled").eq("id", orgId).maybeSingle();
+  return data?.ai_copilot_enabled ?? false;
+});
+
 /** AI jobs still queued or running for this case, its checks and files, by kind and entity. */
 export const getAiWork = cache(async (caseId: string, entityIds: string[]): Promise<{ kind: string; entityId: string | null }[]> => {
   const supabase = await createRequestClient();

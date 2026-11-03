@@ -42,3 +42,20 @@ export async function setStaffMfaRequired(required: boolean): Promise<ActionResu
   refresh();
   return { ok: true };
 }
+
+/** Shows or hides the AI copilot panels on case and check screens. orgs_guard (0054) holds the same Super Admin rule. */
+export async function setAiCopilotEnabled(enabled: boolean): Promise<ActionResult> {
+  let viewer;
+  try {
+    viewer = await requireViewer({ kind: "staff" });
+  } catch (error) {
+    if (error instanceof AuthError) return fail(authErrorMessage(error));
+    throw error;
+  }
+  if (viewer.roleKey !== "super_admin") return fail("Only a Super Admin can change this.");
+  const supabase = await createClient();
+  const { error } = await supabase.from("orgs").update({ ai_copilot_enabled: enabled }).eq("id", viewer.orgId);
+  if (error) return fail(friendlyDbError(error));
+  refresh();
+  return { ok: true };
+}

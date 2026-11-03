@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { ArrowRightLeft, Ban, Check, Download, ExternalLink, FileImage, FileSearch, FileText, Lock, MailQuestion, MoreHorizontal, RefreshCw, Sparkles, Unlink, Upload, X } from "lucide-react";
+import { ArrowRightLeft, Ban, Check, ChevronDown, ChevronUp, Download, ExternalLink, FileImage, FileSearch, FileText, Lock, MailQuestion, MoreHorizontal, RefreshCw, Sparkles, Unlink, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { confirmRequirementFiles, refileDocument, removeRequirementFile, requestDocument, reviewDocument, setDocumentOriginal, setDocumentRecord, setDocumentVisibility, waiveRequirement } from "../../actions";
 import { decideSuggestion } from "../ai-actions";
@@ -131,6 +131,11 @@ export function DocumentsPanel({
     const k = r.caseCheckId ?? "";
     groups.set(k, [...(groups.get(k) ?? []), r]);
   }
+  // On the case page, optional slots nobody has filled wait behind a toggle, so what's needed stands out.
+  const [showOptional, setShowOptional] = useState(false);
+  const idle = (r: Requirement) => !checkId && r.status === "optional" && !r.receivedCount && !r.files.length;
+  const idleCount = reqs.filter(idle).length;
+  const shownGroups = [...groups.entries()].map(([id, list]) => [id, showOptional ? list : list.filter((r) => !idle(r))] as const).filter(([, list]) => list.length);
   const outstanding = reqs.filter((r) => r.status === "pending").length;
   const canUpload = perms.upload && !closed;
 
@@ -166,7 +171,7 @@ export function DocumentsPanel({
 
       {groups.size ? (
         <div className="space-y-4">
-          {[...groups.entries()].map(([groupId, list]) => (
+          {shownGroups.map(([groupId, list]) => (
             <div key={groupId || "case"}>
               {!checkId ? <p className="mb-1.5 text-[11px] font-semibold tracking-[0.18em] text-muted-foreground uppercase">{checkLabel(groupId || null)}</p> : null}
               <ul className="divide-y rounded-xl border">
@@ -188,6 +193,12 @@ export function DocumentsPanel({
               </ul>
             </div>
           ))}
+          {idleCount ? (
+            <Button variant="ghost" size="sm" className="text-muted-foreground" aria-expanded={showOptional} onClick={() => setShowOptional((v) => !v)}>
+              {showOptional ? <ChevronUp /> : <ChevronDown />}
+              {showOptional ? "Hide the optional documents" : `Show ${idleCount} optional ${idleCount === 1 ? "document" : "documents"} not sent yet`}
+            </Button>
+          ) : null}
         </div>
       ) : null}
 

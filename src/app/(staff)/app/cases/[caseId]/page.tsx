@@ -24,6 +24,7 @@ import { StatusSetter } from "./_components/status-setter";
 import { EraseCaseDialog } from "./_components/erase-dialog";
 import { CheckCards } from "./_components/check-cards";
 import { CaseSectionsBar, type SectionLink } from "./_components/case-sections-bar";
+import { CaseTabPanel, CaseTabsProvider } from "./_components/case-tabs";
 import { StageRail } from "./_components/stage-rail";
 import { DocumentsPanel } from "./_components/documents-panel";
 import { Timeline } from "./_components/timeline";
@@ -41,7 +42,7 @@ import { recordOptions } from "@/domain/check-types/records";
 import type { FieldDef } from "@/domain/check-types/schema";
 import { documentsLocked, remarksLocked, uploadsOpen } from "@/lib/server/cases/document-lock";
 import { fixedAnnexureCategories } from "@/domain/reports/compile-core";
-import { aiItem, getAiStatus, getAiWork, getCaseAi, getDocumentAi } from "@/lib/server/ai/queries";
+import { aiItem, getAiStatus, getAiWork, getCaseAi, getCopilotOn, getDocumentAi } from "@/lib/server/ai/queries";
 import { canDecide, canRerun, RERUN, type RerunCapability } from "@/domain/ai/suggestions";
 import type { ConsistencyResult, PostQcResult, PreQcResult } from "@/lib/ai/prompts";
 import { CaseCopilot } from "@/components/ai/case-copilot";
@@ -67,72 +68,88 @@ export default function CasePage({ params }: PageProps<"/app/cases/[caseId]">) {
       <Suspense fallback={<HeaderSkeleton />}>
         <Header params={params} />
       </Suspense>
-      <Suspense fallback={<div className="-mt-5 h-11" aria-hidden />}>
-        <SectionsBar params={params} />
-      </Suspense>
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_21rem]">
-        <div className="min-w-0 space-y-5">
-          <SectionBoundary label="the report">
-            <Suspense fallback={null}>
-              <Report params={params} />
-            </Suspense>
-          </SectionBoundary>
-          <SectionBoundary label="AI suggestions">
+      <CaseTabsProvider>
+        <Suspense fallback={<div className="-mt-5 h-12" aria-hidden />}>
+          <SectionsBar params={params} />
+        </Suspense>
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_21rem]">
+          <div className="min-w-0">
+            <CaseTabPanel id="report">
+              <SectionBoundary label="the report">
+                <Suspense fallback={null}>
+                  <Report params={params} />
+                </Suspense>
+              </SectionBoundary>
+            </CaseTabPanel>
+            <CaseTabPanel id="checks">
+              <SectionBoundary label="AI suggestions">
+                <Suspense fallback={<SectionSkeleton rows={3} />}>
+                  <Copilot params={params} />
+                </Suspense>
+              </SectionBoundary>
+              <Section
+                title="Checks"
+                id="checks"
+                action={
+                  <Suspense fallback={null}>
+                    <AddCheckButton params={params} />
+                  </Suspense>
+                }
+              >
+                <Suspense fallback={<SectionSkeleton rows={4} className="shadow-none ring-0" />}>
+                  <Checks params={params} />
+                </Suspense>
+              </Section>
+            </CaseTabPanel>
+            <CaseTabPanel id="documents">
+              <Section title="Documents" id="documents">
+                <Suspense fallback={<SectionSkeleton rows={5} className="shadow-none ring-0" />}>
+                  <Documents params={params} />
+                </Suspense>
+              </Section>
+            </CaseTabPanel>
+            <CaseTabPanel id="questions">
+              <Section title="Questions for the client" id="questions">
+                <Suspense fallback={<SectionSkeleton rows={2} className="shadow-none ring-0" />}>
+                  <Questions params={params} />
+                </Suspense>
+              </Section>
+            </CaseTabPanel>
+            <CaseTabPanel id="candidate">
+              <Section title="Candidate" id="candidate">
+                <Suspense fallback={<SectionSkeleton rows={4} className="shadow-none ring-0" />}>
+                  <Candidate params={params} />
+                </Suspense>
+              </Section>
+            </CaseTabPanel>
+            <CaseTabPanel id="contacts">
+              <Section title="Contact log" id="contacts">
+                <Suspense fallback={<SectionSkeleton rows={2} className="shadow-none ring-0" />}>
+                  <Contacts params={params} />
+                </Suspense>
+              </Section>
+            </CaseTabPanel>
+            <CaseTabPanel id="activity">
+              <Section title="Activity" id="activity">
+                <Suspense fallback={<SectionSkeleton rows={6} className="shadow-none ring-0" />}>
+                  <Activity params={params} />
+                </Suspense>
+              </Section>
+            </CaseTabPanel>
+          </div>
+          <aside id="details" className="min-w-0 scroll-mt-32 space-y-5">
             <Suspense fallback={<SectionSkeleton rows={3} />}>
-              <Copilot params={params} />
+              <Owner params={params} />
             </Suspense>
-          </SectionBoundary>
-          <Section
-            title="Checks"
-            id="checks"
-            action={
-              <Suspense fallback={null}>
-                <AddCheckButton params={params} />
-              </Suspense>
-            }
-          >
-            <Suspense fallback={<SectionSkeleton rows={4} className="shadow-none ring-0" />}>
-              <Checks params={params} />
+            <Suspense fallback={<SectionSkeleton rows={6} />}>
+              <People params={params} />
             </Suspense>
-          </Section>
-          <Section title="Documents" id="documents">
-            <Suspense fallback={<SectionSkeleton rows={5} className="shadow-none ring-0" />}>
-              <Documents params={params} />
+            <Suspense fallback={null}>
+              <QcHistory params={params} />
             </Suspense>
-          </Section>
-          <Section title="Questions for the client" id="questions">
-            <Suspense fallback={<SectionSkeleton rows={2} className="shadow-none ring-0" />}>
-              <Questions params={params} />
-            </Suspense>
-          </Section>
-          <Section title="Candidate" id="candidate">
-            <Suspense fallback={<SectionSkeleton rows={4} className="shadow-none ring-0" />}>
-              <Candidate params={params} />
-            </Suspense>
-          </Section>
-          <Section title="Contact log" id="contacts">
-            <Suspense fallback={<SectionSkeleton rows={2} className="shadow-none ring-0" />}>
-              <Contacts params={params} />
-            </Suspense>
-          </Section>
-          <Section title="Activity" id="activity">
-            <Suspense fallback={<SectionSkeleton rows={6} className="shadow-none ring-0" />}>
-              <Activity params={params} />
-            </Suspense>
-          </Section>
+          </aside>
         </div>
-        <aside id="details" className="min-w-0 scroll-mt-32 space-y-5">
-          <Suspense fallback={<SectionSkeleton rows={3} />}>
-            <Owner params={params} />
-          </Suspense>
-          <Suspense fallback={<SectionSkeleton rows={6} />}>
-            <People params={params} />
-          </Suspense>
-          <Suspense fallback={null}>
-            <QcHistory params={params} />
-          </Suspense>
-        </aside>
-      </div>
+      </CaseTabsProvider>
     </Page>
   );
 }
@@ -313,26 +330,31 @@ async function Header({ params }: Params) {
       <div className={cn(SURFACE, "px-4 py-3.5 sm:px-3")}>
         <StageRail stage={c.stage} returned={Boolean(c.returnedAt)} onHold={c.onHold} enteredAt={stageDates} />
       </div>
-      <CaseActions
-        caseId={c.id}
-        stage={c.stage}
-        processType={c.processType}
-        actions={actions}
-        revising={revising}
-        checks={checks.map((k) => ({ id: k.id, label: k.label, state: k.state }))}
-        checklists={workflow.qcChecklists}
-        filesWithoutOriginalNote={documents.filter((d) => (d.status === "uploaded" || d.status === "accepted") && d.originalKind === "unknown").length}
-      />
-      {can(viewer, "audit.read") || (closed && !c.erasedAt && viewer.roleKey === "super_admin") ? (
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          {can(viewer, "audit.read") ? (
-            <Link href={`/app/audit?q=${encodeURIComponent(c.reference)}`} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground">
-              <History className="size-4" /> Audit trail
-            </Link>
-          ) : null}
-          {closed && !c.erasedAt && viewer.roleKey === "super_admin" ? <EraseCaseDialog caseId={c.id} reference={c.reference} /> : null}
+      {/* The case's next steps, with the audit trail at the far end of the same line. */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 flex-1">
+          <CaseActions
+            caseId={c.id}
+            stage={c.stage}
+            processType={c.processType}
+            actions={actions}
+            revising={revising}
+            checks={checks.map((k) => ({ id: k.id, label: k.label, state: k.state }))}
+            checklists={workflow.qcChecklists}
+            filesWithoutOriginalNote={documents.filter((d) => (d.status === "uploaded" || d.status === "accepted") && d.originalKind === "unknown").length}
+          />
         </div>
-      ) : null}
+        {can(viewer, "audit.read") || (closed && !c.erasedAt && viewer.roleKey === "super_admin") ? (
+          <div className="flex shrink-0 flex-wrap items-center gap-2 sm:h-9">
+            {can(viewer, "audit.read") ? (
+              <Link href={`/app/audit?q=${encodeURIComponent(c.reference)}`} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground">
+                <History className="size-4" /> Audit trail
+              </Link>
+            ) : null}
+            {closed && !c.erasedAt && viewer.roleKey === "super_admin" ? <EraseCaseDialog caseId={c.id} reference={c.reference} /> : null}
+          </div>
+        ) : null}
+      </div>
     </header>
   );
 }
@@ -442,7 +464,7 @@ async function Report({ params }: Params) {
 async function Copilot({ params }: Params) {
   const { caseId } = await params;
   const [viewer, c] = await Promise.all([getStaffViewer(), loadCase(caseId)]);
-  if (!c) return null;
+  if (!c || !(await getCopilotOn(viewer.orgId))) return null;
   const [ai, status, checks, docs] = await Promise.all([getCaseAi(caseId), getAiStatus(), getCaseChecks(caseId), getDocuments(caseId)]);
   const work = await getAiWork(caseId, [...checks.map((k) => k.id), ...docs.map((d) => d.id)]);
   const may = (p: string) => can(viewer, p as Permission);
@@ -531,10 +553,11 @@ async function Copilot({ params }: Params) {
 
 async function Checks({ params }: Params) {
   const { caseId } = await params;
-  const c = await loadCase(caseId);
+  const [viewer, c] = await Promise.all([getStaffViewer(), loadCase(caseId)]);
   if (!c) return null;
-  const [checks, ai] = await Promise.all([getCaseChecks(caseId), getCaseAi(caseId)]);
-  return <CheckCards caseId={caseId} checks={checks} stage={c.stage} receivedAt={c.receivedAt} found={Object.fromEntries(Object.entries(ai.checks).map(([id, k]) => [id, k.extract.length]))} />;
+  const copilot = await getCopilotOn(viewer.orgId);
+  const [checks, ai] = await Promise.all([getCaseChecks(caseId), copilot ? getCaseAi(caseId) : null]);
+  return <CheckCards caseId={caseId} checks={checks} stage={c.stage} receivedAt={c.receivedAt} ownerId={c.assignee?.id ?? null} found={ai ? Object.fromEntries(Object.entries(ai.checks).map(([id, k]) => [id, k.extract.length])) : {}} />;
 }
 
 const OPEN_FOR_CHECKS = ["intake", "documents", "pre_qc", "data_entry", "verification"];
@@ -567,11 +590,13 @@ async function Documents({ params }: Params) {
   const { caseId } = await params;
   const [viewer, c] = await Promise.all([getStaffViewer(), loadCase(caseId)]);
   if (!c) return null;
-  const [reqs, docs, categories, checks, candidate] = await Promise.all([getRequirements(caseId), getDocuments(caseId), getDocumentCategories(), getCaseChecks(caseId), getCandidatePanel(caseId)]);
-  const docAi = await getDocumentAi(
-    caseId,
-    docs.map((d) => d.id),
-  );
+  const [reqs, docs, categories, checks, candidate, copilot] = await Promise.all([getRequirements(caseId), getDocuments(caseId), getDocumentCategories(), getCaseChecks(caseId), getCandidatePanel(caseId), getCopilotOn(viewer.orgId)]);
+  const docAi = copilot
+    ? await getDocumentAi(
+        caseId,
+        docs.map((d) => d.id),
+      )
+    : {};
   return (
     <DocumentsPanel
       ai={docAi}
@@ -615,7 +640,9 @@ async function Candidate({ params }: Params) {
   const { caseId } = await params;
   const [viewer, c] = await Promise.all([getStaffViewer(), loadCase(caseId)]);
   if (!c) return null;
-  const [data, checks, categories, docs] = await Promise.all([getCandidatePanel(caseId), getCaseChecks(caseId), getDocumentCategories(), getDocuments(caseId)]);
+  const [panel, checks, categories, docs, copilot] = await Promise.all([getCandidatePanel(caseId), getCaseChecks(caseId), getDocumentCategories(), getDocuments(caseId), getCopilotOn(viewer.orgId)]);
+  // With the copilot off, the report's file stays and the AI's write-up of it is hidden.
+  const data = copilot || !panel.report ? panel : { ...panel, report: { ...panel.report, ai: null, suggestionId: null } };
   const canManage = can(viewer, "candidates.requests") || can(viewer, "cases.update");
   return (
     <CandidatePanel

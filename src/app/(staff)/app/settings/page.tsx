@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { connection } from "next/server";
-import { Building2, CheckCircle2, CircleDashed, PlugZap, ShieldCheck, type LucideIcon } from "lucide-react";
+import { Building2, CheckCircle2, CircleDashed, PlugZap, ShieldCheck, Sparkles, type LucideIcon } from "lucide-react";
 import { Page, PageHeader, SectionSkeleton } from "@/components/layout/page";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,7 +12,7 @@ import { integrationStatus } from "@/lib/env";
 import { can } from "@/domain/permissions";
 import { readBranding } from "@/domain/branding";
 import { BrandingForm } from "./branding-form";
-import { MfaPolicySwitch } from "./security-card";
+import { CopilotSwitch, MfaPolicySwitch } from "./security-card";
 import { SETTINGS_NAV, canSeeNavItem } from "@/components/layout/nav";
 
 export const metadata: Metadata = { title: "Settings" };
@@ -26,6 +26,9 @@ export default function SettingsPage() {
       </Suspense>
       <Suspense fallback={<SectionSkeleton rows={2} />}>
         <Security />
+      </Suspense>
+      <Suspense fallback={<SectionSkeleton rows={2} />}>
+        <Copilot />
       </Suspense>
       <Suspense fallback={<SectionSkeleton rows={5} />}>
         <Integrations />
@@ -70,6 +73,31 @@ async function Security() {
             </p>
           </div>
           <MfaPolicySwitch required={org?.mfa_required_for_staff ?? true} canEdit={viewer.roleKey === "super_admin"} />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+async function Copilot() {
+  const viewer = await getStaffViewer();
+  const supabase = await createRequestClient();
+  const { data: org } = await supabase.from("orgs").select("ai_copilot_enabled").eq("id", viewer.orgId).single();
+  return (
+    <Card>
+      <CardHeader className="border-b">
+        <SectionHeading icon={Sparkles} title="AI copilot" description="The AI panels on case and check screens: reviews, drafted remarks and values read from files." />
+      </CardHeader>
+      <CardContent>
+        <div className="flex items-start justify-between gap-6 rounded-xl bg-muted/40 p-4 ring-1 ring-foreground/[0.05]">
+          <div className="space-y-1">
+            <p className="text-sm font-medium">Show the AI copilot on case screens</p>
+            <p className="text-sm text-muted-foreground">
+              When off, the panels are hidden for everyone and the screens show only the case. AI still reads uploads in the background, and the assistant is not affected.{" "}
+              {viewer.roleKey !== "super_admin" ? "Only a Super Admin can change this." : null}
+            </p>
+          </div>
+          <CopilotSwitch enabled={org?.ai_copilot_enabled ?? false} canEdit={viewer.roleKey === "super_admin"} />
         </div>
       </CardContent>
     </Card>

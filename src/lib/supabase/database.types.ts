@@ -3823,6 +3823,7 @@ export type Database = {
       };
       orgs: {
         Row: {
+          ai_copilot_enabled: boolean;
           branding: NonNullable<Json>;
           created_at: string;
           currency: string;
@@ -3836,6 +3837,7 @@ export type Database = {
         };
         ComputedFields: never;
         Insert: {
+          ai_copilot_enabled?: boolean;
           branding?: NonNullable<Json>;
           created_at?: string;
           currency?: string;
@@ -3848,6 +3850,7 @@ export type Database = {
           updated_at?: string;
         };
         Update: {
+          ai_copilot_enabled?: boolean;
           branding?: NonNullable<Json>;
           created_at?: string;
           currency?: string;

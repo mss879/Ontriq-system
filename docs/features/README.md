@@ -53,6 +53,7 @@ Each feature is one migration file.
 - [Speed on the live site](0051-faster-queue-depth.md) — `0051_faster_queue_depth.sql`
 - [Navigation speed](0052-navigation-speed.md) — `0052_navigation_speed.sql`
 - [Assistant reports and business-only answers](0053-assistant-reports.md) — `0053_assistant_reports.sql`
+- [AI copilot switch](0054-ai-copilot-switch.md) — `0054_ai_copilot_switch.sql`
 - [Create a login on the Team page](team-create-login.md) — no migration
 
 ## Notes from Phase 0

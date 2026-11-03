@@ -24,7 +24,7 @@ const NO_DISTRICT = "__none__";
 
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="grid grid-cols-[7.5rem_minmax(0,1fr)] gap-2 py-1.5 text-sm">
+    <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-3 py-2 text-sm">
       <dt className="text-muted-foreground">{label}</dt>
       <dd className="min-w-0 break-words">{children || <span className="text-muted-foreground">—</span>}</dd>
     </div>
@@ -273,9 +273,10 @@ export function DetailsCard({ caseId, details, canEdit, canSetDue, canHide }: { 
   return (
     <>
       <CardShell title="Request" onEdit={canEdit ? () => setOpen(true) : undefined}>
-        <Row label="Position">{details.positionTitle}</Row>
-        <Row label="Department">{details.department}</Row>
-        <Row label="Client ref.">{details.clientReference}</Row>
+        {/* Optional details show once they're filled; Edit adds them. */}
+        {details.positionTitle ? <Row label="Position">{details.positionTitle}</Row> : null}
+        {details.department ? <Row label="Department">{details.department}</Row> : null}
+        {details.clientReference ? <Row label="Client ref.">{details.clientReference}</Row> : null}
         <Row label="Package">
           {details.package.name}
           {details.package.tatDays ? <span className="text-muted-foreground"> · {details.package.tatDays} working days</span> : null}

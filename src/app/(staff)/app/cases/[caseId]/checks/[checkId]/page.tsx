@@ -18,7 +18,7 @@ import { DocumentsPanel } from "../../_components/documents-panel";
 import { Timeline } from "../../_components/timeline";
 import { CheckForm } from "./check-form";
 import { CheckAssignment, StatusPanel } from "./status-panel";
-import { aiItem, getAiStatus, getAiWork, getCaseAi, getDocumentAi } from "@/lib/server/ai/queries";
+import { aiItem, getAiStatus, getAiWork, getCaseAi, getCopilotOn, getDocumentAi } from "@/lib/server/ai/queries";
 import { canDecide } from "@/domain/ai/suggestions";
 import { documentsLocked, remarksLocked, uploadsOpen } from "@/lib/server/cases/document-lock";
 import { fixedAnnexureCategories } from "@/domain/reports/compile-core";
@@ -169,8 +169,9 @@ async function Form({ params }: Params) {
         : terminal
           ? "The outcome is recorded, so the details are locked. Reopen the check to change them."
           : undefined;
-  const ai = await getCaseAi(caseId);
-  const suggestions = (ai.checks[check.id]?.extract ?? []).flatMap((s) => (s.fieldKey ? [{ id: s.id, fieldKey: s.fieldKey, value: s.value, confidence: s.confidence, rationale: s.rationale }] : []));
+  // With the copilot off, nothing the AI read is offered or filled in.
+  const ai = (await getCopilotOn(viewer.orgId)) ? await getCaseAi(caseId) : null;
+  const suggestions = (ai?.checks[check.id]?.extract ?? []).flatMap((s) => (s.fieldKey ? [{ id: s.id, fieldKey: s.fieldKey, value: s.value, confidence: s.confidence, rationale: s.rationale }] : []));
   const mismatches = identityMismatches(check.schema.fields, check.values, { nic: c.candidate.nic, dateOfBirth: c.candidate.dateOfBirth });
   return (
     <>
@@ -199,11 +200,13 @@ async function Documents({ params }: Params) {
   const { caseId, checkId } = await params;
   const [viewer, data] = await Promise.all([getStaffViewer(), load(caseId, checkId)]);
   if (!data) return null;
-  const [reqs, docs, categories] = await Promise.all([getRequirements(caseId), getDocuments(caseId), getDocumentCategories()]);
-  const docAi = await getDocumentAi(
-    caseId,
-    docs.map((d) => d.id),
-  );
+  const [reqs, docs, categories, copilot] = await Promise.all([getRequirements(caseId), getDocuments(caseId), getDocumentCategories(), getCopilotOn(viewer.orgId)]);
+  const docAi = copilot
+    ? await getDocumentAi(
+        caseId,
+        docs.map((d) => d.id),
+      )
+    : {};
   return (
     <DocumentsPanel
       ai={docAi}
@@ -325,8 +328,9 @@ async function About({ params }: Params) {
 
 /** Outreach draft, reply capture and drafted remarks for this check. */
 async function CheckAi({ caseId, checkId, canVerify }: { caseId: string; checkId: string; canVerify: boolean }) {
-  const [viewer, data, ai, status] = await Promise.all([getStaffViewer(), load(caseId, checkId), getCaseAi(caseId), getAiStatus()]);
-  if (!data) return null;
+  const [viewer, data] = await Promise.all([getStaffViewer(), load(caseId, checkId)]);
+  if (!data || !(await getCopilotOn(viewer.orgId))) return null;
+  const [ai, status] = await Promise.all([getCaseAi(caseId), getAiStatus()]);
   const { c, check } = data;
   const work = await getAiWork(caseId, [check.id]);
   const mine = ai.checks[check.id];
