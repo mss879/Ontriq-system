@@ -11,7 +11,7 @@
  * page: the original file travels inside the PDF instead. Plain Node.
  */
 import { createHash } from "node:crypto";
-import { degrees, PDFDocument, rgb, StandardFonts, type PDFFont, type PDFImage, type PDFPage } from "pdf-lib";
+import { decodePDFRawStream, degrees, PDFDict, PDFDocument, PDFName, PDFRawStream, rgb, StandardFonts, type PDFFont, type PDFImage, type PDFPage } from "pdf-lib";
 import type { ReportAnnexure } from "../../domain/reports/compile-core";
 import { renderAnnexureCover, renderAnnexureHeading, renderPartTitle } from "./annexure-cover";
 import { jpegOrientation, toJpeg } from "./convert-image";
@@ -38,7 +38,11 @@ export type AnnexureStatus =
   /** Past the caps, on a report with no further parts. */
   | "left_out";
 
-export type AnnexureFile = ReportAnnexure & { read: () => Promise<Uint8Array | null> };
+export type AnnexureFile = ReportAnnexure & {
+  /** The document's kind, such as nic_copy, when the caller knows it. */
+  category?: string;
+  read: () => Promise<Uint8Array | null>;
+};
 
 export type PlannedAnnexure = AnnexureFile & {
   number: number;
@@ -47,6 +51,8 @@ export type PlannedAnnexure = AnnexureFile & {
   /** Worked out here, on what is really in storage. The browser's figure is only a claim. */
   fingerprint: string | null;
   altered: boolean;
+  /** Pages it fills: a photo is one. */
+  pages: number;
 };
 
 /** What the report's own annexure list needs to know. */
@@ -132,7 +138,7 @@ export async function planAnnexures(files: AnnexureFile[], opts: { parts: boolea
         held += 1;
       }
     }
-    return { ...s.a, number: i + 1, status, part: s.a.kind === "fixed" ? 1 : part, fingerprint: s.fingerprint, altered: s.altered };
+    return { ...s.a, number: i + 1, status, part: s.a.kind === "fixed" ? 1 : part, fingerprint: s.fingerprint, altered: s.altered, pages: s.pages };
   });
 }
 
@@ -182,6 +188,73 @@ function drawPhoto(page: PDFPage, img: PDFImage, orientation: number, box: Box) 
 /** Nothing to explain about the file, so its heading can share the page it starts on. */
 const sharesHeading = (a: PlannedAnnexure) => a.kind === "evidence" && a.status === "embedded" && !a.altered && !a.contents?.length;
 
+/**
+ * The client wants both sides of an NIC on one page: a file's first two pages, or
+ * front and back sent as two files of one page each.
+ */
+const isNic = (a: PlannedAnnexure) => a.category === "nic_copy";
+const sidesOfOneNic = (a: PlannedAnnexure, b: PlannedAnnexure | undefined): b is PlannedAnnexure =>
+  Boolean(b) && isNic(a) && isNic(b!) && sharesHeading(a) && sharesHeading(b!) && a.part === b!.part && a.check_label === b!.check_label && a.pages === 1 && b!.pages === 1;
+
+/**
+ * A scanning app often turns a card's photo on its side to fill a portrait page. A
+ * card is wider than it is tall, so when an NIC page draws nothing but one landscape
+ * photo turned a quarter, the quarter turns that undo it show the card upright.
+ */
+function cardTurns(page: PDFPage): number | null {
+  const objects = page.node.Resources()?.lookup(PDFName.of("XObject"), PDFDict);
+  const refs = objects?.values() ?? [];
+  if (refs.length !== 1) return null;
+  const image = page.doc.context.lookup(refs[0]);
+  if (!(image instanceof PDFRawStream)) return null;
+  const size = (key: string) => Number(image.dict.get(PDFName.of(key))?.toString());
+  if (image.dict.get(PDFName.of("Subtype"))?.toString() !== "/Image" || !(size("Width") > size("Height"))) return null;
+  const drawn = page.node.Contents();
+  if (!(drawn instanceof PDFRawStream) || drawn.contents.byteLength > 400) return null;
+  // Only "place the photo, draw it": a text layer or notes on the page would be lost.
+  const ops = new TextDecoder().decode(decodePDFRawStream(drawn).decode()).trim();
+  const m = /^q\s+(\S+)\s+(\S+)\s+\S+\s+\S+\s+\S+\s+\S+\s+cm\s+\/\S+\s+Do\s+Q$/.exec(ops);
+  if (!m) return null;
+  const quarter = Math.round(Math.atan2(Number(m[2]), Number(m[1])) / (Math.PI / 2));
+  // Placed the way it was taken (or upside down), the page is already as good as it gets.
+  return quarter % 2 === 0 ? null : (((quarter + Math.round(page.getRotation().angle / 90)) % 4) + 4) % 4;
+}
+
+/** Something to draw on a heading's page: a photo, or a page of a PDF. */
+type Piece = { width: number; height: number; turns: number; grow: boolean; draw: (page: PDFPage, at: ReturnType<typeof fit>) => void };
+
+const GAP = 12;
+const scaleOf = (p: Piece, box: Box) => {
+  const sideways = p.turns % 2 === 1;
+  return Math.min(box.w / (sideways ? p.height : p.width), box.h / (sideways ? p.width : p.height), p.grow ? Infinity : 1);
+};
+const tall = (p: Piece, box: Box) => scaleOf(p, box) * (p.turns % 2 === 1 ? p.width : p.height);
+const area = (p: Piece, box: Box) => scaleOf(p, box) ** 2 * p.width * p.height;
+
+/** One piece fills the room. Two go side by side or one above the other, whichever shows them bigger. */
+function layOut(page: PDFPage, pieces: Piece[], box: Box) {
+  if (pieces.length < 2) {
+    for (const p of pieces) p.draw(page, fit(p.width, p.height, p.turns, box, p.grow));
+    return;
+  }
+  const [a, b] = pieces;
+  const half = (box.w - GAP) / 2;
+  const left: Box = { ...box, w: half };
+  const right: Box = { ...box, x: box.x + half + GAP, w: half };
+  const top: Box = { ...box, y: box.y + (box.h + GAP) / 2, h: (box.h - GAP) / 2 };
+  const across = area(a, left) + area(b, right);
+  const down = area(a, top) + area(b, top);
+  if (across >= down) {
+    a.draw(page, fit(a.width, a.height, a.turns, left, a.grow));
+    b.draw(page, fit(b.width, b.height, b.turns, right, b.grow));
+  } else {
+    // The second starts right under the first, so no gap opens between them.
+    const used = tall(a, top);
+    a.draw(page, fit(a.width, a.height, a.turns, { ...box, y: box.y + box.h - used, h: used }, a.grow));
+    b.draw(page, fit(b.width, b.height, b.turns, { ...box, h: box.h - used - GAP }, b.grow));
+  }
+}
+
 export async function assembleReport(body: Uint8Array, plan: PlannedAnnexure[], opts: AssembleOptions): Promise<Assembled> {
   const doc = await PDFDocument.load(body);
   const part = opts.part ?? 1;
@@ -191,33 +264,53 @@ export async function assembleReport(body: Uint8Array, plan: PlannedAnnexure[], 
     if (stamp) page.drawText("DRAFT", { x: page.getWidth() / 2 - 150, y: page.getHeight() / 2 - 60, size: 90, font: stamp, color: rgb(0.76, 0.25, 0.23), opacity: 0.1, rotate: degrees(30) });
   };
 
-  for (const a of plan.filter((p) => p.part === part)) {
+  const mine = plan.filter((p) => p.part === part);
+  for (let i = 0; i < mine.length; i += 1) {
+    const a = mine[i];
     const heading = `${opts.label ?? "Annexure"} ${a.number}`;
     if (sharesHeading(a)) {
-      const bytes = await a.read();
-      if (!bytes) throw new Error(`${a.filename} could be read a moment ago and now can't`);
-      const head = await renderAnnexureHeading({ reference: opts.reference, heading, title: a.title, filename: a.filename, sha256: a.fingerprint });
+      const group = sidesOfOneNic(a, mine[i + 1]) ? [a, mine[(i += 1)]] : [a];
+      const pieces: Piece[] = [];
+      const after: { src: PDFDocument; pages: number[] }[] = [];
+      for (const g of group) {
+        const bytes = await g.read();
+        if (!bytes) throw new Error(`${g.filename} could be read a moment ago and now can't`);
+        if (g.mime === "application/pdf") {
+          const src = await PDFDocument.load(bytes, { ignoreEncryption: false });
+          // An NIC's back follows its front on the same page; anything else starts with one page.
+          const want = isNic(g) && group.length === 1 ? 2 : 1;
+          let used = 0;
+          for (; used < Math.min(want, src.getPageCount()); used += 1) {
+            const source = src.getPage(used);
+            // An empty page has nothing to draw onto another, so it goes in whole after the heading.
+            if (!source.node.Contents()) break;
+            const embedded = await doc.embedPage(source);
+            const turns = (isNic(g) ? cardTurns(source) : null) ?? ((Math.round(source.getRotation().angle / 90) % 4) + 4) % 4;
+            pieces.push({ width: embedded.width, height: embedded.height, turns, grow: true, draw: (page, at) => page.drawPage(embedded, at) });
+          }
+          const rest = src.getPageIndices().slice(used);
+          if (rest.length) after.push({ src, pages: rest });
+        } else {
+          const photo = await photoBytes(bytes, g.mime);
+          if (!photo) throw new Error(`${g.filename} could be read a moment ago and now can't`);
+          const img = await embedPhoto(doc, photo, g.mime);
+          // Converted photos are already upright. A JPEG from a phone says how to turn it.
+          const turns = PHOTO_TURNS[g.mime === "image/jpeg" ? jpegOrientation(photo) : 1] ?? 0;
+          pieces.push({ width: img.width, height: img.height, turns, grow: false, draw: (page, at) => page.drawImage(img, at) });
+        }
+      }
+      const head = await renderAnnexureHeading({
+        reference: opts.reference,
+        heading: group.length > 1 ? `${opts.label ?? "Annexures"} ${group.map((g) => g.number).join(" and ")}` : heading,
+        title: a.title,
+        filename: group.map((g) => g.filename).join(" · "),
+        fingerprints: group.flatMap((g) => (g.fingerprint ? [group.length > 1 ? `${g.filename}: ${g.fingerprint}` : g.fingerprint] : [])),
+      });
       const [page] = await doc.copyPages(await PDFDocument.load(head.bytes), [0]);
       doc.addPage(page);
-      const below: Box = { x: MARGIN, y: MARGIN, w: A4.w - MARGIN * 2, h: A4.h - head.top - 12 - MARGIN };
-      if (a.mime === "application/pdf") {
-        const src = await PDFDocument.load(bytes, { ignoreEncryption: false });
-        const first = src.getPage(0);
-        const turns = ((Math.round(first.getRotation().angle / 90) % 4) + 4) % 4;
-        // An empty page has nothing to draw onto another, so it goes in whole after the heading.
-        const embedded = first.node.Contents() ? await doc.embedPage(first) : null;
-        if (embedded) {
-          page.drawPage(embedded, fit(embedded.width, embedded.height, turns, below, true));
-          marked(page);
-        }
-        const rest = src.getPageIndices().slice(embedded ? 1 : 0);
-        for (const copy of rest.length ? await doc.copyPages(src, rest) : []) marked(doc.addPage(copy));
-      } else {
-        const photo = await photoBytes(bytes, a.mime);
-        if (!photo) throw new Error(`${a.filename} could be read a moment ago and now can't`);
-        drawPhoto(page, await embedPhoto(doc, photo, a.mime), a.mime === "image/jpeg" ? jpegOrientation(photo) : 1, below);
-        marked(page);
-      }
+      layOut(page, pieces, { x: MARGIN, y: MARGIN, w: A4.w - MARGIN * 2, h: A4.h - head.top - 12 - MARGIN });
+      marked(page);
+      for (const { src, pages } of after) for (const copy of await doc.copyPages(src, pages)) marked(doc.addPage(copy));
       continue;
     }
 

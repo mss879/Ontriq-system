@@ -71,10 +71,11 @@ type BuildOptions = { run: number; heartbeat: JobContext["heartbeat"]; issue?: n
 export async function buildReportFiles(admin: JobContext["admin"], v: RenderTarget, snapshot: ReportSnapshot, { run, heartbeat, issue }: BuildOptions) {
   // Annexure files, in the snapshot's order, read when they're needed.
   const ids = snapshot.annexures.map((a) => a.document_id);
-  const { data: docs } = ids.length ? await admin.from("documents").select("id, storage_bucket, storage_path").in("id", ids) : { data: [] };
+  const { data: docs } = ids.length ? await admin.from("documents").select("id, category, storage_bucket, storage_path").in("id", ids) : { data: [] };
   const where = new Map((docs ?? []).map((d) => [d.id, d]));
   const files: AnnexureFile[] = snapshot.annexures.map((a) => ({
     ...a,
+    category: where.get(a.document_id)?.category,
     read: async () => {
       const d = where.get(a.document_id);
       const file = d ? await admin.storage.from(d.storage_bucket).download(d.storage_path) : null;

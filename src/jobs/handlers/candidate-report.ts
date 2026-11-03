@@ -141,6 +141,7 @@ export const aiCandidateReport: JobHandler = async (job, { admin, heartbeat }) =
       kind: "evidence",
       check_label: null,
       sha256: d.sha256,
+      category: d.category,
       read: async () => {
         const file = await admin.storage.from(d.storage_bucket).download(d.storage_path);
         return file.data ? new Uint8Array(await file.data.arrayBuffer()) : null;

@@ -83,12 +83,14 @@ export async function renderAnnexureCover(m: CoverModel): Promise<Uint8Array> {
  * stands nearly empty in front of it. Its height is fixed (long names stop at two
  * lines), which tells the caller where the file can begin.
  */
-export async function renderAnnexureHeading(m: Pick<CoverModel, "reference" | "heading" | "title" | "filename" | "sha256">): Promise<{ bytes: Uint8Array; top: number }> {
+export async function renderAnnexureHeading(m: Pick<CoverModel, "reference" | "heading" | "title" | "filename"> & { fingerprints: string[] }): Promise<{ bytes: Uint8Array; top: number }> {
   registerFonts();
   // Roughly how many characters fit a line, at each size, across the page.
   const titleLines = m.title.length > 46 ? 2 : 1;
   const fileLines = m.filename.length > 88 ? 2 : 1;
-  const height = 12.6 + 10 + 21.6 * titleLines + 4 + 14 * fileLines + (m.sha256 ? 16.5 : 0) + 12;
+  // Two files list their fingerprints under one label.
+  const prints = m.fingerprints.length > 1 ? ["File fingerprints (SHA-256)", ...m.fingerprints] : m.fingerprints.map((f) => `File fingerprint (SHA-256): ${f}`);
+  const height = 12.6 + 10 + 21.6 * titleLines + 4 + 14 * fileLines + (prints.length ? 6 + 10.5 * prints.length : 0) + 12;
   const bytes = await renderToBuffer(
     <Document title={m.heading} author="Ontriq">
       <Page size="A4" style={page}>
@@ -99,7 +101,15 @@ export async function renderAnnexureHeading(m: Pick<CoverModel, "reference" | "h
           </Text>
           <Text style={{ marginTop: 10, fontFamily: DISPLAY_FONTS, fontSize: 18, fontWeight: 700, color: C.ink, lineHeight: 1.2, maxLines: 2, textOverflow: "ellipsis" }}>{m.title}</Text>
           <Text style={{ marginTop: 4, color: C.body, maxLines: 2, textOverflow: "ellipsis" }}>{m.filename}</Text>
-          {m.sha256 ? <Text style={{ marginTop: 6, fontSize: 7.5, color: C.muted }}>File fingerprint (SHA-256): {m.sha256}</Text> : null}
+          {prints.length ? (
+            <View style={{ marginTop: 6 }}>
+              {prints.map((line) => (
+                <Text key={line} style={{ fontSize: 7.5, color: C.muted, maxLines: 1 }}>
+                  {line}
+                </Text>
+              ))}
+            </View>
+          ) : null}
         </View>
       </Page>
     </Document>,

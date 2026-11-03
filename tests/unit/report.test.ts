@@ -244,6 +244,15 @@ describe("annexure pages", () => {
     expect(r.pages).toBe(1 + 3 + 1);
   });
 
+  it("put both sides of an NIC on one page", async () => {
+    const nic = (filename: string, mime: string, bytes: Uint8Array) => ({ ...file(filename, mime, bytes), category: "nic_copy" });
+    const sides = await planAnnexures([nic("nic.pdf", "application/pdf", await letter(2)), file("letter.pdf", "application/pdf", await letter(2))], { parts: true });
+    // The NIC's two pages share one; any other file keeps a page each.
+    expect((await assembleReport(await body(), sides, opts)).pages).toBe(1 + 1 + 2);
+    const photos = await planAnnexures([nic("front.png", "image/png", png), nic("back.png", "image/png", png)], { parts: true });
+    expect((await assembleReport(await body(), photos, opts)).pages).toBe(1 + 1);
+  });
+
   it("keep a cover sheet when there is something to explain", async () => {
     const plan = await planAnnexures([file("letter.pdf", "application/pdf", await letter(2), "not-its-fingerprint")], { parts: true });
     const r = await assembleReport(await body(), plan, opts);
